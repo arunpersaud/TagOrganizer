@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tagorganizer"
+dynamic = ["version"]
+description = "Organize photos and videos using tags"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.14.0",
+    "platformdirs>=4.3.6",
+    "pyqt6>=6.8.0",
+    "qtpy>=2.4.2",
+    "sqlmodel>=0.0.22",
+    "xxhash>=3.5.0",
+]
+
+[project.scripts]
+TagOrganizer = "tagorganizer:main"
+
+[tool.setuptools_scm]
+
+[tool.setuptools.packages.find]
+where = ["src/"]
