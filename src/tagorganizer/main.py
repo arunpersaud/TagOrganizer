@@ -81,8 +81,8 @@ class FramedLabel(QLabel):
         self.selected = False
         self.highlight = False
 
-    def set_selected(self, selected):
-        self.selected = selected
+    def toggle_selected(self):
+        self.selected = not self.selected
         self.update()
 
     def set_highlight(self, selected):
@@ -91,13 +91,12 @@ class FramedLabel(QLabel):
 
     def paintEvent(self, event):
         super().paintEvent(event)
+        painter = QPainter(self)
         if self.selected:
-            painter = QPainter(self)
-            pen = QPen(Qt.blue, 5)
+            pen = QPen(Qt.blue, 8)
             painter.setPen(pen)
             painter.drawRect(self.rect())
         if self.highlight:
-            painter = QPainter(self)
             pen = QPen(Qt.red, 5)
             painter.setPen(pen)
             painter.drawRect(self.rect())
@@ -176,6 +175,20 @@ class ImageGridWidget(QWidget):
                         widget.deleteLater()
         self.widgets = []
 
+    def clear_selection(self):
+        for row in range(self.layout.rowCount()):
+            for col in range(self.layout.columnCount()):
+                item = self.layout.itemAtPosition(row, col)
+                if item is not None:
+                    widget = item.widget()
+                    if widget.selected:
+                        widget.toggle_selected()
+
+    def toggle_selection(self):
+        if self.widgets:
+            current = self.highlight % len(self.widgets)
+            self.widgets[current].toggle_selected()
+
     def set_highlight(self, new):
         if self.widgets:
             old_n = self.highlight % len(self.widgets)
@@ -195,6 +208,7 @@ class MainWindow(QMainWindow):
         self.page = 0
 
         self.highlight_n = 0
+        self.selected = []
 
         self.setWindowTitle("Tag Organizer")
 
@@ -212,8 +226,16 @@ class MainWindow(QMainWindow):
         add_images_action.setShortcut("Ctrl+I")
         edit_menu.addAction(add_images_action)
 
+        clear_selection_action = QAction("Clear Selection", self)
+        clear_selection_action.triggered.connect(self.clear_selection)
+        clear_selection_action.setShortcut("Ctrl+E")
+        edit_menu.addAction(clear_selection_action)
+
         # Set up the status bar
-        self.setStatusBar(QStatusBar(self))
+        self.status_bar = QStatusBar(self)
+        self.setStatusBar(self.status_bar)
+        self.selected_label = QLabel()
+        self.status_bar.addWidget(self.selected_label)
 
         # Set up the central widget
         central_widget = QWidget()
@@ -305,6 +327,7 @@ class MainWindow(QMainWindow):
                 Qt.Key_Return,
                 Qt.Key_Escape,
                 Qt.Key_Enter,
+                Qt.Key_Space,
             ]:
                 self.keyPressEvent(event)
                 return True  # Event has been handled
@@ -332,6 +355,14 @@ class MainWindow(QMainWindow):
         elif event.key() == Qt.Key_Escape:
             self.tabs.setCurrentIndex(0)
             return
+        elif event.key() == Qt.Key_Space:
+            self.image_container.toggle_selection()
+            if self.highlight_n in self.selected:
+                self.selected.remove(self.highlight_n)
+            else:
+                self.selected.append(self.highlight_n)
+            self.selected_label.setText(f"Selected items: {len(self.selected)}")
+            return
         if self.tabs.currentWidget() == self.single_item:
             self.show_current_item()
         new_page = self.highlight_n // 25
@@ -340,6 +371,11 @@ class MainWindow(QMainWindow):
             files = db.get_images(self.page)
             self.image_container.show_images(files)
         self.image_container.set_highlight(self.highlight_n)
+
+    def clear_selection(self):
+        self.image_container.clear_selection()
+        self.selected = []
+        self.selected_label.setText("Selected items: 0")
 
     def show_current_item(self):
         item = db.get_current_image(self.highlight_n)
