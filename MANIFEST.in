@@ -1,0 +1,5 @@
+# Exclude specific files and directories
+exclude .gitignore
+exclude .pre-commit-config.yaml
+exclude .python-version
+exclude uv.lock

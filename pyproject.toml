@@ -4,9 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tagorganizer"
+license = {file = "COPYING"}
 dynamic = ["version"]
 description = "Organize photos and videos using tags"
 readme = "README.md"
+authors = [
+  { name="Arun Persaud", email="arun@nubati.net" },
+]
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.14.0",
@@ -16,6 +20,14 @@ dependencies = [
     "sqlmodel>=0.0.22",
     "xxhash>=3.5.0",
 ]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Development Status :: 3 - Alpha",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+]
+
 
 [project.scripts]
 TagOrganizer = "tagorganizer.main:main"
@@ -23,4 +35,7 @@ TagOrganizer = "tagorganizer.main:main"
 [tool.setuptools_scm]
 
 [tool.setuptools.packages.find]
-where = ["src/"]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tagorganizer = ["alembic.ini", "migrations/script.py.mako"]

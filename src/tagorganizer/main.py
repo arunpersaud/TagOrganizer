@@ -1,3 +1,23 @@
+"""
+Copyright 2024 Arun Persaud.
+
+This file is part of TagOrganizer.
+
+TagOrganizer is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at
+your option) any later version.
+
+TagOrganizer is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
+
+"""
+
 from functools import lru_cache
 from pathlib import Path
 import sys
@@ -26,6 +46,7 @@ from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice
 
 from . import db
 from .config import get_or_create_db_path
+from .migrations import upgrade_db
 
 
 class AddTagDialog(QDialog):
@@ -252,6 +273,9 @@ class MainWindow(QMainWindow):
 def main():
     db.create_db()
     print(f"DB: {get_or_create_db_path()}")
+
+    # run alembic
+    upgrade_db()
 
     app = QApplication([])
     window = MainWindow()
