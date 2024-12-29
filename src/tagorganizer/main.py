@@ -40,8 +40,8 @@ from qtpy.QtWidgets import (
     QAction,
     QMessageBox,
 )
-from qtpy.QtGui import QStandardItemModel, QStandardItem, QPixmap
-from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice
+from qtpy.QtGui import QStandardItemModel, QStandardItem, QPixmap, QPainter, QPen
+from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QEvent
 
 
 from . import db
@@ -68,6 +68,37 @@ class AddTagDialog(QDialog):
 
     def get_tag_name(self):
         return self.tag_name_edit.text()
+
+
+class FramedLabel(QLabel):
+    def __init__(self, filename, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        pixmap = load_pixmap(filename)
+        self.setPixmap(pixmap)
+        self.setAlignment(Qt.AlignCenter)
+        self.selected = False
+        self.highlight = False
+
+    def set_selected(self, selected):
+        self.selected = selected
+        self.update()
+
+    def set_highlight(self, selected):
+        self.highlight = selected
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.selected:
+            painter = QPainter(self)
+            pen = QPen(Qt.blue, 5)
+            painter.setPen(pen)
+            painter.drawRect(self.rect())
+        if self.highlight:
+            painter = QPainter(self)
+            pen = QPen(Qt.red, 5)
+            painter.setPen(pen)
+            painter.drawRect(self.rect())
 
 
 class CustomStandardItemModel(QStandardItemModel):
@@ -104,6 +135,11 @@ class ImageGridWidget(QWidget):
         self.columns = 5
         self.layout = QGridLayout()
         self.setLayout(self.layout)
+        self.highlight = 0
+
+        # we need to keep a reference to the widgets in the grid, otherwise
+        # itemAtPosition will return a QLabel
+        self.widgets = []
 
     def show_images(self, items):
         row = 0
@@ -112,16 +148,15 @@ class ImageGridWidget(QWidget):
         self.clear()
 
         for i, item in enumerate(items):
-            label = QLabel(f"{item.uri}")
-            pixmap = load_pixmap(str(item.uri))
-            label.setPixmap(pixmap)
-            label.setAlignment(Qt.AlignCenter)
+            label = FramedLabel(str(item.uri))
+            self.widgets.append(label)
             self.layout.addWidget(label, row, col)
-
+            item = self.layout.itemAtPosition(row, col).widget()
             col += 1
             if col >= self.columns:
                 col = 0
                 row += 1
+        self.set_highlight(self.highlight)
 
     def clear(self):
         for row in range(self.layout.rowCount()):
@@ -131,6 +166,18 @@ class ImageGridWidget(QWidget):
                     widget = item.widget()
                     if widget is not None:
                         widget.deleteLater()
+        self.widgets = []
+
+    def set_highlight(self, new):
+        if self.widgets:
+            old_n = self.highlight % len(self.widgets)
+            self.widgets[old_n].set_highlight(False)
+
+        self.highlight = new
+
+        if self.widgets:
+            new_n = self.highlight % len(self.widgets)
+            self.widgets[new_n].set_highlight(True)
 
 
 class MainWindow(QMainWindow):
@@ -138,6 +185,8 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.page = 0
+
+        self.highlight_n = 0
 
         self.setWindowTitle("Tag Organizer")
 
@@ -198,18 +247,38 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.tag_view)
         layout.addLayout(splitter)
 
+        # install event filter
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, source, event):
+        if event.type() == QEvent.KeyPress:
+            if event.key() in [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down]:
+                self.keyPressEvent(event)
+                return True  # Event has been handled
+        return super().eventFilter(source, event)
+
     def keyPressEvent(self, event):
+        N = db.get_number_of_items()
         if event.key() == Qt.Key_Left:
-            self.page = max(self.page - 1, 0)
-            files = db.get_images(self.page)
-            self.image_container.show_images(files)
+            self.highlight_n = max(self.highlight_n - 1, 0)
         elif event.key() == Qt.Key_Right:
-            N = db.get_number_of_items() // 25
-            self.page = min(self.page + 1, N)
+            self.highlight_n = min(self.highlight_n + 1, N)
+        elif event.key() == Qt.Key_Up:
+            if event.modifiers() & Qt.ShiftModifier:
+                self.highlight_n = max(self.highlight_n - 25, 0)
+            else:
+                self.highlight_n = max(self.highlight_n - 5, 0)
+        elif event.key() == Qt.Key_Down:
+            if event.modifiers() & Qt.ShiftModifier:
+                self.highlight_n = min(self.highlight_n + 25, N)
+            else:
+                self.highlight_n = min(self.highlight_n + 5, N)
+        new_page = self.highlight_n // 25
+        if new_page != self.page:
+            self.page = new_page
             files = db.get_images(self.page)
             self.image_container.show_images(files)
-        else:
-            super().keyPressEvent(event)
+        self.image_container.set_highlight(self.highlight_n)
 
     def on_tag_moved(self, src, dest):
         src_id = None
