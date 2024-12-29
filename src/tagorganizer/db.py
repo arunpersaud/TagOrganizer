@@ -81,6 +81,12 @@ def get_images(page=0):
         return results.all()
 
 
+def get_current_image(number):
+    with Session(engine) as session:
+        results = session.exec(select(Item).offset(number).limit(1))
+        return results.one()
+
+
 def get_number_of_items():
     with Session(engine) as session:
         statement = select(func.count(Item.id))

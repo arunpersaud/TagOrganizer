@@ -23,22 +23,23 @@ from pathlib import Path
 import sys
 
 from qtpy.QtWidgets import (
+    QAction,
     QApplication,
     QDialog,
-    QFormLayout,
     QDialogButtonBox,
-    QMainWindow,
-    QStatusBar,
-    QGridLayout,
-    QTreeView,
-    QVBoxLayout,
-    QHBoxLayout,
     QFileDialog,
-    QWidget,
+    QFormLayout,
+    QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
-    QAction,
+    QMainWindow,
     QMessageBox,
+    QStatusBar,
+    QTabWidget,
+    QTreeView,
+    QVBoxLayout,
+    QWidget,
 )
 from qtpy.QtGui import QStandardItemModel, QStandardItem, QPixmap, QPainter, QPen
 from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QEvent
@@ -126,6 +127,12 @@ class CustomStandardItemModel(QStandardItemModel):
 def load_pixmap(file):
     pixmap = QPixmap(file)
     pixmap = pixmap.scaledToWidth(200, Qt.SmoothTransformation)
+    return pixmap
+
+
+@lru_cache(100)
+def load_full_pixmap(file):
+    pixmap = QPixmap(file)
     return pixmap
 
 
@@ -236,12 +243,18 @@ class MainWindow(QMainWindow):
         # Set up the image view
         self.image_container = ImageGridWidget()
 
+        self.single_item = QLabel()
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.image_container, "Items")
+        self.tabs.addTab(self.single_item, "Single")
+
         files = db.get_images(self.page)
         self.image_container.show_images(files)
 
         # Add the tag view and the main area to the layout
         layout2.addWidget(self.tag_view)
-        layout2.addWidget(self.image_container)
+        layout2.addWidget(self.tabs)
 
         layout.addWidget(self.timeline)
         layout.addLayout(layout2)
@@ -251,7 +264,15 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.KeyPress:
-            if event.key() in [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down]:
+            if event.key() in [
+                Qt.Key_Left,
+                Qt.Key_Right,
+                Qt.Key_Up,
+                Qt.Key_Down,
+                Qt.Key_Return,
+                Qt.Key_Escape,
+                Qt.Key_Enter,
+            ]:
                 self.keyPressEvent(event)
                 return True  # Event has been handled
         return super().eventFilter(source, event)
@@ -272,12 +293,31 @@ class MainWindow(QMainWindow):
                 self.highlight_n = min(self.highlight_n + 25, N)
             else:
                 self.highlight_n = min(self.highlight_n + 5, N)
+        elif event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
+            self.show_current_item()
+            return
+        elif event.key() == Qt.Key_Escape:
+            self.tabs.setCurrentIndex(0)
+            return
+        if self.tabs.currentWidget() == self.single_item:
+            self.show_current_item()
         new_page = self.highlight_n // 25
         if new_page != self.page:
             self.page = new_page
             files = db.get_images(self.page)
             self.image_container.show_images(files)
         self.image_container.set_highlight(self.highlight_n)
+
+    def show_current_item(self):
+        item = db.get_current_image(self.highlight_n)
+        pixmap = load_full_pixmap(str(item.uri))
+        pixmap = pixmap.scaled(
+            self.single_item.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+
+        self.single_item.setPixmap(pixmap)
+        self.single_item.setAlignment(Qt.AlignCenter)
+        self.tabs.setCurrentWidget(self.single_item)
 
     def on_tag_moved(self, src, dest):
         src_id = None
