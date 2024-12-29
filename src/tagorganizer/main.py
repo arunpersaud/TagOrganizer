@@ -249,7 +249,7 @@ class MainWindow(QMainWindow):
                     self.tag_model.appendRow(tag_item)
 
 
-if __name__ == "__main__":
+def main():
     db.create_db()
     print(f"DB: {get_or_create_db_path()}")
 
@@ -257,3 +257,7 @@ if __name__ == "__main__":
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()
