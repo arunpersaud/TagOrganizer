@@ -126,7 +126,7 @@ class CustomStandardItemModel(QStandardItemModel):
 @lru_cache(1_000)
 def load_pixmap(file):
     pixmap = QPixmap(file)
-    pixmap = pixmap.scaledToWidth(200, Qt.SmoothTransformation)
+    pixmap = pixmap.scaledToWidth(150, Qt.SmoothTransformation)
     return pixmap
 
 
