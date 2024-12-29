@@ -21,6 +21,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 from functools import lru_cache
 from pathlib import Path
 import sys
+import time
 
 from qtpy.QtWidgets import (
     QAction,
@@ -42,7 +43,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from qtpy.QtGui import QStandardItemModel, QStandardItem, QPixmap, QPainter, QPen
-from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QEvent
+from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QEvent, QTimer
 
 
 from . import db
@@ -259,8 +260,40 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.timeline)
         layout.addLayout(layout2)
 
+        self.preloader = QTimer()
+        self.preloader.timeout.connect(self.preload_items)
+        self.preloader.start(1)
+
+        print(self.preloader)
+
         # install event filter
         QApplication.instance().installEventFilter(self)
+
+    def preload_items(self):
+        start = time.time()
+        N = db.get_number_of_items()
+        # thumbnails +- 2 pages
+        for i in range(self.page - 2, self.page + 3):
+            if i < 1:
+                continue
+            if i > N // 25:
+                continue
+            files = db.get_images(i)
+            for f in files:
+                load_pixmap(str(f.uri))
+                if time.time() - start > 0.1:
+                    return
+
+        # full files +- 5 from current image
+        for i in range(self.highlight_n - 5, self.highlight_n + 6):
+            if i < 0:
+                continue
+            if i >= N:
+                continue
+            file = db.get_current_image(i)
+            load_full_pixmap(str(file.uri))
+            if time.time() - start > 0.1:
+                return
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.KeyPress:
