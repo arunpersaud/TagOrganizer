@@ -212,7 +212,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         # Set up the layout
-        layout = QHBoxLayout(central_widget)
+        layout = QVBoxLayout(central_widget)
+
+        layout2 = QHBoxLayout()
 
         # Set up the tag view
         self.tag_view = QTreeView()
@@ -227,13 +229,9 @@ class MainWindow(QMainWindow):
         # Populate the tag view with some example tags
         self.populate_tags()
 
-        # Set up the main area with a splitter
-        splitter = QVBoxLayout()
-
         # Set up the timeline
         self.timeline = QLabel("Timeline: Number of files per month")
         self.timeline.setAlignment(Qt.AlignCenter)
-        splitter.addWidget(self.timeline)
 
         # Set up the image view
         self.image_container = ImageGridWidget()
@@ -241,11 +239,12 @@ class MainWindow(QMainWindow):
         files = db.get_images(self.page)
         self.image_container.show_images(files)
 
-        splitter.addWidget(self.image_container)
-
         # Add the tag view and the main area to the layout
-        layout.addWidget(self.tag_view)
-        layout.addLayout(splitter)
+        layout2.addWidget(self.tag_view)
+        layout2.addWidget(self.image_container)
+
+        layout.addWidget(self.timeline)
+        layout.addLayout(layout2)
 
         # install event filter
         QApplication.instance().installEventFilter(self)
