@@ -18,7 +18,6 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
-from functools import lru_cache
 from pathlib import Path
 import sys
 import time
@@ -26,12 +25,8 @@ import time
 from qtpy.QtWidgets import (
     QAction,
     QApplication,
-    QCompleter,
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -43,7 +38,7 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from qtpy.QtGui import QStandardItemModel, QStandardItem, QPixmap, QPainter, QPen
+from qtpy.QtGui import QStandardItemModel, QStandardItem
 from qtpy.QtCore import (
     Qt,
     Signal,
@@ -58,58 +53,8 @@ from . import db
 from .config import get_or_create_db_path
 from .migrations import upgrade_db
 
-
-class AddTagDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Add New Tag")
-
-        self.layout = QFormLayout(self)
-
-        self.tag_name_edit = QLineEdit(self)
-        self.layout.addRow("Tag Name:", self.tag_name_edit)
-
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self
-        )
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
-        self.layout.addWidget(self.buttons)
-
-    def get_tag_name(self):
-        return self.tag_name_edit.text()
-
-
-class FramedLabel(QLabel):
-    def __init__(self, item, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        filename = str(item.uri)
-        pixmap = load_pixmap(filename)
-        self.setPixmap(pixmap)
-        self.setAlignment(Qt.AlignCenter)
-        self.selected = False
-        self.highlight = False
-        self.item = item
-
-    def toggle_selected(self):
-        self.selected = not self.selected
-        self.update()
-
-    def set_highlight(self, selected):
-        self.highlight = selected
-        self.update()
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        painter = QPainter(self)
-        if self.selected:
-            pen = QPen(Qt.blue, 8)
-            painter.setPen(pen)
-            painter.drawRect(self.rect())
-        if self.highlight:
-            pen = QPen(Qt.red, 5)
-            painter.setPen(pen)
-            painter.drawRect(self.rect())
+from .widgets import AddTagDialog, ImageGridWidget
+from .widgets.helper import load_pixmap, load_full_pixmap, CommaCompleter
 
 
 class CustomStandardItemModel(QStandardItemModel):
@@ -131,99 +76,6 @@ class CustomStandardItemModel(QStandardItemModel):
             source_item = self.item(row, column)
             self.itemsMoved.emit(source_item, destination_item)
         return result
-
-
-class CommaCompleter(QCompleter):
-    def __init__(self, model, parent=None):
-        super().__init__(model, parent)
-        self.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-
-    def splitPath(self, path: str) -> list[str]:
-        return [path.split(",")[-1].strip()]
-
-
-@lru_cache(1_000)
-def load_pixmap(file):
-    pixmap = QPixmap(file)
-    pixmap = pixmap.scaledToWidth(150, Qt.SmoothTransformation)
-    return pixmap
-
-
-@lru_cache(100)
-def load_full_pixmap(file):
-    pixmap = QPixmap(file)
-    return pixmap
-
-
-class ImageGridWidget(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.columns = 5
-        self.layout = QGridLayout()
-        self.setLayout(self.layout)
-        self.highlight = 0
-
-        # we need to keep a reference to the widgets in the grid, otherwise
-        # itemAtPosition will return a QLabel
-        self.widgets = []
-
-    def show_images(self, items):
-        row = 0
-        col = 0
-
-        self.clear()
-
-        for i, item in enumerate(items):
-            label = FramedLabel(item)
-            self.widgets.append(label)
-            self.layout.addWidget(label, row, col)
-            item = self.layout.itemAtPosition(row, col).widget()
-            col += 1
-            if col >= self.columns:
-                col = 0
-                row += 1
-        self.set_highlight(self.highlight)
-
-    def clear(self):
-        for row in range(self.layout.rowCount()):
-            for col in range(self.layout.columnCount()):
-                item = self.layout.itemAtPosition(row, col)
-                if item is not None:
-                    widget = item.widget()
-                    if widget is not None:
-                        widget.deleteLater()
-        self.widgets = []
-
-    def clear_selection(self):
-        for row in range(self.layout.rowCount()):
-            for col in range(self.layout.columnCount()):
-                item = self.layout.itemAtPosition(row, col)
-                if item is not None:
-                    widget = item.widget()
-                    if widget.selected:
-                        widget.toggle_selected()
-
-    def current_item(self):
-        if self.widgets:
-            current = self.highlight % len(self.widgets)
-            return self.widgets[current]
-
-    def toggle_selection(self):
-        if self.widgets:
-            current = self.highlight % len(self.widgets)
-            self.widgets[current].toggle_selected()
-            return self.widgets[current]
-
-    def set_highlight(self, new):
-        if self.widgets:
-            old_n = self.highlight % len(self.widgets)
-            self.widgets[old_n].set_highlight(False)
-
-        self.highlight = new
-
-        if self.widgets:
-            new_n = self.highlight % len(self.widgets)
-            self.widgets[new_n].set_highlight(True)
 
 
 class MainWindow(QMainWindow):
