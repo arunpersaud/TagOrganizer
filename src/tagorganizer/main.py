@@ -303,8 +303,6 @@ class MainWindow(QMainWindow):
         self.preloader.timeout.connect(self.preload_items)
         self.preloader.start(1)
 
-        print(self.preloader)
-
         # install event filter
         QApplication.instance().installEventFilter(self)
 
