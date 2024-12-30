@@ -73,13 +73,15 @@ class AddTagDialog(QDialog):
 
 
 class FramedLabel(QLabel):
-    def __init__(self, filename, *args, **kwargs):
+    def __init__(self, item, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        filename = str(item.uri)
         pixmap = load_pixmap(filename)
         self.setPixmap(pixmap)
         self.setAlignment(Qt.AlignCenter)
         self.selected = False
         self.highlight = False
+        self.item = item
 
     def toggle_selected(self):
         self.selected = not self.selected
@@ -155,7 +157,7 @@ class ImageGridWidget(QWidget):
         self.clear()
 
         for i, item in enumerate(items):
-            label = FramedLabel(str(item.uri))
+            label = FramedLabel(item)
             self.widgets.append(label)
             self.layout.addWidget(label, row, col)
             item = self.layout.itemAtPosition(row, col).widget()
@@ -184,10 +186,16 @@ class ImageGridWidget(QWidget):
                     if widget.selected:
                         widget.toggle_selected()
 
+    def current_item(self):
+        if self.widgets:
+            current = self.highlight % len(self.widgets)
+            return self.widgets[current]
+
     def toggle_selection(self):
         if self.widgets:
             current = self.highlight % len(self.widgets)
             self.widgets[current].toggle_selected()
+            return self.widgets[current]
 
     def set_highlight(self, new):
         if self.widgets:
@@ -234,8 +242,17 @@ class MainWindow(QMainWindow):
         # Set up the status bar
         self.status_bar = QStatusBar(self)
         self.setStatusBar(self.status_bar)
-        self.selected_label = QLabel()
+        self.selected_label = QLabel("Selected Items: 0")
         self.status_bar.addWidget(self.selected_label)
+
+        # Create a QLineEdit for tags
+        self.tag_line_edit = QLineEdit()
+        self.tag_line_edit.setText(", ".join(["a", "b", "c"]))
+        self.tag_line_edit.returnPressed.connect(self.handle_tags)
+        self.tag_line_edit.setAlignment(Qt.AlignRight)  # Align text to the right
+
+        # Add the tag_widget to the status bar and set its stretch factor to 1
+        self.status_bar.addPermanentWidget(self.tag_line_edit, 1)
 
         # Set up the central widget
         central_widget = QWidget()
@@ -257,7 +274,7 @@ class MainWindow(QMainWindow):
         self.tag_model.itemsMoved.connect(self.on_tag_moved)
 
         # Populate the tag view with some example tags
-        self.populate_tags()
+        self.update_tags()
 
         # Set up the timeline
         self.timeline = QLabel("Timeline: Number of files per month")
@@ -291,6 +308,37 @@ class MainWindow(QMainWindow):
         # install event filter
         QApplication.instance().installEventFilter(self)
 
+    def handle_tags(self):
+        tag_str = self.tag_line_edit.text()
+        tags = tag_str.strip().split(",")
+        tags = [t.strip().title() for t in tags]
+
+        tag_list = []
+        for t in tags:
+            tag = db.get_tag(t)
+            if tag is None:
+                tag_id = db.add_tag(t)
+                tag_item = QStandardItem(t)
+                tag_item.setData(tag_id)
+                self.tag_model.appendRow(tag_item)
+                tag = db.get_tag(t)
+            tag_list.append(tag)
+
+        if self.selected:
+            item_list = [w.item for w in self.selected]
+        else:
+            item_list = [self.image_container.current_item().item]
+
+            db.set_tags(item_list, tag_list)
+
+    def display_common_tags(self):
+        if self.selected:
+            common_tags = db.get_common_tags([w.item for w in self.selected])
+        else:
+            common_tags = db.get_common_tags([self.image_container.current_item().item])
+
+        self.tag_line_edit.setText(",".join(common_tags))
+
     def preload_items(self):
         start = time.time()
         N = db.get_number_of_items()
@@ -318,7 +366,7 @@ class MainWindow(QMainWindow):
                 return
 
     def eventFilter(self, source, event):
-        if event.type() == QEvent.KeyPress:
+        if event.type() == QEvent.KeyPress and not self.tag_line_edit.hasFocus():
             if event.key() in [
                 Qt.Key_Left,
                 Qt.Key_Right,
@@ -334,6 +382,9 @@ class MainWindow(QMainWindow):
         return super().eventFilter(source, event)
 
     def keyPressEvent(self, event):
+        if self.tag_line_edit.hasFocus():
+            return
+
         N = db.get_number_of_items()
         if event.key() == Qt.Key_Left:
             self.highlight_n = max(self.highlight_n - 1, 0)
@@ -356,12 +407,13 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentIndex(0)
             return
         elif event.key() == Qt.Key_Space:
-            self.image_container.toggle_selection()
-            if self.highlight_n in self.selected:
-                self.selected.remove(self.highlight_n)
+            widget = self.image_container.toggle_selection()
+            if widget in self.selected:
+                self.selected.remove(widget)
             else:
-                self.selected.append(self.highlight_n)
+                self.selected.append(widget)
             self.selected_label.setText(f"Selected items: {len(self.selected)}")
+            self.display_common_tags()
             return
         if self.tabs.currentWidget() == self.single_item:
             self.show_current_item()
@@ -371,6 +423,7 @@ class MainWindow(QMainWindow):
             files = db.get_images(self.page)
             self.image_container.show_images(files)
         self.image_container.set_highlight(self.highlight_n)
+        self.display_common_tags()
 
     def clear_selection(self):
         self.image_container.clear_selection()
@@ -401,7 +454,7 @@ class MainWindow(QMainWindow):
 
         db.set_parent_tag(src, dest)
 
-    def populate_tags(self):
+    def update_tags(self):
         tags = db.get_all_tags()
         # create Qt Items
         out = []

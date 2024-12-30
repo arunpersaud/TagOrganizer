@@ -19,6 +19,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
 from sqlmodel import SQLModel, create_engine, select, Session, func
+from sqlalchemy.orm import selectinload
 
 from .models import Tag, Item
 from .config import get_or_create_db_path
@@ -91,3 +92,45 @@ def get_number_of_items():
     with Session(engine) as session:
         statement = select(func.count(Item.id))
         return session.exec(statement).one()
+
+
+def get_common_tags(items: list[Item]) -> list[Tag]:
+    with Session(engine) as session:
+        # Load items and their tags
+        items = session.exec(
+            select(Item)
+            .where(Item.id.in_([item.id for item in items]))
+            .options(selectinload(Item.tags))
+        ).all()
+
+        # Extract sets of tags for each item
+        tag_sets = [set([t.name for t in item.tags]) for item in items]
+
+        # Find the intersection of all tag sets
+        if tag_sets:
+            common_tags = set.intersection(*tag_sets)
+        else:
+            common_tags = set()
+
+        return list(common_tags)
+
+
+def set_tags(items: list[Item], tags: list[Tag]) -> None:
+    with Session(engine) as session:
+        items = session.exec(
+            select(Item)
+            .where(Item.id.in_([item.id for item in items]))
+            .options(selectinload(Item.tags))
+        ).all()
+
+        tags = session.exec(
+            select(Tag).where(Tag.id.in_([tag.id for tag in tags]))
+        ).all()
+
+        # Add each tag to each item if not already associated
+        for item in items:
+            for tag in tags:
+                if tag not in item.tags:
+                    item.tags.append(tag)
+
+        session.commit()
