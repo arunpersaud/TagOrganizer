@@ -19,41 +19,121 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import configparser
-from platformdirs import user_data_dir, user_config_dir
+import platformdirs
 from pathlib import Path
+import sys
+import os
+
+from . import db
+from .migrations import upgrade_db
 
 # Define the application name and author
 APP_NAME = "TagOrganizer"
 APP_AUTHOR = "TagOrganizer"
 
-# Get the user data directory for the application
-data_dir = Path(user_data_dir(APP_NAME, APP_AUTHOR))
-config_dir = Path(user_config_dir(APP_NAME, APP_AUTHOR))
-
-# Ensure the data directory exists
-data_dir.mkdir(parents=True, exist_ok=True)
-config_dir.mkdir(parents=True, exist_ok=True)
-
 # Define the path to the config file
-config_file_path = config_dir / "config.ini"
-
-# Define the default database name
-default_db_name = "media.db"
+config_dir = Path(platformdirs.user_config_dir(APP_NAME, APP_AUTHOR))
+default_config_file_path = config_dir / "config.ini"
 
 
-def get_or_create_db_path():
-    # Create a ConfigParser object
-    config = configparser.ConfigParser()
+class ConfigManager:
+    def __init__(self):
+        self.config = None
 
-    if config_file_path.exists():
-        # Read the existing config file
-        config.read(config_file_path)
-        db_path = config["database"]["url"]
-    else:
-        # Create a new config file with the default database path
-        db_path = data_dir / default_db_name
-        config["database"] = {"url": f"sqlite:///{db_path}"}
-        with config_file_path.open("w") as config_file:
-            config.write(config_file)
+        self.profile = "default"
+        self.config_file = default_config_file_path
 
-    return db_path
+        # locations needed in app
+        self.db = None
+        self.photos = None
+        self.videos = None
+
+        self.read_config()
+
+    def read_config(self):
+        self.config = configparser.ConfigParser()
+        if not self.config_file.exists():
+            self.create_default_config()
+        self.config.read(self.config_file)
+
+        if self.profile not in self.config:
+            print(f"[ERROR] {self.profile} not found in {self.config_file}")
+
+        self.db = self.config[self.profile]["database"]
+        self.photos = self.config[self.profile]["photo_path"]
+        self.videos = self.config[self.profile]["video_path"]
+
+        db.set_engine(self.db)
+        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{self.db}"
+
+        # ensure we are using the latest version
+        db.create_db()
+        # run alembic
+        upgrade_db()
+
+    def find_new_database_name(self, dir, profile=None):
+        """Find an unused database name."""
+
+        if profile is None:
+            profile = self.profile
+
+        name = f"media-{profile}.db"
+        test = dir / name
+        if not test.exists():
+            return name
+
+        i = 0
+        while True:
+            name = f"media-{profile}-{i:05d}.db"
+            test = dir / name
+            if not test.exists():
+                return name
+            if i > 99_999:
+                return None
+
+    def create_default_config(self):
+        # Get the user data directory for the application
+        data_dir = Path(platformdirs.user_data_dir(APP_NAME, APP_AUTHOR))
+
+        # Ensure the data directory exists
+        data_dir.mkdir(parents=True, exist_ok=True)
+        config_dir.mkdir(parents=True, exist_ok=True)
+
+        photo_dir = platformdirs.user_pictures_dir()
+        video_dir = platformdirs.user_videos_dir()
+
+        self.create_new_profile("default", data_dir, photo_dir, video_dir)
+
+    def create_new_profile(
+        self, name: str, database_path: Path, photo_dir: str, video_dir: str
+    ):
+        if name in self.config:
+            print("[ERROR] Name already exist in config... not adding it")
+            return
+
+        db_name = self.find_new_database_name(database_path, name)
+        if db_name is None:
+            print(f"[ERROR] Cannot find a valid database name in {database_path}")
+            sys.exit()
+
+        db_path = database_path / db_name
+
+        self.config[name] = {
+            "database": str(db_path),
+            "photo_path": photo_dir,
+            "video_path": video_dir,
+        }
+        with self.config_file.open("w") as configfile:
+            self.config.write(configfile)
+
+    def get_profiles(self):
+        return self.config.sections()
+
+    def set_config_file(self, config_file: Path):
+        self.config_file = config_file
+        self.profile = "default"
+        self.read_config()
+
+    def set_current_profile(self, profile_name):
+        self.profile = profile_name
+        self.read_config()

@@ -22,10 +22,13 @@ from sqlmodel import SQLModel, create_engine, select, Session, func
 from sqlalchemy.orm import selectinload
 
 from .models import Tag, Item
-from .config import get_or_create_db_path
 
-database_url = get_or_create_db_path()
-engine = create_engine(database_url)
+engine = None
+
+
+def set_engine(db_dir: str):
+    global engine
+    engine = create_engine(f"sqlite:///{db_dir}")
 
 
 def create_db():

@@ -6,8 +6,8 @@ from sqlalchemy import pool
 from alembic import context
 
 from sqlmodel import SQLModel
-import tagorganizer as tagorg
 
+import os
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -22,8 +22,12 @@ if config.config_file_name is not None:
 target_metadata = SQLModel.metadata
 
 # we get our database from a config file
-database_url = tagorg.config.get_or_create_db_path()
-config.set_main_option("sqlalchemy.url", database_url)
+TAGORGANIZER_DB_URL = os.getenv("TAGORGANIZER_DB_URL")
+if TAGORGANIZER_DB_URL:
+    config.set_main_option("sqlalchemy.url", TAGORGANIZER_DB_URL)
+    print(f"DB using: {TAGORGANIZER_DB_URL}")
+else:
+    raise Exception("TAGORGANIZER_DB_URL environment variable not set.")
 
 
 def run_migrations_offline() -> None:

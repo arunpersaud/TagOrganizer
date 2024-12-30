@@ -50,10 +50,9 @@ from qtpy.QtCore import (
 
 
 from . import db
-from .config import get_or_create_db_path
-from .migrations import upgrade_db
+from . import config
 
-from .widgets import AddTagDialog, ImageGridWidget
+from .widgets import AddTagDialog, ImageGridWidget, ProfileDialog
 from .widgets.helper import load_pixmap, load_full_pixmap, CommaCompleter
 
 
@@ -87,12 +86,16 @@ class MainWindow(QMainWindow):
         self.highlight_n = 0
         self.selected = []
 
-        self.setWindowTitle("Tag Organizer")
+        self.config = config.ConfigManager()
+        self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
 
         # Set up the menu bar
         menu_bar = self.menuBar()
         edit_menu = menu_bar.addMenu("Edit")
+        self.profile_menu = menu_bar.addMenu("Profiles")
+        help_menu = menu_bar.addMenu("Help")
 
+        # Edit menu
         add_tag_action = QAction("Add Tag", self)
         add_tag_action.triggered.connect(self.add_tag)
         add_tag_action.setShortcut("Ctrl+N")
@@ -103,10 +106,20 @@ class MainWindow(QMainWindow):
         add_images_action.setShortcut("Ctrl+I")
         edit_menu.addAction(add_images_action)
 
+        edit_menu.addSeparator()
         clear_selection_action = QAction("Clear Selection", self)
         clear_selection_action.triggered.connect(self.clear_selection)
         clear_selection_action.setShortcut("Ctrl+E")
         edit_menu.addAction(clear_selection_action)
+
+        # Profile menu
+        self.create_profile_menu()
+
+        # Help menu
+        about_action = QAction("About", self)
+        about_action.triggered.connect(self.show_about_dialog)
+        about_action.setShortcut("Ctrl+H")
+        help_menu.addAction(about_action)
 
         # Set up the status bar
         self.status_bar = QStatusBar(self)
@@ -158,8 +171,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.image_container, "Items")
         self.tabs.addTab(self.single_item, "Single")
 
-        files = db.get_images(self.page)
-        self.image_container.show_images(files)
+        self.update_items()
 
         # Add the tag view and the main area to the layout
         layout2.addWidget(self.tag_view)
@@ -174,6 +186,72 @@ class MainWindow(QMainWindow):
 
         # install event filter
         QApplication.instance().installEventFilter(self)
+
+    def update_items(self):
+        files = db.get_images(self.page)
+        self.image_container.show_images(files)
+
+    def create_profile_menu(self):
+        self.profile_menu.clear()
+
+        for p in self.config.get_profiles():
+            tmp_action = QAction(p, self)
+            tmp_action.triggered.connect(lambda: self.change_profile(p))
+            self.profile_menu.addAction(tmp_action)
+
+        self.profile_menu.addSeparator()
+        new_profile_action = QAction("New Profile", self)
+        new_profile_action.triggered.connect(self.new_profile)
+        self.profile_menu.addAction(new_profile_action)
+
+        self.profile_menu.addSeparator()
+        new_config_action = QAction("New Config", self)
+        new_config_action.triggered.connect(self.new_config)
+        self.profile_menu.addAction(new_config_action)
+
+        new_config_action = QAction("Change Config", self)
+        new_config_action.triggered.connect(self.change_config)
+        self.profile_menu.addAction(new_config_action)
+
+    def change_profile(self, name):
+        self.config.set_current_profile(name)
+        self.update_tags()
+        self.update_items()
+        self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
+
+    def new_profile(self):
+        dialog = ProfileDialog()
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            profile_data = dialog.get_profile_data()
+            self.config.create_new_profile(
+                profile_data["profile_name"],
+                Path(profile_data["db_location"]),
+                profile_data["photos_dir"],
+                profile_data["videos_dir"],
+            )
+        self.create_profile_menu()
+
+    def change_config(self):
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select new config file")
+        if file_name:
+            # TODO: add error checking
+            self.config.set_config_file(Path(file_name))
+            self.change_profile("default")
+            self.create_profile_menu()
+
+    def new_config(self):
+        print(
+            "Not yet implemented, but you can create an ini file manually (can be empty) and then change to it"
+        )
+
+    def show_about_dialog(self):
+        text = "This is TagOrganizer\n\n"
+        text += "profile name: default\n"
+        text += f"Setting file location: {self.config.config_file}\n"
+        text += f"DB location: {self.config.db}\n"
+        text += f"Photo location: {self.config.photos}\n"
+        text += f"Video location: {self.config.videos}\n"
+        QMessageBox.about(self, "TagOrganizer", text)
 
     def handle_tags(self):
         tag_str = self.tag_line_edit.text()
@@ -322,6 +400,8 @@ class MainWindow(QMainWindow):
         db.set_parent_tag(src, dest)
 
     def update_tags(self):
+        self.tag_model.removeRows(0, self.tag_model.rowCount())
+
         tags = db.get_all_tags()
         # create Qt Items
         out = []
@@ -377,12 +457,6 @@ class MainWindow(QMainWindow):
 
 
 def main():
-    db.create_db()
-    print(f"DB: {get_or_create_db_path()}")
-
-    # run alembic
-    upgrade_db()
-
     app = QApplication([])
     window = MainWindow()
     window.show()
