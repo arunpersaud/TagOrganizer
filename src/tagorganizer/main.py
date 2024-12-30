@@ -26,6 +26,7 @@ import time
 from qtpy.QtWidgets import (
     QAction,
     QApplication,
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -43,7 +44,14 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from qtpy.QtGui import QStandardItemModel, QStandardItem, QPixmap, QPainter, QPen
-from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QEvent, QTimer
+from qtpy.QtCore import (
+    Qt,
+    Signal,
+    QDataStream,
+    QIODevice,
+    QEvent,
+    QTimer,
+)
 
 
 from . import db
@@ -123,6 +131,15 @@ class CustomStandardItemModel(QStandardItemModel):
             source_item = self.item(row, column)
             self.itemsMoved.emit(source_item, destination_item)
         return result
+
+
+class CommaCompleter(QCompleter):
+    def __init__(self, model, parent=None):
+        super().__init__(model, parent)
+        self.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+
+    def splitPath(self, path: str) -> list[str]:
+        return [path.split(",")[-1].strip()]
 
 
 @lru_cache(1_000)
@@ -247,9 +264,9 @@ class MainWindow(QMainWindow):
 
         # Create a QLineEdit for tags
         self.tag_line_edit = QLineEdit()
-        self.tag_line_edit.setText(", ".join(["a", "b", "c"]))
         self.tag_line_edit.returnPressed.connect(self.handle_tags)
         self.tag_line_edit.setAlignment(Qt.AlignRight)  # Align text to the right
+        self.setup_autocomplete()
 
         # Add the tag_widget to the status bar and set its stretch factor to 1
         self.status_bar.addPermanentWidget(self.tag_line_edit, 1)
@@ -470,6 +487,14 @@ class MainWindow(QMainWindow):
                         a.appendRow(tmp)
                         break
 
+    def setup_autocomplete(self):
+        tags = db.get_all_tags()
+        tags = [t.name for t in tags]
+
+        completer = CommaCompleter(tags)
+
+        self.tag_line_edit.setCompleter(completer)
+
     def add_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
 
@@ -496,6 +521,7 @@ class MainWindow(QMainWindow):
                     tag_item = QStandardItem(tag_name)
                     tag_item.setData(tag_id)
                     self.tag_model.appendRow(tag_item)
+        self.setup_autocomplete()
 
 
 def main():
