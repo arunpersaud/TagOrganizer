@@ -18,10 +18,10 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
-from sqlmodel import SQLModel, create_engine, select, Session, func
+from sqlmodel import SQLModel, create_engine, select, Session, func, delete
 from sqlalchemy.orm import selectinload
 
-from .models import Tag, Item
+from .models import Tag, Item, ItemTagLink
 
 engine = None
 
@@ -51,6 +51,20 @@ def add_tag(name):
         session.add(new_tag)
         session.commit()
         return new_tag.id
+
+
+def delete_tag(id: int):
+    with Session(engine) as session:
+        tag = session.get(Tag, id)
+        if tag:
+            if tag.children:
+                print("[WARNING] cannot delete this tag, since it has subtags")
+                return
+            # unclear if this is needed or can be optimized by setting
+            # other flags in the model
+            session.exec(delete(ItemTagLink).where(ItemTagLink.tag_id == id))
+            session.delete(tag)
+            session.commit()
 
 
 def get_all_tags():

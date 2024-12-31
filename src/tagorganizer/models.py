@@ -45,10 +45,10 @@ class Tag(SQLModel, table=True):
     name: str
     parent_id: int | None = Field(default=None, foreign_key="tag.id")
 
-    children: list["Tag"] = Relationship(
-        back_populates="parent", sa_relationship_kwargs={"remote_side": "[Tag.id]"}
+    parent: list["Tag"] = Relationship(
+        back_populates="children", sa_relationship_kwargs={"remote_side": "[Tag.id]"}
     )
-    parent: Optional["Tag"] = Relationship(back_populates="children")
+    children: Optional["Tag"] = Relationship(back_populates="parent")
 
     items: list["Item"] = Relationship(back_populates="tags", link_model=ItemTagLink)
 

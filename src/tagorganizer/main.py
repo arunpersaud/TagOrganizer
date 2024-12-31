@@ -37,6 +37,7 @@ from qtpy.QtWidgets import (
     QTreeView,
     QVBoxLayout,
     QWidget,
+    QMenu,
 )
 from qtpy.QtGui import QStandardItemModel, QStandardItem
 from qtpy.QtCore import (
@@ -46,6 +47,7 @@ from qtpy.QtCore import (
     QIODevice,
     QEvent,
     QTimer,
+    QPoint,
 )
 
 
@@ -155,6 +157,9 @@ class MainWindow(QMainWindow):
 
         self.tag_model.itemsMoved.connect(self.on_tag_moved)
 
+        self.tag_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tag_view.customContextMenuRequested.connect(self.show_tag_menu)
+
         # Populate the tag view with some example tags
         self.update_tags()
 
@@ -186,6 +191,23 @@ class MainWindow(QMainWindow):
 
         # install event filter
         QApplication.instance().installEventFilter(self)
+
+    def show_tag_menu(self, position: QPoint):
+        index = self.tag_view.indexAt(position)
+        if not index.isValid():
+            return
+
+        tag_id = self.tag_model.itemFromIndex(index).data()
+        menu = QMenu()
+
+        delete_action = menu.addAction("Delete Tag")
+        delete_action.triggered.connect(lambda: self.delete_tag(tag_id))
+
+        menu.exec(self.tag_view.viewport().mapToGlobal(position))
+
+    def delete_tag(self, tag_id: int):
+        db.delete_tag(tag_id)
+        self.update_tags()
 
     def update_items(self):
         files = db.get_images(self.page)
