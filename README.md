@@ -5,6 +5,14 @@ Help organize photos and (eventually) videos.
 The program is currently still in very early development stages, but
 can already be used for organizing images.
 
+## Installing/Testing
+
+You can use [uv](https://docs.astral.sh/uv/) to run the latest version
+
+    uvx --from git+https://github.com/arunpersaud/TagOrganizer.git -p python3.13 TagOrganizer
+
+Note that this will create files on your computer. Mainly an ini file and an empty database.
+
 ## Features
 
 - Allow tagging of images using hierachical tags
