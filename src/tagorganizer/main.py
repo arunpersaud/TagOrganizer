@@ -339,7 +339,10 @@ class MainWindow(QMainWindow):
         if self.selected_items:
             item_list = [w.item for w in self.selected_items]
         else:
-            item_list = [self.image_container.current_item().item]
+            current  = self.image_container.current_item()
+            if current is None:
+                return
+            item_list = [current.item]
 
             db.set_tags(item_list, tag_list)
 
@@ -347,7 +350,10 @@ class MainWindow(QMainWindow):
         if self.selected_items:
             common_tags = db.get_common_tags([w.item for w in self.selected_items])
         else:
-            common_tags = db.get_common_tags([self.image_container.current_item().item])
+            current = self.image_container.current_item()
+            if current is None:
+                return
+            common_tags = db.get_common_tags([current.item])
 
         self.tag_line_edit.setText(",".join(common_tags))
 
