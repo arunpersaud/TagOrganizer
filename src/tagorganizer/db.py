@@ -93,10 +93,53 @@ def add_images(files):
         session.commit()
 
 
-def get_images(page=0):
+def get_all_tag_ids(tag_names: list[str]) -> list[int]:
+    """Fetch all tag IDs including children for given tag names."""
     with Session(engine) as session:
-        results = session.exec(select(Item).offset(25 * page).limit(25))
-        return results.all()
+        tag_ids = set()
+        tags = session.exec(select(Tag).where(Tag.name.in_(tag_names))).all()
+
+        def fetch_child_tags(tag):
+            tag_ids.add(tag.id)
+            if tag.children is None:
+                return
+            for child in tag.children:
+                fetch_child_tags(child)
+
+        for tag in tags:
+            fetch_child_tags(tag)
+
+        return list(tag_ids)
+
+
+def get_images(page=0, tags=None):
+    with Session(engine) as session:
+        if not tags:
+            results = session.exec(select(Item).offset(25 * page).limit(25))
+            return results.all()
+
+        # first we need to include any children tags
+        # we also change from tag names to tag ids here
+
+        tag_ids = get_all_tag_ids(tags)
+
+        subquery = (
+            select(ItemTagLink.item_id)
+            .join(Tag, Tag.id == ItemTagLink.tag_id)
+            .filter(Tag.id.in_(tag_ids))
+            .group_by(ItemTagLink.item_id)
+            .having(func.count(ItemTagLink.tag_id) == len(tags))
+            .subquery()
+        )
+
+        query = (
+            select(Item)
+            .where(Item.id.in_(select(subquery.c.item_id)))
+            .offset(25 * page)
+            .limit(25)
+        )
+        items = session.exec(query).all()
+        return items
 
 
 def get_current_image(number):

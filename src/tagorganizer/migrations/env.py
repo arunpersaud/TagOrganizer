@@ -6,6 +6,7 @@ from sqlalchemy import pool
 from alembic import context
 
 from sqlmodel import SQLModel
+from tagorganizer.models import Tag, Item, ItemTagLink  # noqa: F401
 
 import os
 

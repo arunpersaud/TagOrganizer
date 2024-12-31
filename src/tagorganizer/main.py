@@ -32,12 +32,14 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QStatusBar,
     QTabWidget,
     QTreeView,
     QVBoxLayout,
     QWidget,
     QMenu,
+    QSizePolicy,
 )
 from qtpy.QtGui import QStandardItemModel, QStandardItem
 from qtpy.QtCore import (
@@ -86,7 +88,8 @@ class MainWindow(QMainWindow):
         self.page = 0
 
         self.highlight_n = 0
-        self.selected = []
+        self.selected_items = []
+        self.selected_tags = []
 
         self.config = config.ConfigManager()
         self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
@@ -126,8 +129,8 @@ class MainWindow(QMainWindow):
         # Set up the status bar
         self.status_bar = QStatusBar(self)
         self.setStatusBar(self.status_bar)
-        self.selected_label = QLabel("Selected Items: 0")
-        self.status_bar.addWidget(self.selected_label)
+        self.selected_items_label = QLabel("Selected Items: 0")
+        self.status_bar.addWidget(self.selected_items_label)
 
         # Create a QLineEdit for tags
         self.tag_line_edit = QLineEdit()
@@ -160,8 +163,24 @@ class MainWindow(QMainWindow):
         self.tag_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tag_view.customContextMenuRequested.connect(self.show_tag_menu)
 
+        self.tag_view.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
+        self.tag_view.doubleClicked.connect(self.select_tag)
+
         # Populate the tag view with some example tags
         self.update_tags()
+
+        # Selected Tags
+        self.selected_tags_bar = QHBoxLayout()
+        layout.addLayout(self.selected_tags_bar)
+
+        # Add a permanent clear button
+        self.clear_button = QPushButton("Clear")
+        self.clear_button.clicked.connect(self.clear_selected_tags)
+        self.clear_button.setSizePolicy(
+            QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum
+        )
+        self.selected_tags_bar.addWidget(self.clear_button, 0)
+        self.selected_tags_bar.addStretch(1)
 
         # Set up the timeline
         self.timeline = QLabel("Timeline: Number of files per month")
@@ -192,6 +211,32 @@ class MainWindow(QMainWindow):
         # install event filter
         QApplication.instance().installEventFilter(self)
 
+    def clear_selected_tags(self):
+        for _, w in self.selected_tags:
+            w.setParent(None)
+        self.selected_tags = []
+        self.update_items()
+
+    def select_tag(self, index: int):
+        tag_name = self.tag_model.itemFromIndex(index).text()
+        tag_button = QPushButton(tag_name)
+        tag_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+        tag_button.clicked.connect(lambda: self.remove_tag_button(tag_button))
+        self.selected_tags_bar.addWidget(tag_button, 0)
+        self.selected_tags.append((tag_name, tag_button))
+        self.update_items()
+
+    def get_selected_tags(self):
+        return [x[0] for x in self.selected_tags]
+
+    def remove_tag_button(self, w):
+        for i, (_, widget) in enumerate(self.selected_tags):
+            if w == widget:
+                break
+        w.setParent(None)
+        del self.selected_tags[i]
+        self.update_items()
+
     def show_tag_menu(self, position: QPoint):
         index = self.tag_view.indexAt(position)
         if not index.isValid():
@@ -210,7 +255,7 @@ class MainWindow(QMainWindow):
         self.update_tags()
 
     def update_items(self):
-        files = db.get_images(self.page)
+        files = db.get_images(self.page, self.get_selected_tags())
         self.image_container.show_images(files)
 
     def create_profile_menu(self):
@@ -291,16 +336,16 @@ class MainWindow(QMainWindow):
                 tag = db.get_tag(t)
             tag_list.append(tag)
 
-        if self.selected:
-            item_list = [w.item for w in self.selected]
+        if self.selected_items:
+            item_list = [w.item for w in self.selected_items]
         else:
             item_list = [self.image_container.current_item().item]
 
             db.set_tags(item_list, tag_list)
 
     def display_common_tags(self):
-        if self.selected:
-            common_tags = db.get_common_tags([w.item for w in self.selected])
+        if self.selected_items:
+            common_tags = db.get_common_tags([w.item for w in self.selected_items])
         else:
             common_tags = db.get_common_tags([self.image_container.current_item().item])
 
@@ -375,11 +420,13 @@ class MainWindow(QMainWindow):
             return
         elif event.key() == Qt.Key_Space:
             widget = self.image_container.toggle_selection()
-            if widget in self.selected:
-                self.selected.remove(widget)
+            if widget in self.selected_items:
+                self.selected_items.remove(widget)
             else:
-                self.selected.append(widget)
-            self.selected_label.setText(f"Selected items: {len(self.selected)}")
+                self.selected_items.append(widget)
+            self.selected_items_label.setText(
+                f"Selected items: {len(self.selected_items)}"
+            )
             self.display_common_tags()
             return
         if self.tabs.currentWidget() == self.single_item:
@@ -387,15 +434,14 @@ class MainWindow(QMainWindow):
         new_page = self.highlight_n // 25
         if new_page != self.page:
             self.page = new_page
-            files = db.get_images(self.page)
-            self.image_container.show_images(files)
+            self.update_items()
         self.image_container.set_highlight(self.highlight_n)
         self.display_common_tags()
 
     def clear_selection(self):
         self.image_container.clear_selection()
-        self.selected = []
-        self.selected_label.setText("Selected items: 0")
+        self.selected_items = []
+        self.selected_items_label.setText("Selected items: 0")
 
     def show_current_item(self):
         item = db.get_current_image(self.highlight_n)
@@ -457,8 +503,7 @@ class MainWindow(QMainWindow):
             mydir = Path(directory)
             files = list(mydir.rglob("*.jpg")) + list(mydir.rglob("*.JPG"))
             db.add_images(files)
-            files = db.get_images(0)
-            self.image_container.show_images(files)
+            self.update_items()
 
     def add_tag(self):
         dialog = AddTagDialog(self)
