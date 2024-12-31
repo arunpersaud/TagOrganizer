@@ -25,6 +25,12 @@ wheels = [
 ]
 
 [[package]]
+name = "docopt"
+version = "0.6.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/55/8f8cab2afd404cf578136ef2cc5dfb50baa1761b68c9da1fb1e4eed343c9/docopt-0.6.2.tar.gz", hash = "sha256:49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491", size = 25901 }
+
+[[package]]
 name = "mako"
 version = "1.3.8"
 source = { registry = "https://pypi.org/simple" }
@@ -213,10 +219,11 @@ wheels = [
 
 [[package]]
 name = "tagorganizer"
-version = "0.1.dev0+d20241229"
+version = "0.1.dev20+ge501160.d20241231"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
+    { name = "docopt" },
     { name = "platformdirs" },
     { name = "pyqt6" },
     { name = "qtpy" },
@@ -227,6 +234,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.14.0" },
+    { name = "docopt", specifier = ">=0.6.2" },
     { name = "platformdirs", specifier = ">=4.3.6" },
     { name = "pyqt6", specifier = ">=6.8.0" },
     { name = "qtpy", specifier = ">=2.4.2" },

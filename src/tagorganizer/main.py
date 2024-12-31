@@ -52,6 +52,8 @@ from qtpy.QtCore import (
     QPoint,
 )
 
+from docopt import docopt
+
 
 from . import db
 from . import config
@@ -538,8 +540,42 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    commands = docopt("""
+    Usage:
+        TagOragnizer [options]
+
+    --config=<file>                 Use this config file
+    --profile=<profile>             Use this profile
+    --import-from-f-spot=<f-spot>   Try to load data from this f-spot database
+
+    """)
+
+    print(commands)
+
     app = QApplication([])
     window = MainWindow()
+
+    if commands['--config']:
+        configfile = Path(commands['--config']).expanduser()
+        if not configfile.is_file():
+            print(f'[Error]  config file {configfile} cannot be opened... existing')
+            sys.exit(1)
+        window.config.set_config_file(configfile)
+        window.create_profile_menu()
+        print('Starting with config file:', configfile)
+
+    if commands['--profile']:
+        profile = commands['--profile']
+        window.change_profile(profile)
+        print('Starting with profile: ', profile)
+
+    if commands['--import-from-f-spot']:
+        old_db  = Path(commands['--import-from-f-spot']).expanduser()
+        if not old_db.is_file():
+            print(f'[Error] f-spot database {old_db} cannot be opened... existing')
+            sys.exit(2)
+        print('todo')
+
     window.show()
     sys.exit(app.exec_())
 
