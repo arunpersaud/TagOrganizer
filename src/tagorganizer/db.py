@@ -145,7 +145,7 @@ def get_images(page=0, tags=None):
 def get_current_image(number):
     with Session(engine) as session:
         results = session.exec(select(Item).offset(number).limit(1))
-        return results.one()
+        return results.first()
 
 
 def get_number_of_items():

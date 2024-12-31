@@ -451,6 +451,8 @@ class MainWindow(QMainWindow):
 
     def show_current_item(self):
         item = db.get_current_image(self.highlight_n)
+        if not item:
+            return
         pixmap = load_full_pixmap(str(item.uri))
         pixmap = pixmap.scaled(
             self.single_item.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
