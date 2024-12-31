@@ -117,6 +117,12 @@ class MainWindow(QMainWindow):
         clear_selection_action.setShortcut("Ctrl+E")
         edit_menu.addAction(clear_selection_action)
 
+        edit_menu.addSeparator()
+        quit_action = QAction("Quit", self)
+        quit_action.setShortcut("Ctrl+Q")
+        quit_action.triggered.connect(self.close)
+        edit_menu.addAction(quit_action)
+
         # Profile menu
         self.create_profile_menu()
 
