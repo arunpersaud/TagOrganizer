@@ -6,9 +6,12 @@ build-backend = "setuptools.build_meta"
 name = "tagorganizer"
 license = {file = "COPYING"}
 dynamic = ["version"]
-description = "Organize photos and videos using tags"
+description = "Organize photos and videos using hierachical tags"
 readme = "README.md"
 authors = [
+  { name="Arun Persaud", email="arun@nubati.net" },
+]
+maintainers = [
   { name="Arun Persaud", email="arun@nubati.net" },
 ]
 requires-python = ">=3.13"
@@ -27,7 +30,11 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Topic :: Multimedia :: Graphics :: Viewers",
 ]
-
+[project.urls]
+Homepage = "https://github.com/arunpersaud/TagOrganizer"
+Repository = "https://github.com/arunpersaud/TagOrganizer"
+Issues = "https://github.com/arunpersaud/TagOrganizer/issues"
+Changelog = "https://github.com/arunpersaud/TagOrganizer/blob/main/CHANGELOG.md"
 
 [project.scripts]
 TagOrganizer = "tagorganizer.main:main"
