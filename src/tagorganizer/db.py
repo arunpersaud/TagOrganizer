@@ -47,6 +47,11 @@ def get_tag_by_id(id):
 
 def add_tag(name):
     with Session(engine) as session:
+        existing_tag = session.exec(select(Tag).where(Tag.name == name)).first()
+        if existing_tag:
+            print(f"Tag with name '{name}' already exists with ID: {existing_tag.id}")
+            return existing_tag.id
+
         new_tag = Tag(name=name)
         session.add(new_tag)
         session.commit()
@@ -73,7 +78,7 @@ def get_all_tags():
         return results.all()
 
 
-def set_parent_tag(child, parent):
+def set_parent_tag(child: Tag, parent: Tag):
     if child is None:
         print("No child given")
     if parent is None:
@@ -85,12 +90,44 @@ def set_parent_tag(child, parent):
         session.commit()
 
 
+def set_parent_tag_by_id(child_id: int, parent_id: int):
+    with Session(engine) as session:
+        child = session.get(Tag, child_id)
+        parent = session.get(Tag, parent_id)
+        if (not child) or (not parent):
+            print(
+                f"Could set parent_tag by id child_id {child_id} parent_id {parent_id}"
+            )
+            return
+        child.parent_id = parent.id
+        session.add(child)
+        session.commit()
+
+
 def add_images(files):
     with Session(engine) as session:
         for f in files:
+            existing_item = session.exec(select(Item).where(Item.uri == str(f))).first()
+            if existing_item:
+                print(f"Item with uri '{f}' already exists with ID: {existing_item.id}")
+                continue
             tmp = Item(uri=str(f))
             session.add(tmp)
         session.commit()
+
+
+def add_image(filename):
+    with Session(engine) as session:
+        existing_item = session.exec(select(Item).where(Item.uri == filename)).first()
+        if existing_item:
+            print(
+                f"Item with uri '{filename}' already exists with ID: {existing_item.id}"
+            )
+            return existing_item.id
+        tmp = Item(uri=str(filename))
+        session.add(tmp)
+        session.commit()
+        return tmp.id
 
 
 def get_all_tag_ids(tag_names: list[str]) -> list[int]:
@@ -193,4 +230,19 @@ def set_tags(items: list[Item], tags: list[Tag]) -> None:
                 if tag not in item.tags:
                     item.tags.append(tag)
 
+        session.commit()
+
+
+def set_tag_photo_by_ids(item_id, tag_id):
+    with Session(engine) as session:
+        existing_item = session.exec(
+            select(ItemTagLink).where(
+                ItemTagLink.item_id == item_id, ItemTagLink.tag_id == tag_id
+            )
+        ).first()
+        if existing_item:
+            return
+
+        tmp = ItemTagLink(item_id=item_id, tag_id=tag_id)
+        session.add(tmp)
         session.commit()

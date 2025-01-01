@@ -22,6 +22,7 @@ Note that this will create files on your computer. Mainly an ini file and an emp
   use a logical and between the tags)
 - Allow adding new photos from a directory (currently only .jpg and .JPG are supported)
 - If a tag is selected that has children in the hierachy, all those items are also shown
+- Import data from old F-Spot libraries
 
 ## User interface
 
@@ -85,6 +86,18 @@ times.
 Profiles can be used to easily separate different photo collections,
 for example, for work and private photos or a collection of photos of
 documents.
+
+### Importing old F-Spot databases
+
+A simple import for old databases exist for data from F-Spot (an old
+Gnome Photo manager). To import data you can pick an ini file (or use
+the default) and a profile (or use the default) and then point
+TagOrganizer to the F-Spot database:
+
+    uv run TagOrganizer --config ~/some_dir/config.ini --profile=docs --import-from-f-spot=~/dir/to/fspot/photos.db
+
+This will copy the photos, tags and links between photo and tags. It
+will keep the tag hierarchy intact.
 
 ## Planned features
 

@@ -57,6 +57,7 @@ from docopt import docopt
 
 from . import db
 from . import config
+from . import DBimport
 
 from .widgets import AddTagDialog, ImageGridWidget, ProfileDialog
 from .widgets.helper import load_pixmap, load_full_pixmap, CommaCompleter
@@ -347,7 +348,7 @@ class MainWindow(QMainWindow):
         if self.selected_items:
             item_list = [w.item for w in self.selected_items]
         else:
-            current  = self.image_container.current_item()
+            current = self.image_container.current_item()
             if current is None:
                 return
             item_list = [current.item]
@@ -555,26 +556,23 @@ def main():
     app = QApplication([])
     window = MainWindow()
 
-    if commands['--config']:
-        configfile = Path(commands['--config']).expanduser()
+    if commands["--config"]:
+        configfile = Path(commands["--config"]).expanduser()
         if not configfile.is_file():
-            print(f'[Error]  config file {configfile} cannot be opened... existing')
+            print(f"[Error]  config file {configfile} cannot be opened... existing")
             sys.exit(1)
         window.config.set_config_file(configfile)
         window.create_profile_menu()
-        print('Starting with config file:', configfile)
+        print("Starting with config file:", configfile)
 
-    if commands['--profile']:
-        profile = commands['--profile']
+    if commands["--profile"]:
+        profile = commands["--profile"]
         window.change_profile(profile)
-        print('Starting with profile: ', profile)
+        print("Starting with profile: ", profile)
 
-    if commands['--import-from-f-spot']:
-        old_db  = Path(commands['--import-from-f-spot']).expanduser()
-        if not old_db.is_file():
-            print(f'[Error] f-spot database {old_db} cannot be opened... existing')
-            sys.exit(2)
-        print('todo')
+    if commands["--import-from-f-spot"]:
+        old_db = Path(commands["--import-from-f-spot"]).expanduser()
+        DBimport.import_f_spot(old_db)
 
     window.show()
     sys.exit(app.exec_())
