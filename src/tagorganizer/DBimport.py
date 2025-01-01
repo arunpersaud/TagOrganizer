@@ -119,8 +119,12 @@ def import_f_spot(filename: Path):
         print("Adding links between images and tags")
         photostags = f_spot_session.exec(select(FSPOT_PhotoTag)).all()
         for p in photostags:
-            tag_id = tag_lookup[p.tag_id]
-            item_id = photos_lookup[p.photo_id]
+            tag_id = tag_lookup.get(p.tag_id)
+            item_id = photos_lookup.get(p.photo_id)
+
+            if (tag_id is None) or (item_id is None):
+                print("[Warning] missing ids... skipping one tag<->item pair")
+                continue
 
             db.set_tag_photo_by_ids(item_id, tag_id)
         print("Adding links between images and tags...done")
