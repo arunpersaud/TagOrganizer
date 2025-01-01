@@ -103,6 +103,11 @@ def import_f_spot(filename: Path):
         for p in photos:
             filename = f"{p.base_uri}/{p.filename}"
             filename = filename.removeprefix("file://")
+
+            # fix special characters that f-spot escaped
+            filename = filename.replace("%20", " ")
+            filename = filename.replace("%26", "&")
+
             file = Path(filename)
             if not file.is_file():
                 print(f"Image {file} does not exist...skipping")
