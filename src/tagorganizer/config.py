@@ -58,6 +58,7 @@ class ConfigManager:
 
         if self.profile not in self.config:
             print(f"[ERROR] {self.profile} not found in {self.config_file}")
+            sys.exit(3)
 
         self.db = self.config[self.profile]["database"]
         self.photos = self.config[self.profile]["photo_path"]
