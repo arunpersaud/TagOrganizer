@@ -272,7 +272,15 @@ class MainWindow(QMainWindow):
 
         for p in self.config.get_profiles():
             tmp_action = QAction(p, self)
-            tmp_action.triggered.connect(lambda: self.change_profile(p))
+            # the trigger function needs to accept a boolean value. We
+            # absorb this in 'checked' and use profile=p, so that the
+            # correct p gets remembers inside the namespace of the
+            # function without profile=p, e.g. lambda:
+            # self.change_profile(p) we would always go to the last
+            # 'p' in the for loop
+            tmp_action.triggered.connect(
+                lambda checked, profile=p: self.change_profile(profile)
+            )
             self.profile_menu.addAction(tmp_action)
 
         self.profile_menu.addSeparator()
