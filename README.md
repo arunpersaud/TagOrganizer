@@ -13,6 +13,22 @@ You can use [uv](https://docs.astral.sh/uv/) to run the latest version
 
 Note that this will create files on your computer. Mainly an ini file and an empty database.
 
+Alternatively you can also clone this repository and then use `uv` to
+run directly from the repository (your working directory needs to be inside the git repo):
+
+    uv run TagOrganizer
+
+## Contributions
+
+Contributions in any form are welcome (e.g., code, issues, documentation, ideas).
+The best way is to use the [github issues](https://github.com/arunpersaud/TagOrganizer/issues).
+
+If you plan to contribute code, please run
+
+    pre-commit install
+
+after downloading the repo and before you make commits.
+
 ## Features
 
 - Allow tagging of images using hierachical tags
