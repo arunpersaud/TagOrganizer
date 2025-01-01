@@ -72,8 +72,6 @@ def import_f_spot(filename: Path):
         if not photos:
             print("Could not open the photo table")
             sys.exit(1)
-        for p in photos:
-            print(f"{p.base_uri}/{p.filename}")
 
         tags = f_spot_session.exec(select(FSPOT_Tag).limit(20)).all()
         if not tags:
@@ -84,8 +82,6 @@ def import_f_spot(filename: Path):
         if not photostags:
             print("Could not open the photo-tag link table")
             sys.exit(1)
-        for p in photostags:
-            print(p)
         print("Access was successfull!")
 
         print("Importing tags...")

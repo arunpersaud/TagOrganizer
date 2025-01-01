@@ -551,8 +551,6 @@ def main():
 
     """)
 
-    print(commands)
-
     app = QApplication([])
     window = MainWindow()
 
