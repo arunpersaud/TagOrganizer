@@ -60,7 +60,7 @@ from . import config
 from . import DBimport
 from . import tasks
 
-from .widgets import AddTagDialog, ImageGridWidget, ProfileDialog, SingleItem
+from .widgets import AddTagDialog, ImageGridWidget, ProfileDialog, SingleItem, Timeline
 from .widgets.helper import load_pixmap, load_full_pixmap, CommaCompleter
 
 
@@ -197,8 +197,7 @@ class MainWindow(QMainWindow):
         self.selected_tags_bar.addStretch(1)
 
         # Set up the timeline
-        self.timeline = QLabel("Timeline: Number of files per month")
-        self.timeline.setAlignment(Qt.AlignCenter)
+        self.timeline = Timeline()
 
         # Set up the image view
         self.image_container = ImageGridWidget()
@@ -271,6 +270,7 @@ class MainWindow(QMainWindow):
     def update_items(self):
         files = db.get_images(self.page, self.get_selected_tags())
         self.image_container.show_images(files)
+        self.timeline.plot_histogram(files)
 
     def create_profile_menu(self):
         self.profile_menu.clear()
