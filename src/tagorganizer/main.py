@@ -59,7 +59,7 @@ from . import db
 from . import config
 from . import DBimport
 
-from .widgets import AddTagDialog, ImageGridWidget, ProfileDialog
+from .widgets import AddTagDialog, ImageGridWidget, ProfileDialog, SingleItem
 from .widgets.helper import load_pixmap, load_full_pixmap, CommaCompleter
 
 
@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
         # Set up the image view
         self.image_container = ImageGridWidget()
 
-        self.single_item = QLabel()
+        self.single_item = SingleItem()
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self.image_container, "Items")
@@ -411,6 +411,7 @@ class MainWindow(QMainWindow):
                 Qt.Key_Escape,
                 Qt.Key_Enter,
                 Qt.Key_Space,
+                Qt.Key_I,
             ]:
                 self.keyPressEvent(event)
                 return True  # Event has been handled
@@ -437,6 +438,9 @@ class MainWindow(QMainWindow):
                 self.highlight_n = min(self.highlight_n + 5, N)
         elif event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
             self.show_current_item()
+            return
+        elif event.key() == Qt.Key_I:
+            self.single_item.toggle_exif_visibility()
             return
         elif event.key() == Qt.Key_Escape:
             self.tabs.setCurrentIndex(0)
@@ -476,7 +480,7 @@ class MainWindow(QMainWindow):
         )
 
         self.single_item.setPixmap(pixmap)
-        self.single_item.setAlignment(Qt.AlignCenter)
+        self.single_item.load_exif(str(item.uri))
         self.tabs.setCurrentWidget(self.single_item)
 
     def on_tag_moved(self, src, dest):

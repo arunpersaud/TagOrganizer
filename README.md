@@ -61,6 +61,11 @@ Items can be selected by hitten the 'space' key, in which case they
 get a blue frame. The number of selected items is shown in the lower
 left of the main window.
 
+### EXIF
+
+In single item mode, you can toggle showing EXIF information by
+hitting the 'i' key.
+
 ### Tagging
 
 In the lower right a text entry is provided. Here tags can be defined
@@ -132,4 +137,3 @@ will keep the tag hierarchy intact.
   example, update the database when we add a new feature (e.g.,
   tracking data and time of the items which we currently are not
   doing)
-- import data from xmp files
