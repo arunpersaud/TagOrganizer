@@ -125,15 +125,12 @@ will keep the tag hierarchy intact.
 - Support more image formats
 - Support videos
 - Delete items from the database
-- Show timeline off all items
 - Show map of where images and videos where taken and be able to select by a region on a map
-- Cache thumbnails or use system thumbnail cache
 - Ability to copy selected photos to a temp folder (e.g., for further editing)
 - Option to move all photos into a certain data folder (say Photos/YYYY/MM/DD/<photo>)
-- Merge tags (i.e., if we have a tag with a typo and want to merge it with another tag)
+- Cache thumbnails or use system thumbnail cache
+- Merge tags (i.e., if we have a tag with a typo and want to merge it
+  with another tag, can be done manually already by selecting one tag,
+  adding the other and then deleting the first tag)
 - Duplicate detection (on filename and on image data)
 - Clean up the database
-- Support background tasks that do some of the above checks or, for
-  example, update the database when we add a new feature (e.g.,
-  tracking data and time of the items which we currently are not
-  doing)
