@@ -103,7 +103,7 @@ class MainWindow(QMainWindow):
         # Set up the menu bar
         menu_bar = self.menuBar()
         edit_menu = menu_bar.addMenu("Edit")
-        db_menu = menu_bar.addMenu("Database")
+        task_menu = menu_bar.addMenu("Tasks")
         self.profile_menu = menu_bar.addMenu("Profiles")
         help_menu = menu_bar.addMenu("Help")
 
@@ -131,9 +131,9 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(quit_action)
 
         # Database menu
-        db_update_timestamps_action = QAction("Update Timestamps", self)
+        db_update_timestamps_action = QAction("Update Timestamps in Db", self)
         db_update_timestamps_action.triggered.connect(self.db_update_timestamps)
-        db_menu.addAction(db_update_timestamps_action)
+        task_menu.addAction(db_update_timestamps_action)
 
         # Profile menu
         self.create_profile_menu()
