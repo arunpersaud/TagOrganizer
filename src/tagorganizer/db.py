@@ -20,6 +20,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 from sqlmodel import SQLModel, create_engine, select, Session, func, delete
 from sqlalchemy.orm import selectinload
+import sqlalchemy as sa
 
 from .models import Tag, Item, ItemTagLink
 
@@ -128,6 +129,20 @@ def add_image(filename):
         session.add(tmp)
         session.commit()
         return tmp.id
+
+
+def get_items_without_date() -> list[Item]:
+    with Session(engine) as session:
+        statement = select(Item).where(Item.date == sa.null())
+        results = session.exec(statement)
+        return results.all()
+
+
+def update_items_in_db(items: list[Item]) -> None:
+    with Session(engine) as session:
+        for i in items:
+            session.add(i)
+        session.commit()
 
 
 def get_all_tag_ids(tag_names: list[str]) -> list[int]:

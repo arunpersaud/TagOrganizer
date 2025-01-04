@@ -58,6 +58,7 @@ from docopt import docopt
 from . import db
 from . import config
 from . import DBimport
+from . import tasks
 
 from .widgets import AddTagDialog, ImageGridWidget, ProfileDialog, SingleItem
 from .widgets.helper import load_pixmap, load_full_pixmap, CommaCompleter
@@ -96,6 +97,10 @@ class MainWindow(QMainWindow):
 
         self.config = config.ConfigManager()
         self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
+
+        self.tasks = tasks.TaskManager()
+        self.tasks.register_generator(tasks.task_add_timestamp_to_db())
+        self.tasks.start()
 
         # Set up the menu bar
         menu_bar = self.menuBar()

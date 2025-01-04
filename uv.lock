@@ -80,6 +80,15 @@ wheels = [
 ]
 
 [[package]]
+name = "more-itertools"
+version = "10.5.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/78/65922308c4248e0eb08ebcbe67c95d48615cc6f27854b6f2e57143e9178f/more-itertools-10.5.0.tar.gz", hash = "sha256:5482bfef7849c25dc3c6dd53a6173ae4795da2a41a80faea6700d9f5846c5da6", size = 121020 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/7e/3a64597054a70f7c86eb0a7d4fc315b8c1ab932f64883a297bdffeb5f967/more_itertools-10.5.0-py3-none-any.whl", hash = "sha256:037b0d3203ce90cca8ab1defbbdac29d5f993fc20131f3664dc8d6acfa872aef", size = 60952 },
+]
+
+[[package]]
 name = "packaging"
 version = "24.2"
 source = { registry = "https://pypi.org/simple" }
@@ -228,12 +237,13 @@ wheels = [
 
 [[package]]
 name = "tagorganizer"
-version = "0.1.dev30+g669f2c3.d20250104"
+version = "0.1.dev32+g0b83c94.d20250104"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "docopt" },
     { name = "exifread" },
+    { name = "more-itertools" },
     { name = "platformdirs" },
     { name = "pyqt6" },
     { name = "qtpy" },
@@ -246,6 +256,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.14.0" },
     { name = "docopt", specifier = ">=0.6.2" },
     { name = "exifread", specifier = ">=3.0.0" },
+    { name = "more-itertools", specifier = ">=10.5.0" },
     { name = "platformdirs", specifier = ">=4.3.6" },
     { name = "pyqt6", specifier = ">=6.8.0" },
     { name = "qtpy", specifier = ">=2.4.2" },
