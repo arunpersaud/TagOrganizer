@@ -58,9 +58,8 @@ class TaskManager:
 
 
 def task_add_timestamp_to_db():
+    print("[INFO] Updating timestamps in db")
     items = db.get_items_without_date()
-
-    print(len(items))
 
     for chunk in chunked(items, 10):
         need_update = []
@@ -76,3 +75,4 @@ def task_add_timestamp_to_db():
                 need_update.append(entry)
         db.update_items_in_db(need_update)
         yield
+    print("[INFO] Done updating timestamps in db")

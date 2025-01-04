@@ -99,12 +99,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
 
         self.tasks = tasks.TaskManager()
-        self.tasks.register_generator(tasks.task_add_timestamp_to_db())
-        self.tasks.start()
 
         # Set up the menu bar
         menu_bar = self.menuBar()
         edit_menu = menu_bar.addMenu("Edit")
+        db_menu = menu_bar.addMenu("Database")
         self.profile_menu = menu_bar.addMenu("Profiles")
         help_menu = menu_bar.addMenu("Help")
 
@@ -130,6 +129,11 @@ class MainWindow(QMainWindow):
         quit_action.setShortcut("Ctrl+Q")
         quit_action.triggered.connect(self.close)
         edit_menu.addAction(quit_action)
+
+        # Database menu
+        db_update_timestamps_action = QAction("Update Timestamps", self)
+        db_update_timestamps_action.triggered.connect(self.db_update_timestamps)
+        db_menu.addAction(db_update_timestamps_action)
 
         # Profile menu
         self.create_profile_menu()
@@ -249,6 +253,10 @@ class MainWindow(QMainWindow):
         w.setParent(None)
         del self.selected_tags[i]
         self.update_items()
+
+    def db_update_timestamps(self):
+        self.tasks.register_generator(tasks.task_add_timestamp_to_db())
+        self.tasks.start()
 
     def show_tag_menu(self, position: QPoint):
         index = self.tag_view.indexAt(position)
