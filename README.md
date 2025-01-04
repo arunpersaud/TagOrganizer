@@ -34,10 +34,12 @@ after downloading the repo and before you make commits.
 - Allow tagging of images using hierachical tags
 - Allow adding and deleting tags and changing the hierachy
 - Allow selecting the shown images by tags (if multiple tags are
-  selected, then the shown photos will have all the tags, that is we
-  use a logical and between the tags)
-- Allow adding new photos from a directory (currently only .jpg and .JPG are supported)
+  selected, then the displayed photos will have all the tags, that is we
+  use a logical 'and' between the tags)
 - If a tag is selected that has children in the hierachy, all those items are also shown
+- Allow adding new photos from a directory (currently only .jpg and .JPG are supported)
+- Extract date from EXIF data
+- Option to show EXIF data
 - Import data from old F-Spot libraries
 
 ## User interface
@@ -54,6 +56,10 @@ The program currently always shows 25 images, if more are available
 then the next page will be shown when up/down or left/right reaches
 the end of current page. One can also go directly to the next/previous
 page by using 'shift-up' or 'shift-down'.
+
+Note: After startup, the program is in 'tagging' mode. That is the
+focus is on the tag input widget. To switch between 'tagging' and
+'navigation', hit the 'tab' key.
 
 ### Selecting items
 
@@ -74,8 +80,6 @@ tags. Multipile tags can be comma separted. If one hits enter then the
 tags will get assigned to all selected items or, if no items were
 selected, to the current item (red border).
 
-To switch between tagging mode and navigation mode use the 'tab' key.
-
 ### Ordering and deleting tags
 
 On the left a view of all the tags is available. Tags can be
@@ -85,7 +89,7 @@ have no children in the hierachy.
 
 ### Selecting tags
 
-To downselect the shown images, one can double-click on a tag in the
+To downselect the displayed images, one can double-click on a tag in the
 tag view. This will create a button with the tag name at the top of
 the window. The shown images will automatically update to only show
 items that have all selected tags. The 'clear' button can be used to
@@ -95,7 +99,7 @@ clicking on the tag button that is created at the top of the window.
 ### Profiles
 
 The program supports different profile. Each profile has its own
-database, that is its own collection of items and tags. The user
+database, that is its own collection of items and tags. The user can
 switch between different profiles using the menu and also create new
 profiles.
 
@@ -117,7 +121,7 @@ TagOrganizer to the F-Spot database:
 
     uv run TagOrganizer --config ~/some_dir/config.ini --profile=docs --import-from-f-spot=~/dir/to/fspot/photos.db
 
-This will copy the photos, tags and links between photo and tags. It
+This will add the photos, tags and links between photo and tags. It
 will keep the tag hierarchy intact.
 
 ## Planned features
