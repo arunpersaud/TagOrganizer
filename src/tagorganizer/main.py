@@ -130,10 +130,14 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(self.close)
         edit_menu.addAction(quit_action)
 
-        # Database menu
-        db_update_timestamps_action = QAction("Update Timestamps in Db", self)
+        # Task menu
+        db_update_timestamps_action = QAction("Update Timestamps in DB", self)
         db_update_timestamps_action.triggered.connect(self.db_update_timestamps)
         task_menu.addAction(db_update_timestamps_action)
+
+        db_update_location_action = QAction("Update Locations in DB", self)
+        db_update_location_action.triggered.connect(self.db_update_locations)
+        task_menu.addAction(db_update_location_action)
 
         # Profile menu
         self.create_profile_menu()
@@ -256,6 +260,10 @@ class MainWindow(QMainWindow):
 
     def db_update_timestamps(self):
         self.tasks.register_generator(tasks.task_add_timestamp_to_db())
+        self.tasks.start()
+
+    def db_update_locations(self):
+        self.tasks.register_generator(tasks.task_add_geolocation_to_db())
         self.tasks.start()
 
     def show_tag_menu(self, position: QPoint):

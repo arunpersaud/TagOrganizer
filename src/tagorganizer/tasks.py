@@ -76,3 +76,45 @@ def task_add_timestamp_to_db():
         db.update_items_in_db(need_update)
         yield
     print("[INFO] Done updating timestamps in db")
+
+
+def convert_to_degrees(value, ref):
+    d = float(value.values[0])
+    m = float(value.values[1])
+    s = float(value.values[2])
+
+    f = d + (m / 60.0) + (s / 3600.0)
+    if ref not in ["E", "N"]:
+        f = -f
+    return f
+
+
+def task_add_geolocation_to_db():
+    print("[INFO] Updating geolocations in db")
+    items = db.get_items_without_location()
+
+    for chunk in chunked(items, 10):
+        need_update = []
+        for entry in chunk:
+            filepath = Path(entry.uri)
+            if not filepath.is_file():
+                continue
+            tags = load_exif(filepath)
+
+            if "GPS GPSLongitude" in tags and "GPS GPSLatitude" in tags:
+                lon_values = tags["GPS GPSLongitude"]
+                lat_values = tags["GPS GPSLatitude"]
+
+                lon_ref = tags.get("GPS GPSLongitudeRef", "E")
+                lat_ref = tags.get("GPS GPSLatitudeRef", "N")
+
+                lon = convert_to_degrees(lon_values, lon_ref)
+                lat = convert_to_degrees(lat_values, lat_ref)
+
+                entry.longitude = lon
+                entry.latitude = lat
+
+                need_update.append(entry)
+        db.update_items_in_db(need_update)
+        yield
+    print("[INFO] Done updating geolocation in db")

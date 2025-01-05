@@ -138,6 +138,20 @@ def get_items_without_date() -> list[Item]:
         return results.all()
 
 
+def get_items_without_location() -> list[Item]:
+    with Session(engine) as session:
+        statement = select(Item).where(Item.longitude == sa.null())
+        results = session.exec(statement)
+        return results.all()
+
+
+def get_all_items_with_location():
+    with Session(engine) as session:
+        statement = select(Item).where(Item.longitude != sa.null())
+        results = session.exec(statement)
+        return results.all()
+
+
 def update_items_in_db(items: list[Item]) -> None:
     with Session(engine) as session:
         for i in items:
