@@ -42,25 +42,23 @@ from qtpy.QtWidgets import (
     QSizePolicy,
 )
 from qtpy.QtGui import QStandardItemModel, QStandardItem
-from qtpy.QtCore import (
-    Qt,
-    Signal,
-    QDataStream,
-    QIODevice,
-    QEvent,
-    QTimer,
-    QPoint,
-)
+from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QEvent, QTimer, QPoint
 
 from docopt import docopt
-
 
 from . import db
 from . import config
 from . import DBimport
 from . import tasks
 
-from .widgets import AddTagDialog, ImageGridWidget, ProfileDialog, SingleItem, Timeline
+from .widgets import (
+    AddTagDialog,
+    ImageGridWidget,
+    ProfileDialog,
+    SingleItem,
+    Timeline,
+    MapWidget,
+)
 from .widgets.helper import load_pixmap, load_full_pixmap, CommaCompleter
 
 
@@ -212,9 +210,12 @@ class MainWindow(QMainWindow):
 
         self.single_item = SingleItem()
 
+        self.map = MapWidget()
+
         self.tabs = QTabWidget()
         self.tabs.addTab(self.image_container, "Items")
         self.tabs.addTab(self.single_item, "Single")
+        self.tabs.addTab(self.map, "Map")
 
         self.update_items()
 
@@ -284,9 +285,10 @@ class MainWindow(QMainWindow):
         self.update_tags()
 
     def update_items(self):
-        files = db.get_images(self.page, self.get_selected_tags())
-        self.image_container.show_images(files)
-        self.timeline.plot_histogram(files)
+        items = db.get_images(self.page, self.get_selected_tags())
+        self.image_container.show_images(items)
+        self.timeline.plot_histogram(items)
+        self.map.set_markers(items)
 
     def create_profile_menu(self):
         self.profile_menu.clear()
@@ -584,7 +586,7 @@ def main():
 
     """)
 
-    app = QApplication([])
+    app = QApplication(sys.argv)
     window = MainWindow()
 
     if commands["--config"]:
