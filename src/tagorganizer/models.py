@@ -63,4 +63,8 @@ class Item(SQLModel, table=True):
     camera: str | None = Field(default=None, index=True)
     date: datetime | None = Field(default=None, index=True)
 
+    # location
+    longitude: float | None = Field(default=None, index=True)
+    latitude: float | None = Field(default=None, index=True)
+
     tags: list[Tag] = Relationship(back_populates="items", link_model=ItemTagLink)
