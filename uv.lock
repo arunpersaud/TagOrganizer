@@ -572,7 +572,7 @@ wheels = [
 
 [[package]]
 name = "tagorganizer"
-version = "0.2.dev4+gbdd9347.d20250105"
+version = "0.2.dev8+gb20384b.d20250105"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },

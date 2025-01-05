@@ -18,6 +18,8 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+from datetime import datetime
+
 from dateutil.relativedelta import relativedelta
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -50,8 +52,8 @@ class Timeline(FigureCanvas):
         self.dates = [i.date for i in items if i.date is not None]
         self.dates_plt = np.array([mdates.date2num(d) for d in self.dates])
 
-        start = min(self.dates)
-        end = max(self.dates)
+        start = min(self.dates) if self.dates else datetime(2000, 1, 1)
+        end = max(self.dates) if self.dates else datetime.now()
         delta = relativedelta(end, start)
         if delta.days <= 30:
             self.ax.xaxis.set_major_locator(mdates.DayLocator())
@@ -80,8 +82,11 @@ class Timeline(FigureCanvas):
         self.ax.spines["left"].set_visible(False)
         self.ax.yaxis.set_ticks([])
 
-        self.ax.set_xticks([self.dates_plt.min(), self.dates_plt.max()])
-        self.ax.set_xticklabels([start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")])
+        if len(self.dates_plt):
+            self.ax.set_xticks([self.dates_plt.min(), self.dates_plt.max()])
+            self.ax.set_xticklabels(
+                [start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")]
+            )
 
         self.figure.tight_layout()
         self.draw()

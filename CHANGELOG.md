@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - renamed 'Database' menu to 'Tasks' menu
 
+### Fixes
+
+- Timeline bug when no dates are available yet in the database
+
 ## [0.1] - 2025-01-04
 
 Initial release
