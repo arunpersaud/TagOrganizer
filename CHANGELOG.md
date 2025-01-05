@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added geolocation to the database and a new tab to display a map
+
 ### Changed
 
 - renamed 'Database' menu to 'Tasks' menu
