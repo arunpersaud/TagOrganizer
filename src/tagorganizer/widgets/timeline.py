@@ -24,17 +24,20 @@ from dateutil.relativedelta import relativedelta
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.dates as mdates
+from matplotlib.backend_bases import MouseButton
 import numpy as np
 
 
 class Timeline(FigureCanvas):
-    def __init__(self, parent=None):
-        fig = Figure(figsize=(10, 1))
-        self.ax = fig.add_subplot(111)
-        super().__init__(fig)
-        self.setParent(parent)
+    def __init__(self, main):
+        self.figure = Figure(figsize=(10, 1))
+        self.ax = self.figure.add_subplot(111)
+
+        super().__init__(self.figure)
+
+        self.main = main
+
         self.ax.xaxis_date()
-        self.dates = []
 
         self.figure.patch.set_facecolor("none")
         self.ax.set_facecolor("none")
@@ -47,10 +50,10 @@ class Timeline(FigureCanvas):
     def plot_histogram(self, dates):
         self.ax.clear()
         self.ax.xaxis_date()
-        self.dates_plt = np.array([mdates.date2num(d) for d in self.dates])
+        self.dates_plt = np.array([mdates.date2num(d) for d in dates])
 
-        start = min(self.dates) if self.dates else datetime(2000, 1, 1)
-        end = max(self.dates) if self.dates else datetime.now()
+        start = dates[-1] if dates else datetime(2000, 1, 1)
+        end = dates[0] if dates else datetime.now()
         delta = relativedelta(end, start)
         if delta.days <= 30:
             self.ax.xaxis.set_major_locator(mdates.DayLocator())
@@ -89,7 +92,9 @@ class Timeline(FigureCanvas):
         self.draw()
 
     def on_click(self, event):
-        # For future use if we want to downselect in time
         if event.inaxes == self.ax:
             clicked_date = mdates.num2date(event.xdata).date()
-            print(f"Clicked on date: {clicked_date}")
+            if event.button == MouseButton.LEFT:
+                self.main.tag_bar.add_time_tag(clicked_date, ">")
+            elif event.button == MouseButton.RIGHT:
+                self.main.tag_bar.add_time_tag(clicked_date, "<")

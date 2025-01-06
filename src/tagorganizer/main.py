@@ -193,7 +193,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(self.tag_bar)
 
         # Set up the timeline
-        self.timeline = Timeline()
+        self.timeline = Timeline(self)
 
         # Set up the image view
         self.image_container = ImageGridWidget()
@@ -254,11 +254,15 @@ class MainWindow(QMainWindow):
 
     def update_items(self):
         tags = self.tag_bar.get_selected_tags()
+        start_date = self.tag_bar.selected_times_min[0]
+        end_date = self.tag_bar.selected_times_max[0]
 
-        items = db.get_images(self.page, tags)
+        items = db.get_images(self.page, tags, start_date, end_date)
         self.image_container.show_images(items)
 
-        dates, coords = db.get_times_and_location_from_images(tags)
+        dates, coords = db.get_times_and_location_from_images(
+            tags, start_date, end_date
+        )
         self.timeline.plot_histogram(dates)
         self.map.set_markers(coords)
 

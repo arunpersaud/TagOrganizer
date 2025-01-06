@@ -96,6 +96,17 @@ items that have all selected tags. The 'clear' button can be used to
 remove all tags. Individual tags can be removed from the selection by
 clicking on the tag button that is created at the top of the window.
 
+### Selecting a time range
+
+By left clicking on the timeline one can select a minimum time for the
+displayed images. If one left-clicks again the time setting gets updates.
+
+Right clicking on the time range does the same, but for a maximum time.
+
+Both will create a button that will show up where the other selected
+tags show up. They will have labels like "< 2025-01-01". To remove the
+time constraint, click on the button.
+
 ### Profiles
 
 The program supports different profile. Each profile has its own

@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Task to add geolocation to the database and a new tab to display a map
 - Progressbar for background task in the statusbar
+- Left and right clicking in the timeline now set a min and max time
+  for the displayed images
 
 ### Changed
 
