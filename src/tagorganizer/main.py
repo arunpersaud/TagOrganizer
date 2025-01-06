@@ -471,9 +471,10 @@ class MainWindow(QMainWindow):
         self.selected_items_label.setText("Selected items: 0")
 
     def show_current_item(self):
-        item = db.get_current_image(self.highlight_n)
-        if not item:
+        widget = self.image_container.current_item()
+        if not widget:
             return
+        item = widget.item
         pixmap = load_full_pixmap(str(item.uri))
         pixmap = pixmap.scaled(
             self.single_item.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
