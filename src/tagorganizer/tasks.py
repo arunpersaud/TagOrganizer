@@ -57,7 +57,7 @@ class TaskManager:
 
     def stop(self):
         self.timer.stop()
-        self.generators = []
+        self.generators = deque()
         self.progressbar_label.setVisible(False)
         self.progressbar.setVisible(False)
 
