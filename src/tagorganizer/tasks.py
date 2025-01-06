@@ -139,8 +139,8 @@ def task_add_geolocation_to_db():
                 lon_values = tags["GPS GPSLongitude"]
                 lat_values = tags["GPS GPSLatitude"]
 
-                lon_ref = tags.get("GPS GPSLongitudeRef", "E")
-                lat_ref = tags.get("GPS GPSLatitudeRef", "N")
+                lon_ref = str(tags.get("GPS GPSLongitudeRef", "E"))
+                lat_ref = str(tags.get("GPS GPSLatitudeRef", "N"))
 
                 lon = convert_to_degrees(lon_values, lon_ref)
                 lat = convert_to_degrees(lat_values, lat_ref)
