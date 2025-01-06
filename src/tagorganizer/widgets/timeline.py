@@ -26,8 +26,6 @@ from matplotlib.figure import Figure
 import matplotlib.dates as mdates
 import numpy as np
 
-from ..models import Item
-
 
 class Timeline(FigureCanvas):
     def __init__(self, parent=None):
@@ -46,10 +44,9 @@ class Timeline(FigureCanvas):
         self.setMinimumHeight(100)
         self.setStyleSheet("background-color: transparent;")
 
-    def plot_histogram(self, items: list[Item]):
+    def plot_histogram(self, dates):
         self.ax.clear()
         self.ax.xaxis_date()
-        self.dates = [i.date for i in items if i.date is not None]
         self.dates_plt = np.array([mdates.date2num(d) for d in self.dates])
 
         start = min(self.dates) if self.dates else datetime(2000, 1, 1)

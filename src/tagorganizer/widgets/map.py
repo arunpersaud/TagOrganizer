@@ -7,8 +7,6 @@ from qtpy.QtCore import QObject, Slot, Signal
 
 import numpy as np
 
-from ..models import Item
-
 
 class MapBackend(QObject):
     boundsChanged = Signal(list)
@@ -60,22 +58,12 @@ class MapWidget(QWebEngineView):
             self.backend.on_bounds_received,
         )
 
-    def set_markers(self, items: list[Item]):
-        markers = []
-        lat = []
-        lon = []
-        for item in items:
-            if (item.longitude is not None) and (item.latitude is not None):
-                lat.append(item.latitude)
-                lon.append(item.longitude)
-                markers.append([item.latitude, item.longitude])
+    def set_markers(self, coords: list[float, float]):
+        FastMarkerCluster(coords).add_to(self.map)
 
-        FastMarkerCluster(markers).add_to(self.map)
-
-        if len(lat):
-            lat = np.array(lat)
-            lon = np.array(lon)
-            self.map.location = [lat.mean(), lon.mean()]
+        coords = np.array(coords)
+        if len(coords):
+            self.map.location = [coords[:, 0].mean(), coords[:, 1].mean()]
             self.map.zoom_start = 4
 
         self.load_map()

@@ -253,10 +253,14 @@ class MainWindow(QMainWindow):
         self.update_tags()
 
     def update_items(self):
-        items = db.get_images(self.page, self.tag_bar.get_selected_tags())
+        tags = self.tag_bar.get_selected_tags()
+
+        items = db.get_images(self.page, tags)
         self.image_container.show_images(items)
-        self.timeline.plot_histogram(items)
-        self.map.set_markers(items)
+
+        dates, coords = db.get_times_and_location_from_images(tags)
+        self.timeline.plot_histogram(dates)
+        self.map.set_markers(coords)
 
     def create_profile_menu(self):
         self.profile_menu.clear()

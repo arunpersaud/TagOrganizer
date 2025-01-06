@@ -232,6 +232,63 @@ def get_images(
         return items
 
 
+def get_times_and_location_from_images(
+    tags: list[str] | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    min_longitude: float | None = None,
+    max_longitude: float | None = None,
+    min_latitude: float | None = None,
+    max_latitude: float | None = None,
+) -> list:
+    with Session(engine) as session:
+        query = select(Item.date, Item.longitude, Item.latitude)
+
+        # Filter by date range
+        if start_date:
+            query = query.where(Item.date >= start_date)
+        if end_date:
+            query = query.where(Item.date <= end_date)
+
+        # Filter by geographical bounding box
+        if min_longitude is not None:
+            query = query.where(Item.longitude >= min_longitude)
+        if max_longitude is not None:
+            query = query.where(Item.longitude <= max_longitude)
+        if min_latitude is not None:
+            query = query.where(Item.latitude >= min_latitude)
+        if max_latitude is not None:
+            query = query.where(Item.latitude <= max_latitude)
+
+        # Filter by tags
+        if tags:
+            tag_ids = get_all_tag_ids(tags)
+            subquery = (
+                select(ItemTagLink.item_id)
+                .join(Tag, Tag.id == ItemTagLink.tag_id)
+                .filter(Tag.id.in_(tag_ids))
+                .group_by(ItemTagLink.item_id)
+                .having(func.count(ItemTagLink.tag_id) == len(tags))
+                .subquery()
+            )
+            query = query.where(Item.id.in_(select(subquery.c.item_id)))
+
+        # Sort by date in descending order
+        query = query.order_by(Item.date.desc())
+
+        items = session.exec(query).all()
+
+        dates = []
+        coords = []
+        for d, lon, lat in items:
+            if d is not None:
+                dates.append(d)
+            if (lat is not None) and (lon is not None):
+                coords.append((lat, lon))
+
+        return dates, coords
+
+
 def get_current_image(number):
     with Session(engine) as session:
         results = session.exec(select(Item).offset(number).limit(1))
