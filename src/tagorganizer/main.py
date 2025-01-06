@@ -32,14 +32,12 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
-    QPushButton,
     QStatusBar,
     QTabWidget,
     QTreeView,
     QVBoxLayout,
     QWidget,
     QMenu,
-    QSizePolicy,
 )
 from qtpy.QtGui import QStandardItemModel, QStandardItem
 from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QEvent, QTimer, QPoint
@@ -58,6 +56,7 @@ from .widgets import (
     SingleItem,
     Timeline,
     MapWidget,
+    TagBar,
 )
 from .widgets.helper import load_pixmap, load_full_pixmap, CommaCompleter
 
@@ -91,7 +90,6 @@ class MainWindow(QMainWindow):
 
         self.highlight_n = 0
         self.selected_items = []
-        self.selected_tags = []
 
         self.config = config.ConfigManager()
         self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
@@ -190,17 +188,8 @@ class MainWindow(QMainWindow):
         self.update_tags()
 
         # Selected Tags
-        self.selected_tags_bar = QHBoxLayout()
-        layout.addLayout(self.selected_tags_bar)
-
-        # Add a permanent clear button
-        self.clear_button = QPushButton("Clear")
-        self.clear_button.clicked.connect(self.clear_selected_tags)
-        self.clear_button.setSizePolicy(
-            QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum
-        )
-        self.selected_tags_bar.addWidget(self.clear_button, 0)
-        self.selected_tags_bar.addStretch(1)
+        self.tag_bar = TagBar(self)
+        layout.addLayout(self.tag_bar)
 
         # Set up the timeline
         self.timeline = Timeline()
@@ -233,31 +222,9 @@ class MainWindow(QMainWindow):
         # install event filter
         QApplication.instance().installEventFilter(self)
 
-    def clear_selected_tags(self):
-        for _, w in self.selected_tags:
-            w.setParent(None)
-        self.selected_tags = []
-        self.update_items()
-
     def select_tag(self, index: int):
         tag_name = self.tag_model.itemFromIndex(index).text()
-        tag_button = QPushButton(tag_name)
-        tag_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
-        tag_button.clicked.connect(lambda: self.remove_tag_button(tag_button))
-        self.selected_tags_bar.addWidget(tag_button, 0)
-        self.selected_tags.append((tag_name, tag_button))
-        self.update_items()
-
-    def get_selected_tags(self):
-        return [x[0] for x in self.selected_tags]
-
-    def remove_tag_button(self, w):
-        for i, (_, widget) in enumerate(self.selected_tags):
-            if w == widget:
-                break
-        w.setParent(None)
-        del self.selected_tags[i]
-        self.update_items()
+        self.tag_bar.add_tag(tag_name)
 
     def db_update_timestamps(self):
         self.tasks.register_generator(tasks.task_add_timestamp_to_db())
@@ -285,7 +252,7 @@ class MainWindow(QMainWindow):
         self.update_tags()
 
     def update_items(self):
-        items = db.get_images(self.page, self.get_selected_tags())
+        items = db.get_images(self.page, self.tag_bar.get_selected_tags())
         self.image_container.show_images(items)
         self.timeline.plot_histogram(items)
         self.map.set_markers(items)
