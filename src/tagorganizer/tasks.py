@@ -22,6 +22,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
+from qtpy.QtWidgets import QProgressBar, QLabel
 from qtpy.QtCore import QTimer
 from more_itertools import chunked
 
@@ -36,14 +37,28 @@ class TaskManager:
         self.timer.timeout.connect(self.run_next_task)
         self.current_gen_index = 0
 
+        self.progressbar_label = QLabel("Task")
+        self.progressbar = QProgressBar()
+        self.progressbar.setMaximumWidth(200)
+        self.progressbar_label.setVisible(False)
+        self.progressbar.setVisible(False)
+
+    def register_widgets(self, statusbar):
+        statusbar.addPermanentWidget(self.progressbar_label)
+        statusbar.addPermanentWidget(self.progressbar)
+
     def register_generator(self, gen):
         self.generators.append(gen)
 
-    def start(self, interval=1000):
+    def start(self, interval=500):
         self.timer.start(interval)
+        self.progressbar_label.setVisible(True)
+        self.progressbar.setVisible(True)
 
     def stop(self):
         self.timer.stop()
+        self.progressbar_label.setVisible(False)
+        self.progressbar.setVisible(False)
 
     def run_next_task(self):
         if not self.generators:
@@ -52,16 +67,24 @@ class TaskManager:
 
         gen = self.generators[0]
         try:
-            next(gen)
+            total, current = next(gen)
+            self.progressbar.setMaximum(total)
+            self.progressbar.setValue(current)
         except StopIteration:
             self.generators.popleft()
+            self.progressbar_label.setVisible(False)
+            self.progressbar.setVisible(False)
 
 
 def task_add_timestamp_to_db():
     print("[INFO] Updating timestamps in db")
     items = db.get_items_without_date()
 
-    for chunk in chunked(items, 10):
+    total = len(items)
+    current = 0
+    N = 10
+
+    for chunk in chunked(items, N):
         need_update = []
         for entry in chunk:
             filepath = Path(entry.uri)
@@ -70,11 +93,16 @@ def task_add_timestamp_to_db():
             tags = load_exif(filepath)
             if "EXIF DateTimeOriginal" in tags:
                 date_str = str(tags["EXIF DateTimeOriginal"])
-                date_obj = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
+                try:
+                    date_obj = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
+                except ValueError:
+                    print(f"Cannot parse date '{date_str}' for {entry.uri}")
+                    continue
                 entry.date = date_obj
                 need_update.append(entry)
         db.update_items_in_db(need_update)
-        yield
+        current += N
+        yield total, current
     print("[INFO] Done updating timestamps in db")
 
 
@@ -93,7 +121,11 @@ def task_add_geolocation_to_db():
     print("[INFO] Updating geolocations in db")
     items = db.get_items_without_location()
 
-    for chunk in chunked(items, 10):
+    total = len(items)
+    current = 0
+    N = 10
+
+    for chunk in chunked(items, N):
         need_update = []
         for entry in chunk:
             filepath = Path(entry.uri)
@@ -116,5 +148,6 @@ def task_add_geolocation_to_db():
 
                 need_update.append(entry)
         db.update_items_in_db(need_update)
-        yield
+        current += N
+        yield total, current
     print("[INFO] Done updating geolocation in db")

@@ -157,6 +157,7 @@ class MainWindow(QMainWindow):
         self.setup_autocomplete()
 
         # Add the tag_widget to the status bar and set its stretch factor to 1
+        self.tasks.register_widgets(self.status_bar)
         self.status_bar.addPermanentWidget(self.tag_line_edit, 1)
 
         # Set up the central widget
