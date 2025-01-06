@@ -18,6 +18,8 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+from datetime import datetime
+
 from sqlmodel import SQLModel, create_engine, select, Session, func, delete
 from sqlalchemy.orm import selectinload
 import sqlalchemy as sa
@@ -178,32 +180,54 @@ def get_all_tag_ids(tag_names: list[str]) -> list[int]:
         return list(tag_ids)
 
 
-def get_images(page=0, tags=None):
+def get_images(
+    page: int = 0,
+    tags: list[str] | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    min_longitude: float | None = None,
+    max_longitude: float | None = None,
+    min_latitude: float | None = None,
+    max_latitude: float | None = None,
+) -> list[Item]:
     with Session(engine) as session:
-        if not tags:
-            results = session.exec(select(Item).offset(25 * page).limit(25))
-            return results.all()
+        query = select(Item)
 
-        # first we need to include any children tags
-        # we also change from tag names to tag ids here
+        # Filter by date range
+        if start_date:
+            query = query.where(Item.date >= start_date)
+        if end_date:
+            query = query.where(Item.date <= end_date)
 
-        tag_ids = get_all_tag_ids(tags)
+        # Filter by geographical bounding box
+        if min_longitude is not None:
+            query = query.where(Item.longitude >= min_longitude)
+        if max_longitude is not None:
+            query = query.where(Item.longitude <= max_longitude)
+        if min_latitude is not None:
+            query = query.where(Item.latitude >= min_latitude)
+        if max_latitude is not None:
+            query = query.where(Item.latitude <= max_latitude)
 
-        subquery = (
-            select(ItemTagLink.item_id)
-            .join(Tag, Tag.id == ItemTagLink.tag_id)
-            .filter(Tag.id.in_(tag_ids))
-            .group_by(ItemTagLink.item_id)
-            .having(func.count(ItemTagLink.tag_id) == len(tags))
-            .subquery()
-        )
+        # Filter by tags
+        if tags:
+            tag_ids = get_all_tag_ids(tags)
+            subquery = (
+                select(ItemTagLink.item_id)
+                .join(Tag, Tag.id == ItemTagLink.tag_id)
+                .filter(Tag.id.in_(tag_ids))
+                .group_by(ItemTagLink.item_id)
+                .having(func.count(ItemTagLink.tag_id) == len(tags))
+                .subquery()
+            )
+            query = query.where(Item.id.in_(select(subquery.c.item_id)))
 
-        query = (
-            select(Item)
-            .where(Item.id.in_(select(subquery.c.item_id)))
-            .offset(25 * page)
-            .limit(25)
-        )
+        # Sort by date in descending order
+        query = query.order_by(Item.date.desc())
+
+        # Pagination
+        query = query.offset(25 * page).limit(25)
+
         items = session.exec(query).all()
         return items
 
