@@ -57,6 +57,7 @@ class TaskManager:
 
     def stop(self):
         self.timer.stop()
+        self.generators = []
         self.progressbar_label.setVisible(False)
         self.progressbar.setVisible(False)
 
@@ -72,8 +73,9 @@ class TaskManager:
             self.progressbar.setValue(current)
         except StopIteration:
             self.generators.popleft()
-            self.progressbar_label.setVisible(False)
-            self.progressbar.setVisible(False)
+            if not self.generators:
+                self.progressbar_label.setVisible(False)
+                self.progressbar.setVisible(False)
 
 
 def task_add_timestamp_to_db():

@@ -289,6 +289,7 @@ class MainWindow(QMainWindow):
         self.profile_menu.addAction(new_config_action)
 
     def change_profile(self, name):
+        self.tasks.stop()
         self.config.set_current_profile(name)
         self.update_tags()
         self.update_items()
