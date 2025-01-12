@@ -104,7 +104,7 @@ class MainWindow(QMainWindow):
         help_menu = menu_bar.addMenu("Help")
 
         # Edit menu
-        add_tag_action = QAction("Add Tag", self)
+        add_tag_action = QAction("Add New Tag", self)
         add_tag_action.triggered.connect(self.add_tag)
         add_tag_action.setShortcut("Ctrl+N")
         edit_menu.addAction(add_tag_action)

@@ -16,8 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- renamed 'Database' menu to 'Tasks' menu
-- order items by dates (newest first)
+- Renamed 'Database' menu to 'Tasks' menu
+- Order items by dates (newest first)
+- Focus on grid of images and not the tag editor
+- Renamed 'Add Tag' in menu to 'Add New Tag'
 
 ### Fixes
 
