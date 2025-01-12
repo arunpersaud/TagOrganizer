@@ -21,6 +21,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 from collections import deque
 from datetime import datetime
 from pathlib import Path
+import shutil
 
 from qtpy.QtWidgets import QProgressBar, QLabel
 from qtpy.QtCore import QTimer
@@ -153,3 +154,70 @@ def task_add_geolocation_to_db():
         current += N
         yield total, current
     print("[INFO] Done updating geolocation in db")
+
+
+def task_move_files(photo_dir: Path, video_dir: Path):
+    print("[INFO] sorting files into default dirs")
+    items = db.get_all_items_not_in_dir([photo_dir, video_dir], ["jpg", "jpeg"])
+
+    total = len(items)
+    current = 0
+    N = 10
+
+    print("   ", photo_dir)
+    print("   ", video_dir)
+
+    for chunk in chunked(items, N):
+        need_update = []
+        for item in chunk:
+            filepath = Path(item.uri)
+            if not filepath.is_file():
+                print(f"[Error] item {item.uri} does not exist")
+                continue
+
+            ext = filepath.suffix.lower()
+            if ext in [".jpg", ".jpeg"]:
+                correct_dir = Path(photo_dir)
+            elif ext in [".mp4", ".avi", ".mov"]:
+                correct_dir = Path(video_dir)
+            else:
+                print(f"[Error] item {item.uri} cannot handle {ext}")
+                continue
+
+            if item.date:
+                year = item.date.year
+                month = item.date.month
+                day = item.date.day
+            else:
+                print(f"[Error] item {item.uri} has no date set")
+                continue
+
+            # Construct the new directory path using the date components
+            correct_path = (
+                correct_dir
+                / f"{year:04d}"
+                / f"{month:02d}"
+                / f"{day:02d}"
+                / filepath.name
+            )
+            # lower the case for the extension
+            correct_path = correct_path.with_suffix(ext)
+
+            if correct_path.exists():
+                print(f"File already exists in the correct directory: {correct_path}")
+                continue
+
+            # Move the file
+            try:
+                correct_path.parent.mkdir(parents=True, exist_ok=True)
+
+                shutil.move(filepath, correct_path)
+                item.uri = str(correct_path)
+                need_update.append(item)
+                print(f"Moved {filepath} to {correct_path}")
+            except Exception:
+                print(f"Failed to move {filepath} to {correct_path}")
+        db.update_items_in_db(need_update)
+        current += N
+        yield total, current
+    print("[INFO] done sorting files into default dirs")

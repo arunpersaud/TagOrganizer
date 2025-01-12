@@ -61,8 +61,12 @@ class ConfigManager:
             sys.exit(3)
 
         self.db = self.config[self.profile]["database"]
-        self.photos = self.config[self.profile]["photo_path"]
-        self.videos = self.config[self.profile]["video_path"]
+        self.photos = (
+            Path(self.config[self.profile]["photo_path"]).expanduser().resolve()
+        )
+        self.videos = (
+            Path(self.config[self.profile]["video_path"]).expanduser().resolve()
+        )
 
         db.set_engine(self.db)
         os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{self.db}"

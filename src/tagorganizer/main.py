@@ -34,6 +34,7 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QStatusBar,
     QTabWidget,
+    QTextEdit,
     QTreeView,
     QVBoxLayout,
     QWidget,
@@ -135,6 +136,10 @@ class MainWindow(QMainWindow):
         db_update_location_action.triggered.connect(self.db_update_locations)
         task_menu.addAction(db_update_location_action)
 
+        move_files_action = QAction("Move files to default dirs", self)
+        move_files_action.triggered.connect(self.move_files)
+        task_menu.addAction(move_files_action)
+
         # Profile menu
         self.create_profile_menu()
 
@@ -202,10 +207,14 @@ class MainWindow(QMainWindow):
 
         self.map = MapWidget()
 
+        self.messages = QTextEdit()
+        self.messages.setReadOnly(True)
+
         self.tabs = QTabWidget()
         self.tabs.addTab(self.image_container, "Items")
         self.tabs.addTab(self.single_item, "Single")
         self.tabs.addTab(self.map, "Map")
+        self.tabs.addTab(self.messages, "Messages")
 
         self.update_items()
 
@@ -237,6 +246,12 @@ class MainWindow(QMainWindow):
 
     def db_update_locations(self):
         self.tasks.register_generator(tasks.task_add_geolocation_to_db())
+        self.tasks.start()
+
+    def move_files(self):
+        self.tasks.register_generator(
+            tasks.task_move_files(self.config.photos, self.config.videos)
+        )
         self.tasks.start()
 
     def show_tag_menu(self, position: QPoint):
@@ -535,7 +550,12 @@ class MainWindow(QMainWindow):
         if directory:
             print("selected: ", directory)
             mydir = Path(directory)
-            files = list(mydir.rglob("*.jpg")) + list(mydir.rglob("*.JPG"))
+            files = []
+            for ext in ["jpg", "jpeg"]:
+                new = list(mydir.rglob(f"*.{ext}"))
+                files = files + new
+                new = list(mydir.rglob(f"*.{ext.upper()}"))
+                files = files + new
             db.add_images(files)
             self.update_items()
 

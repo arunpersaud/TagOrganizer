@@ -19,10 +19,12 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
 from datetime import datetime
+from pathlib import Path
 
 from sqlmodel import SQLModel, create_engine, select, Session, func, delete
 from sqlalchemy.orm import selectinload
 import sqlalchemy as sa
+from sqlalchemy import or_
 
 from .models import Tag, Item, ItemTagLink
 
@@ -152,6 +154,26 @@ def get_all_items_with_location():
         statement = select(Item).where(Item.longitude != sa.null())
         results = session.exec(statement)
         return results.all()
+
+
+def get_all_items_not_in_dir(directories: list[Path], endings: list[str]):
+    with Session(engine) as session:
+        tmp = []
+        for e in endings:
+            tmp.append(e.lower())
+            tmp.append(e.upper())
+        tmp = endings
+
+        query = select(Item)
+
+        for directory in directories:
+            query = query.where(~Item.uri.startswith(str(directory)))
+
+        conditions = [Item.uri.endswith(ext) for ext in endings]
+        query = query.where(or_(*conditions))
+
+        items = session.exec(query).all()
+        return items
 
 
 def update_items_in_db(items: list[Item]) -> None:
