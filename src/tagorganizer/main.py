@@ -223,6 +223,10 @@ class MainWindow(QMainWindow):
         # install event filter
         QApplication.instance().installEventFilter(self)
 
+        # we want the cursor keys to move our red window at startup
+        # and not be in the tag_line
+        self.image_container.setFocus()
+
     def select_tag(self, index: int):
         tag_name = self.tag_model.itemFromIndex(index).text()
         self.tag_bar.add_tag(tag_name)
