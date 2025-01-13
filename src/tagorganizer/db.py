@@ -202,6 +202,48 @@ def get_all_tag_ids(tag_names: list[str]) -> list[int]:
         return list(tag_ids)
 
 
+def filter_query(
+    query,
+    tags: list[str] | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    min_longitude: float | None = None,
+    max_longitude: float | None = None,
+    min_latitude: float | None = None,
+    max_latitude: float | None = None,
+):
+    # Filter by date range
+    if start_date:
+        query = query.where(Item.date >= start_date)
+    if end_date:
+        query = query.where(Item.date <= end_date)
+
+    # Filter by geographical bounding box
+    if min_longitude is not None:
+        query = query.where(Item.longitude >= min_longitude)
+    if max_longitude is not None:
+        query = query.where(Item.longitude <= max_longitude)
+    if min_latitude is not None:
+        query = query.where(Item.latitude >= min_latitude)
+    if max_latitude is not None:
+        query = query.where(Item.latitude <= max_latitude)
+
+    # Filter by tags
+    if tags:
+        tag_ids = get_all_tag_ids(tags)
+        subquery = (
+            select(ItemTagLink.item_id)
+            .join(Tag, Tag.id == ItemTagLink.tag_id)
+            .filter(Tag.id.in_(tag_ids))
+            .group_by(ItemTagLink.item_id)
+            .having(func.count(ItemTagLink.tag_id) == len(tags))
+            .subquery()
+        )
+        query = query.where(Item.id.in_(select(subquery.c.item_id)))
+
+    return query
+
+
 def get_images(
     page: int = 0,
     tags: list[str] | None = None,
@@ -214,35 +256,16 @@ def get_images(
 ) -> list[Item]:
     with Session(engine) as session:
         query = select(Item)
-
-        # Filter by date range
-        if start_date:
-            query = query.where(Item.date >= start_date)
-        if end_date:
-            query = query.where(Item.date <= end_date)
-
-        # Filter by geographical bounding box
-        if min_longitude is not None:
-            query = query.where(Item.longitude >= min_longitude)
-        if max_longitude is not None:
-            query = query.where(Item.longitude <= max_longitude)
-        if min_latitude is not None:
-            query = query.where(Item.latitude >= min_latitude)
-        if max_latitude is not None:
-            query = query.where(Item.latitude <= max_latitude)
-
-        # Filter by tags
-        if tags:
-            tag_ids = get_all_tag_ids(tags)
-            subquery = (
-                select(ItemTagLink.item_id)
-                .join(Tag, Tag.id == ItemTagLink.tag_id)
-                .filter(Tag.id.in_(tag_ids))
-                .group_by(ItemTagLink.item_id)
-                .having(func.count(ItemTagLink.tag_id) == len(tags))
-                .subquery()
-            )
-            query = query.where(Item.id.in_(select(subquery.c.item_id)))
+        query = filter_query(
+            query,
+            tags,
+            start_date,
+            end_date,
+            min_longitude,
+            max_longitude,
+            min_latitude,
+            max_latitude,
+        )
 
         # Sort by date in descending order
         query = query.order_by(Item.date.desc())
@@ -252,6 +275,30 @@ def get_images(
 
         items = session.exec(query).all()
         return items
+
+
+def get_number_of_items(
+    tags: list[str] | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    min_longitude: float | None = None,
+    max_longitude: float | None = None,
+    min_latitude: float | None = None,
+    max_latitude: float | None = None,
+):
+    with Session(engine) as session:
+        query = select(func.count(Item.id))
+        query = filter_query(
+            query,
+            tags,
+            start_date,
+            end_date,
+            min_longitude,
+            max_longitude,
+            min_latitude,
+            max_latitude,
+        )
+        return session.exec(query).one()
 
 
 def get_times_and_location_from_images(
@@ -311,16 +358,18 @@ def get_times_and_location_from_images(
         return dates, coords
 
 
-def get_current_image(number):
+def get_current_image(number, tags, start_date, end_date):
     with Session(engine) as session:
-        results = session.exec(select(Item).offset(number).limit(1))
+        query = select(Item)
+        query = filter_query(
+            query,
+            tags,
+            start_date,
+            end_date,
+        )
+
+        results = session.exec(query.offset(number).limit(1))
         return results.first()
-
-
-def get_number_of_items():
-    with Session(engine) as session:
-        statement = select(func.count(Item.id))
-        return session.exec(statement).one()
 
 
 def get_common_tags(items: list[Item]) -> list[Tag]:

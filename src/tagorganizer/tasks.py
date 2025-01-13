@@ -32,7 +32,9 @@ from .widgets.helper import load_exif
 
 
 class TaskManager:
-    def __init__(self):
+    def __init__(self, main):
+        self.main = main
+
         self.generators = deque()
         self.timer = QTimer()
         self.timer.timeout.connect(self.run_next_task)
@@ -77,6 +79,20 @@ class TaskManager:
             if not self.generators:
                 self.progressbar_label.setVisible(False)
                 self.progressbar.setVisible(False)
+
+    def db_update_timestamps(self):
+        self.register_generator(task_add_timestamp_to_db())
+        self.start()
+
+    def db_update_locations(self):
+        self.register_generator(task_add_geolocation_to_db())
+        self.start()
+
+    def move_files(self):
+        self.register_generator(
+            task_move_files(self.main.config.photos, self.main.config.videos)
+        )
+        self.start()
 
 
 def task_add_timestamp_to_db():

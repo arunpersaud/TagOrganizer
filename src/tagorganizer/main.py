@@ -18,9 +18,9 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+import importlib.metadata
 from pathlib import Path
 import sys
-import time
 
 from qtpy.QtWidgets import (
     QAction,
@@ -41,7 +41,7 @@ from qtpy.QtWidgets import (
     QMenu,
 )
 from qtpy.QtGui import QStandardItemModel, QStandardItem
-from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QEvent, QTimer, QPoint
+from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QEvent, QPoint
 
 from docopt import docopt
 
@@ -59,7 +59,7 @@ from .widgets import (
     MapWidget,
     TagBar,
 )
-from .widgets.helper import load_pixmap, load_full_pixmap, CommaCompleter
+from .widgets.helper import load_full_pixmap, CommaCompleter
 
 
 class CustomStandardItemModel(QStandardItemModel):
@@ -87,15 +87,10 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.page = 0
-
-        self.highlight_n = 0
-        self.selected_items = []
-
         self.config = config.ConfigManager()
         self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
 
-        self.tasks = tasks.TaskManager()
+        self.tasks = tasks.TaskManager(self)
 
         # Set up the menu bar
         self.menu_bar = self.menuBar()
@@ -115,9 +110,9 @@ class MainWindow(QMainWindow):
                 ["Quit", "Ctrl+Q", self.close],
             ],
             "Tasks": [
-                ["Update Timestamps in DB", self.db_update_timestamps],
-                ["Update Locations in DB", self.db_update_locations],
-                ["Move Files to Default Dirs", self.move_files],
+                ["Update Timestamps in DB", self.tasks.db_update_timestamps],
+                ["Update Locations in DB", self.tasks.db_update_locations],
+                ["Move Files to Default Dirs", self.tasks.move_files],
             ],
             "Profiles": [],
             "Help": [["About", "Ctrl+H", self.show_about_dialog]],
@@ -126,7 +121,7 @@ class MainWindow(QMainWindow):
         self.menu = {}
         self.create_menu(menu)
 
-        # Profile menu
+        # dynamically create Profile menu depedning on config file
         self.create_profile_menu()
 
         # Set up the status bar
@@ -181,7 +176,7 @@ class MainWindow(QMainWindow):
         self.timeline = Timeline(self)
 
         # Set up the image view
-        self.image_container = ImageGridWidget()
+        self.grid = ImageGridWidget(self)
 
         self.single_item = SingleItem()
 
@@ -191,7 +186,7 @@ class MainWindow(QMainWindow):
         self.messages.setReadOnly(True)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self.image_container, "Items")
+        self.tabs.addTab(self.grid, "Items")
         self.tabs.addTab(self.single_item, "Single")
         self.tabs.addTab(self.map, "Map")
         self.tabs.addTab(self.messages, "Messages")
@@ -205,16 +200,39 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.timeline)
         layout.addLayout(layout2)
 
-        self.preloader = QTimer()
-        self.preloader.timeout.connect(self.preload_items)
-        self.preloader.start(1)
+        self.key_actions = {
+            "grid": {
+                Qt.Key_Left: self.grid.move_left,
+                Qt.Key_Right: self.grid.move_right,
+                Qt.Key_Up: self.grid.move_up,
+                Qt.Key_Down: self.grid.move_down,
+                Qt.Key_Return: self.show_current_item,
+                Qt.Key_Enter: self.show_current_item,
+                Qt.Key_Space: self.grid.toggle_selection,
+                (Qt.Key_Up, Qt.ShiftModifier): self.grid.shift_move_up,
+                (Qt.Key_Down, Qt.ShiftModifier): self.grid.shift_move_down,
+            },
+            "single": {
+                Qt.Key_I: self.single_item.toggle_exif_visibility,
+                Qt.Key_Escape: self.focus_grid,
+            },
+        }
+
+        self.keys_in_use = []
+        for w in self.key_actions:
+            keys = self.key_actions[w]
+            for k in keys:
+                if isinstance(k, tuple):
+                    self.keys_in_use.append(k[0])
+                else:
+                    self.keys_in_use.append(k)
 
         # install event filter
         QApplication.instance().installEventFilter(self)
 
         # we want the cursor keys to move our red window at startup
         # and not be in the tag_line
-        self.image_container.setFocus()
+        self.grid.setFocus()
 
     def create_menu(self, menu: dict):
         for key, submenu in menu.items():
@@ -241,20 +259,6 @@ class MainWindow(QMainWindow):
         tag_name = self.tag_model.itemFromIndex(index).text()
         self.tag_bar.add_tag(tag_name)
 
-    def db_update_timestamps(self):
-        self.tasks.register_generator(tasks.task_add_timestamp_to_db())
-        self.tasks.start()
-
-    def db_update_locations(self):
-        self.tasks.register_generator(tasks.task_add_geolocation_to_db())
-        self.tasks.start()
-
-    def move_files(self):
-        self.tasks.register_generator(
-            tasks.task_move_files(self.config.photos, self.config.videos)
-        )
-        self.tasks.start()
-
     def show_tag_menu(self, position: QPoint):
         index = self.tag_view.indexAt(position)
         if not index.isValid():
@@ -272,13 +276,19 @@ class MainWindow(QMainWindow):
         db.delete_tag(tag_id)
         self.update_tags()
 
-    def update_items(self):
+    def get_filters(self):
+        """Get items to display depending on selected tags, dates, etc."""
         tags = self.tag_bar.get_selected_tags()
         start_date = self.tag_bar.selected_times_min[0]
         end_date = self.tag_bar.selected_times_max[0]
 
-        items = db.get_images(self.page, tags, start_date, end_date)
-        self.image_container.show_images(items)
+        return tags, start_date, end_date
+
+    def update_items(self):
+        tags, start_date, end_date = self.get_filters()
+
+        items = db.get_images(self.grid.page, tags, start_date, end_date)
+        self.grid.show_images(items)
 
         dates, coords = db.get_times_and_location_from_images(
             tags, start_date, end_date
@@ -345,8 +355,11 @@ class MainWindow(QMainWindow):
         )
 
     def show_about_dialog(self):
+        version = importlib.metadata.version("tagorganizer")
+
         text = "This is TagOrganizer\n\n"
-        text += "profile name: default\n"
+        text += f"Version: {version}\n\n"
+        text += f"Profile name: {self.config.profile}\n"
         text += f"Setting file location: {self.config.config_file}\n"
         text += f"DB location: {self.config.db}\n"
         text += f"Photo location: {self.config.photos}\n"
@@ -369,10 +382,10 @@ class MainWindow(QMainWindow):
                 tag = db.get_tag(t)
             tag_list.append(tag)
 
-        if self.selected_items:
-            item_list = [w.item for w in self.selected_items]
+        if self.grid.selected_items:
+            item_list = [w.item for w in self.grid.selected_items]
         else:
-            current = self.image_container.current_item()
+            current = self.grid.current_item()
             if current is None:
                 return
             item_list = [current.item]
@@ -380,55 +393,22 @@ class MainWindow(QMainWindow):
             db.set_tags(item_list, tag_list)
 
     def display_common_tags(self):
-        if self.selected_items:
-            common_tags = db.get_common_tags([w.item for w in self.selected_items])
+        if self.grid.selected_items:
+            common_tags = db.get_common_tags([w.item for w in self.grid.selected_items])
         else:
-            current = self.image_container.current_item()
+            current = self.grid.current_item()
             if current is None:
                 return
             common_tags = db.get_common_tags([current.item])
 
         self.tag_line_edit.setText(",".join(common_tags))
 
-    def preload_items(self):
-        start = time.time()
-        N = db.get_number_of_items()
-        # thumbnails +- 2 pages
-        for i in range(self.page - 2, self.page + 3):
-            if i < 1:
-                continue
-            if i > N // 25:
-                continue
-            files = db.get_images(i)
-            for f in files:
-                load_pixmap(str(f.uri))
-                if time.time() - start > 0.1:
-                    return
-
-        # full files +- 5 from current image
-        for i in range(self.highlight_n - 5, self.highlight_n + 6):
-            if i < 0:
-                continue
-            if i >= N:
-                continue
-            file = db.get_current_image(i)
-            load_full_pixmap(str(file.uri))
-            if time.time() - start > 0.1:
-                return
-
     def eventFilter(self, source, event):
-        if event.type() == QEvent.KeyPress and not self.tag_line_edit.hasFocus():
-            if event.key() in [
-                Qt.Key_Left,
-                Qt.Key_Right,
-                Qt.Key_Up,
-                Qt.Key_Down,
-                Qt.Key_Return,
-                Qt.Key_Escape,
-                Qt.Key_Enter,
-                Qt.Key_Space,
-                Qt.Key_I,
-            ]:
+        if self.tag_line_edit.hasFocus():
+            return super().eventFilter(source, event)
+
+        if event.type() == QEvent.KeyPress:
+            if event.key() in self.keys_in_use:
                 self.keyPressEvent(event)
                 return True  # Event has been handled
         return super().eventFilter(source, event)
@@ -437,58 +417,40 @@ class MainWindow(QMainWindow):
         if self.tag_line_edit.hasFocus():
             return
 
-        N = db.get_number_of_items()
-        if event.key() == Qt.Key_Left:
-            self.highlight_n = max(self.highlight_n - 1, 0)
-        elif event.key() == Qt.Key_Right:
-            self.highlight_n = min(self.highlight_n + 1, N)
-        elif event.key() == Qt.Key_Up:
-            if event.modifiers() & Qt.ShiftModifier:
-                self.highlight_n = max(self.highlight_n - 25, 0)
-            else:
-                self.highlight_n = max(self.highlight_n - 5, 0)
-        elif event.key() == Qt.Key_Down:
-            if event.modifiers() & Qt.ShiftModifier:
-                self.highlight_n = min(self.highlight_n + 25, N)
-            else:
-                self.highlight_n = min(self.highlight_n + 5, N)
-        elif event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
-            self.show_current_item()
-            return
-        elif event.key() == Qt.Key_I:
-            self.single_item.toggle_exif_visibility()
-            return
-        elif event.key() == Qt.Key_Escape:
-            self.tabs.setCurrentIndex(0)
-            return
-        elif event.key() == Qt.Key_Space:
-            widget = self.image_container.toggle_selection()
-            if widget in self.selected_items:
-                self.selected_items.remove(widget)
-            else:
-                self.selected_items.append(widget)
-            self.selected_items_label.setText(
-                f"Selected items: {len(self.selected_items)}"
-            )
-            self.display_common_tags()
-            return
-        if self.tabs.currentWidget() == self.single_item:
-            self.show_current_item()
+        context = "single" if self.tabs.currentWidget() == self.single_item else "grid"
 
-        new_page = self.highlight_n // 25
-        if new_page != self.page:
-            self.page = new_page
-            self.update_items()
-        self.image_container.set_highlight(self.highlight_n)
-        self.display_common_tags()
+        key = event.key()
+        modifiers = event.modifiers()
+
+        relevant_modifiers = (
+            Qt.ShiftModifier | Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier
+        )
+        filtered_modifiers = modifiers & relevant_modifiers
+
+        if (key, filtered_modifiers) in self.key_actions[context]:
+            self.key_actions[context][(key, filtered_modifiers)]()
+        elif key in self.key_actions[context]:
+            self.key_actions[context][key]()
+
+        context = "single" if self.tabs.currentWidget() == self.single_item else "grid"
+
+        if context == "grid":
+            new_page = self.grid.highlight // self.grid.N
+            if new_page != self.grid.page:
+                self.grid.page = new_page
+                self.update_items()
+            self.display_common_tags()
+
+    def focus_grid(self):
+        self.tabs.setCurrentIndex(0)
 
     def clear_selection(self):
-        self.image_container.clear_selection()
-        self.selected_items = []
+        self.grid.clear_selection()
+        self.grid.selected_items = []
         self.selected_items_label.setText("Selected items: 0")
 
     def show_current_item(self):
-        widget = self.image_container.current_item()
+        widget = self.grid.current_item()
         if not widget:
             return
         item = widget.item
