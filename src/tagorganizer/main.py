@@ -98,56 +98,36 @@ class MainWindow(QMainWindow):
         self.tasks = tasks.TaskManager()
 
         # Set up the menu bar
-        menu_bar = self.menuBar()
-        edit_menu = menu_bar.addMenu("Edit")
-        task_menu = menu_bar.addMenu("Tasks")
-        self.profile_menu = menu_bar.addMenu("Profiles")
-        help_menu = menu_bar.addMenu("Help")
+        self.menu_bar = self.menuBar()
 
-        # Edit menu
-        add_tag_action = QAction("Add New Tag", self)
-        add_tag_action.triggered.connect(self.add_tag)
-        add_tag_action.setShortcut("Ctrl+N")
-        edit_menu.addAction(add_tag_action)
-
-        add_images_action = QAction("Add Images", self)
-        add_images_action.triggered.connect(self.add_directory)
-        add_images_action.setShortcut("Ctrl+I")
-        edit_menu.addAction(add_images_action)
-
-        edit_menu.addSeparator()
-        clear_selection_action = QAction("Clear Selection", self)
-        clear_selection_action.triggered.connect(self.clear_selection)
-        clear_selection_action.setShortcut("Ctrl+E")
-        edit_menu.addAction(clear_selection_action)
-
-        edit_menu.addSeparator()
-        quit_action = QAction("Quit", self)
-        quit_action.setShortcut("Ctrl+Q")
-        quit_action.triggered.connect(self.close)
-        edit_menu.addAction(quit_action)
-
-        # Task menu
-        db_update_timestamps_action = QAction("Update Timestamps in DB", self)
-        db_update_timestamps_action.triggered.connect(self.db_update_timestamps)
-        task_menu.addAction(db_update_timestamps_action)
-
-        db_update_location_action = QAction("Update Locations in DB", self)
-        db_update_location_action.triggered.connect(self.db_update_locations)
-        task_menu.addAction(db_update_location_action)
-
-        move_files_action = QAction("Move files to default dirs", self)
-        move_files_action.triggered.connect(self.move_files)
-        task_menu.addAction(move_files_action)
+        # the menu of the program as a dict. We automatically creates
+        # menus out of this and store the python objects in self.menu
+        # the submenu can be either "---" for a separator, two items
+        # for name and function, or 3 items for name, shortcut, and
+        # function
+        menu = {
+            "Edit": [
+                ["Add New Tag", "Ctrl+N", self.add_tag],
+                ["Add Images", "Ctrl+I", self.add_directory],
+                "---",
+                ["Clear Selection", "Ctrl+E", self.clear_selection],
+                "---",
+                ["Quit", "Ctrl+Q", self.close],
+            ],
+            "Tasks": [
+                ["Update Timestamps in DB", self.db_update_timestamps],
+                ["Update Locations in DB", self.db_update_locations],
+                ["Move Files to Default Dirs", self.move_files],
+            ],
+            "Profiles": [],
+            "Help": [["About", "Ctrl+H", self.show_about_dialog]],
+        }
+        # We use this variable to store links to the menu
+        self.menu = {}
+        self.create_menu(menu)
 
         # Profile menu
         self.create_profile_menu()
-
-        # Help menu
-        about_action = QAction("About", self)
-        about_action.triggered.connect(self.show_about_dialog)
-        about_action.setShortcut("Ctrl+H")
-        help_menu.addAction(about_action)
 
         # Set up the status bar
         self.status_bar = QStatusBar(self)
@@ -236,6 +216,27 @@ class MainWindow(QMainWindow):
         # and not be in the tag_line
         self.image_container.setFocus()
 
+    def create_menu(self, menu: dict):
+        for key, submenu in menu.items():
+            tmp = self.menu_bar.addMenu(key)
+            self.menu[key] = tmp
+
+            for item in submenu:
+                match item:
+                    case "---":
+                        self.menu[key].addSeparator()
+                    case [name, shortcut, func]:
+                        self.create_action(name, func, self.menu[key], shortcut)
+                    case [name, func]:
+                        self.create_action(name, func, self.menu[key], shortcut=None)
+
+    def create_action(self, name: str, func, menu, shortcut: str | None = None):
+        tmp = QAction(text=name, parent=self)
+        tmp.triggered.connect(func)
+        if shortcut:
+            tmp.setShortcut(shortcut)
+        menu.addAction(tmp)
+
     def select_tag(self, index: int):
         tag_name = self.tag_model.itemFromIndex(index).text()
         self.tag_bar.add_tag(tag_name)
@@ -286,7 +287,11 @@ class MainWindow(QMainWindow):
         self.map.set_markers(coords)
 
     def create_profile_menu(self):
-        self.profile_menu.clear()
+        if "Profiles" not in self.menu:
+            print("[ERROR] no 'Profiles' menu")
+            return
+
+        self.menu["Profiles"].clear()
 
         for p in self.config.get_profiles():
             tmp_action = QAction(p, self)
@@ -299,21 +304,13 @@ class MainWindow(QMainWindow):
             tmp_action.triggered.connect(
                 lambda checked, profile=p: self.change_profile(profile)
             )
-            self.profile_menu.addAction(tmp_action)
+            self.menu["Profiles"].addAction(tmp_action)
 
-        self.profile_menu.addSeparator()
-        new_profile_action = QAction("New Profile", self)
-        new_profile_action.triggered.connect(self.new_profile)
-        self.profile_menu.addAction(new_profile_action)
-
-        self.profile_menu.addSeparator()
-        new_config_action = QAction("New Config", self)
-        new_config_action.triggered.connect(self.new_config)
-        self.profile_menu.addAction(new_config_action)
-
-        new_config_action = QAction("Change Config", self)
-        new_config_action.triggered.connect(self.change_config)
-        self.profile_menu.addAction(new_config_action)
+        self.menu["Profiles"].addSeparator()
+        self.create_action("New Profile", self.new_profile, self.menu["Profiles"])
+        self.menu["Profiles"].addSeparator()
+        self.create_action("New Config", self.new_config, self.menu["Profiles"])
+        self.create_action("Change Config", self.change_config, self.menu["Profiles"])
 
     def change_profile(self, name):
         self.tasks.stop()
@@ -477,6 +474,7 @@ class MainWindow(QMainWindow):
             return
         if self.tabs.currentWidget() == self.single_item:
             self.show_current_item()
+
         new_page = self.highlight_n // 25
         if new_page != self.page:
             self.page = new_page
