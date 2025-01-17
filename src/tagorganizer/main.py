@@ -276,23 +276,14 @@ class MainWindow(QMainWindow):
         db.delete_tag(tag_id)
         self.update_tags()
 
-    def get_filters(self):
-        """Get items to display depending on selected tags, dates, etc."""
-        tags = self.tag_bar.get_selected_tags()
-        start_date = self.tag_bar.selected_times_min[0]
-        end_date = self.tag_bar.selected_times_max[0]
-
-        return tags, start_date, end_date
-
     def update_items(self):
-        tags, start_date, end_date = self.get_filters()
+        filters = self.tag_bar.get_filters()
 
-        items = db.get_images(self.grid.page, tags, start_date, end_date)
+        items = db.get_images(self.grid.page, filters)
         self.grid.show_images(items)
 
-        dates, coords = db.get_times_and_location_from_images(
-            tags, start_date, end_date
-        )
+        dates, coords = db.get_times_and_location_from_images(filters)
+
         self.timeline.plot_histogram(dates)
         self.map.set_markers(coords)
 

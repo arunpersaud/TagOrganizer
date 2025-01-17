@@ -131,8 +131,7 @@ class ImageGridWidget(QWidget):
 
     @change_highlight
     def move_right(self):
-        tags, start_date, end_date = self.main.get_filters()
-        N = db.get_number_of_items(tags, start_date, end_date)
+        N = db.get_number_of_items(self.main.tag_bar.get_filters())
 
         self.highlight = min(self.highlight + 1, N)
 
@@ -146,24 +145,21 @@ class ImageGridWidget(QWidget):
 
     @change_highlight
     def move_down(self):
-        tags, start_date, end_date = self.main.get_filters()
-        N = db.get_number_of_items(tags, start_date, end_date)
+        N = db.get_number_of_items(self.main.tag_bar.get_filters())
 
         self.highlight = min(self.highlight + self.columns, N)
 
     @change_highlight
     def shift_move_down(self):
-        tags, start_date, end_date = self.main.get_filters()
-        N = db.get_number_of_items(tags, start_date, end_date)
+        N = db.get_number_of_items(self.main.tag_bar.get_filters())
 
         self.highlight = min(self.highlight + self.N, N)
 
     def preload_items(self):
         start = time.time()
 
-        tags, start_date, end_date = self.main.get_filters()
-
-        N = db.get_number_of_items(tags, start_date, end_date)
+        filters = self.main.tag_bar.get_filters()
+        N = db.get_number_of_items(filters)
 
         # thumbnails +- 2 pages
         for i in range(self.page - 2, self.page + 3):
@@ -171,7 +167,7 @@ class ImageGridWidget(QWidget):
                 continue
             if i > N // self.N:
                 continue
-            files = db.get_images(i, tags, start_date, end_date)
+            files = db.get_images(i, filters)
             for f in files:
                 load_pixmap(str(f.uri))
                 if time.time() - start > 0.1:
@@ -183,7 +179,7 @@ class ImageGridWidget(QWidget):
                 continue
             if i >= N:
                 continue
-            file = db.get_current_image(i, tags, start_date, end_date)
+            file = db.get_current_image(i, filters)
             load_full_pixmap(str(file.uri))
             if time.time() - start > 0.1:
                 return
