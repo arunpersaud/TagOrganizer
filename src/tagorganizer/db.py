@@ -232,6 +232,15 @@ def filter_query(query, filter: Filters):
         )
         query = query.where(Item.id.in_(select(subquery.c.item_id)))
 
+    if filter.no_time:
+        query = query.where(Item.date == sa.null())
+    if filter.no_gps:
+        query = query.where(Item.latitude == sa.null())
+
+    if filter.wrong_dir and filter.directories:
+        for directory in filter.directories:
+            query = query.where(~Item.uri.startswith(str(directory)))
+
     return query
 
 

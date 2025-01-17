@@ -49,7 +49,6 @@ from . import db
 from . import config
 from . import DBimport
 from . import tasks
-
 from .widgets import (
     AddTagDialog,
     ImageGridWidget,
@@ -58,6 +57,7 @@ from .widgets import (
     Timeline,
     MapWidget,
     TagBar,
+    NOT_ALLOWED_TAGS,
 )
 from .widgets.helper import load_full_pixmap, CommaCompleter
 
@@ -365,6 +365,10 @@ class MainWindow(QMainWindow):
         tag_list = []
         for t in tags:
             tag = db.get_tag(t)
+            if tag in NOT_ALLOWED_TAGS:
+                print(f"Tag with name '{tag}' is not allowed due to internal use!")
+                continue
+
             if tag is None:
                 tag_id = db.add_tag(t)
                 tag_item = QStandardItem(t)
@@ -475,6 +479,7 @@ class MainWindow(QMainWindow):
         out = []
         for t in tags:
             tmp = QStandardItem(t.name)
+            tmp.setEditable(False)
             tmp.setData(t.id)
             out.append((tmp, t))
         # set up the hierachy
@@ -486,6 +491,12 @@ class MainWindow(QMainWindow):
                     if b.id == t.parent_id:
                         a.appendRow(tmp)
                         break
+
+        for tag in NOT_ALLOWED_TAGS:
+            tmp = QStandardItem(tag)
+            tmp.setEditable(False)
+            tmp.setBackground(Qt.lightGray)
+            self.tag_model.appendRow(tmp)
 
     def setup_autocomplete(self):
         tags = db.get_all_tags()
@@ -519,6 +530,10 @@ class MainWindow(QMainWindow):
                 if existing_tag:
                     QMessageBox.warning(
                         self, "Duplicate Tag", "The tag name already exists."
+                    )
+                elif tag_name in NOT_ALLOWED_TAGS:
+                    QMessageBox.warning(
+                        self, "Tag name not allowed", "The tag name is used internally."
                     )
                 else:
                     tag_id = db.add_tag(tag_name)

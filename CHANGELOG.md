@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- new automatically created tags that will show images without
+  timestamps, GPS or items that are not in the configured directories
+
 ## [0.2] - 2025-01-12
 
 ### Added

@@ -18,10 +18,14 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+from pathlib import Path
+
 from dataclasses import dataclass
 from datetime import datetime
 
 from qtpy.QtWidgets import QHBoxLayout, QPushButton, QSizePolicy, QWidget
+
+NOT_ALLOWED_TAGS = ["No Time", "No GPS", "Wrong dir"]
 
 
 @dataclass
@@ -37,6 +41,12 @@ class SelectedTag:
 
 
 @dataclass
+class SelectedBool:
+    value: bool | None = False
+    widget: QWidget | None = None
+
+
+@dataclass
 class Filters:
     tags: list[str] | None = None
     start_date: datetime | None = None
@@ -45,6 +55,10 @@ class Filters:
     max_longitude: float | None = None
     min_latitude: float | None = None
     max_latitude: float | None = None
+    wrong_dir: bool | None = False
+    no_time: bool | None = False
+    no_gps: bool | None = False
+    directories: list[Path] | None = None
 
 
 class TagBar(QHBoxLayout):
@@ -56,6 +70,11 @@ class TagBar(QHBoxLayout):
         self.selected_tags: list[SelectedTag] = []
         self.selected_times_min = SelectedTime()
         self.selected_times_max = SelectedTime()
+        self.bool = {
+            "Wrong dir": SelectedBool(),
+            "No Time": SelectedBool(),
+            "No GPS": SelectedBool(),
+        }
 
         self.clear_button = QPushButton("Clear")
         self.clear_button.clicked.connect(self.clear_selected_tags)
@@ -66,17 +85,40 @@ class TagBar(QHBoxLayout):
         self.addStretch(1)
 
     def clear_selected_tags(self):
-        for _, w in self.selected_tags:
-            w.setParent(None)
+        for t in self.selected_tags:
+            t.widget.setParent(None)
+        for key, v in self.bool.items():
+            if v.value:
+                v.widget.setParent(None)
+                self.bool[key].value = False
+
         self.selected_tags = []
         self.main.update_items()
 
+    def get_all_names(self):
+        out = []
+        for t in self.selected_tags:
+            out.append(t.name)
+        for k, v in self.bool.items():
+            if v.value:
+                out.append(k)
+        return out
+
     def add_tag(self, tag_name: str):
+        # check if tag_name already in tag_bar
+        if tag_name in self.get_all_names():
+            return
+
+        # if not, add new button
         tag_button = QPushButton(tag_name)
         tag_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
         tag_button.clicked.connect(lambda flag, t=tag_button: self.remove_tag_button(t))
         self.addWidget(tag_button, 0)
-        self.selected_tags.append(SelectedTag(tag_name, tag_button))
+        if tag_name in NOT_ALLOWED_TAGS:
+            self.bool[tag_name].value = True
+            self.bool[tag_name].widget = tag_button
+        else:
+            self.selected_tags.append(SelectedTag(tag_name, tag_button))
         self.main.update_items()
 
     def add_time_tag(self, date: datetime, min_max: str = "<"):
@@ -106,11 +148,15 @@ class TagBar(QHBoxLayout):
         self.main.update_items()
 
     def get_filters(self) -> Filters:
-        tags = [x.name for x in self.selected_tags]
-        start_date = self.selected_times_min.timestamp
-        end_date = self.selected_times_max.timestamp
-
-        return Filters(tags, start_date, end_date)
+        return Filters(
+            tags=[x.name for x in self.selected_tags],
+            start_date=self.selected_times_min.timestamp,
+            end_date=self.selected_times_max.timestamp,
+            wrong_dir=self.bool["Wrong dir"].value,
+            no_time=self.bool["No Time"].value,
+            no_gps=self.bool["No GPS"].value,
+            directories=[self.main.config.photos, self.main.config.videos],
+        )
 
     def remove_tag_button(self, w):
         found = False
@@ -130,5 +176,10 @@ class TagBar(QHBoxLayout):
                 w.setParent(None)
                 self.selected_times_max = SelectedTime()
                 del w
+            else:
+                for key, value in self.bool.items():
+                    if w == value.widget:
+                        w.setParent(None)
+                        self.bool[key].value = False
 
         self.main.update_items()

@@ -57,8 +57,8 @@ then the next page will be shown when up/down or left/right reaches
 the end of current page. One can also go directly to the next/previous
 page by using 'shift-up' or 'shift-down'.
 
-Note: After startup, the program is in 'tagging' mode. That is the
-focus is on the tag input widget. To switch between 'tagging' and
+Note: After startup, the program is in 'navigation' mode. That is the
+focus is on the grid widget. To switch between 'tagging' and
 'navigation', hit the 'tab' key.
 
 ### Selecting items
@@ -139,13 +139,17 @@ will keep the tag hierarchy intact.
 
 - Support more image formats
 - Support videos
-- Delete items from the database
-- Show map of where images and videos where taken and be able to select by a region on a map
-- Ability to copy selected photos to a temp folder (e.g., for further editing)
-- Option to move all photos into a certain data folder (say Photos/YYYY/MM/DD/<photo>)
+- Delete items from the database (either just from the database or
+  also the file)
+- Show map of where images and videos where taken and be able to
+  select by a region on a map
+- Ability to copy selected photos to a temp folder (e.g., for further
+  editing)
 - Cache thumbnails or use system thumbnail cache
 - Merge tags (i.e., if we have a tag with a typo and want to merge it
   with another tag, can be done manually already by selecting one tag,
   adding the other and then deleting the first tag)
 - Duplicate detection (on filename and on image data)
 - Clean up the database
+- Print name of files that are in the configured directories for
+  photos and videos, but not in the database
