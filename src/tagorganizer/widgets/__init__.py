@@ -5,3 +5,4 @@ from .single_item import SingleItem  # noqa: F401
 from .timeline import Timeline  # noqa: F401
 from .map import MapWidget  # noqa: F401
 from .tag_bar import TagBar, NOT_ALLOWED_TAGS  # noqa: F401
+from .delete_confirmation_dialog import DeleteConfirmationDialog  # noqa: F401

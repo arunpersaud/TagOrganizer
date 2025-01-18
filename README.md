@@ -139,8 +139,6 @@ will keep the tag hierarchy intact.
 
 - Support more image formats
 - Support videos
-- Delete items from the database (either just from the database or
-  also the file)
 - Show map of where images and videos where taken and be able to
   select by a region on a map
 - Ability to copy selected photos to a temp folder (e.g., for further

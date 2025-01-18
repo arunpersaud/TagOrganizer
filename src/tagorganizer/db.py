@@ -77,6 +77,15 @@ def delete_tag(id: int):
             session.commit()
 
 
+def delete_item(id: int):
+    with Session(engine) as session:
+        item = session.get(Item, id)
+        if item:
+            session.exec(delete(ItemTagLink).where(ItemTagLink.item_id == id))
+            session.delete(item)
+            session.commit()
+
+
 def get_all_tags():
     with Session(engine) as session:
         results = session.exec(select(Tag))

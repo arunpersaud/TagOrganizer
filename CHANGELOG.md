@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- new automatically created tags that will show images without
+- New automatically created tags that will show images without
   timestamps, GPS or items that are not in the configured directories
+- Delete selected (or current) file(s), either from database or also
+  from the file system
 
 ## [0.2] - 2025-01-12
 

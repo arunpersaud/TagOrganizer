@@ -51,6 +51,7 @@ from . import DBimport
 from . import tasks
 from .widgets import (
     AddTagDialog,
+    DeleteConfirmationDialog,
     ImageGridWidget,
     ProfileDialog,
     SingleItem,
@@ -104,6 +105,8 @@ class MainWindow(QMainWindow):
             "Edit": [
                 ["Add New Tag", "Ctrl+N", self.add_tag],
                 ["Add Images", "Ctrl+I", self.add_directory],
+                "---",
+                ["Delete", "Ctrl+D", self.delete_items],
                 "---",
                 ["Clear Selection", "Ctrl+E", self.clear_selection],
                 "---",
@@ -511,6 +514,29 @@ class MainWindow(QMainWindow):
         completer = CommaCompleter(tags)
 
         self.tag_line_edit.setCompleter(completer)
+
+    def delete_items(self):
+        items_to_delete = (
+            self.grid.selected_items
+            if self.grid.selected_items
+            else [self.grid.current_item().item]
+        )
+
+        if not items_to_delete:
+            return
+
+        dialog = DeleteConfirmationDialog(items_to_delete, self)
+        if dialog.exec_() == QDialog.Accepted:
+            delete_files = dialog.should_delete_files()
+            for item in items_to_delete:
+                if delete_files:
+                    filepath = Path(item.uri)
+                    if filepath.exists():
+                        filepath.unlink()
+                db.delete_item(item)
+
+            self.grid.selected_items = []
+            self.update_items()  # Assuming update_items refreshes the displayed items
 
     def add_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")

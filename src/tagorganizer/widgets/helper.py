@@ -29,9 +29,9 @@ import exifread as exif
 
 
 @lru_cache(1_000)
-def load_pixmap(file):
+def load_pixmap(file, size=150):
     pixmap = QPixmap(file)
-    pixmap = pixmap.scaledToWidth(150, Qt.SmoothTransformation)
+    pixmap = pixmap.scaledToWidth(size, Qt.SmoothTransformation)
     orientation = get_orientation(file)
     pixmap = rotate_pixmap(pixmap, orientation)
 
