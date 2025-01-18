@@ -358,6 +358,12 @@ class MainWindow(QMainWindow):
         QMessageBox.about(self, "TagOrganizer", text)
 
     def handle_tags(self):
+        """Set tags to selected images.
+
+        Take all comma-separated tags from the tag_line widget and apply
+        them to either the current item if no other items are selected
+        or all selected items.
+        """
         tag_str = self.tag_line_edit.text()
         tags = tag_str.strip().split(",")
         tags = [t.strip().title() for t in tags]
@@ -378,7 +384,7 @@ class MainWindow(QMainWindow):
             tag_list.append(tag)
 
         if self.grid.selected_items:
-            item_list = [w.item for w in self.grid.selected_items]
+            item_list = self.grid.selected_items
         else:
             current = self.grid.current_item()
             if current is None:
@@ -389,7 +395,7 @@ class MainWindow(QMainWindow):
 
     def display_common_tags(self):
         if self.grid.selected_items:
-            common_tags = db.get_common_tags([w.item for w in self.grid.selected_items])
+            common_tags = db.get_common_tags(self.grid.selected_items)
         else:
             current = self.grid.current_item()
             if current is None:

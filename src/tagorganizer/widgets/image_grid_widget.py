@@ -75,6 +75,8 @@ class ImageGridWidget(QWidget):
 
         for i, item in enumerate(items):
             label = FramedLabel(item)
+            if item in self.selected_items:
+                label.selected = True
             self.widgets.append(label)
             self.layout.addWidget(label, row, col)
             item = self.layout.itemAtPosition(row, col).widget()
@@ -114,10 +116,12 @@ class ImageGridWidget(QWidget):
             widget = self.widgets[current]
             widget.toggle_selected()
 
-            if widget in self.selected_items:
-                self.selected_items.remove(widget)
+            item = widget.item
+
+            if item in self.selected_items:
+                self.selected_items.remove(item)
             else:
-                self.selected_items.append(widget)
+                self.selected_items.append(item)
             self.main.selected_items_label.setText(
                 f"Selected items: {len(self.selected_items)}"
             )
