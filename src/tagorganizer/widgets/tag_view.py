@@ -1,4 +1,4 @@
-from qtpy.QtWidgets import QTreeView, QMenu
+from qtpy.QtWidgets import QTreeView, QMenu, QSizePolicy
 from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QPoint
 from qtpy.QtGui import QStandardItemModel, QStandardItem
 
@@ -45,6 +45,8 @@ class TagView(QTreeView):
 
         self.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
         self.doubleClicked.connect(self.select_tag)
+
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
 
     def on_tag_moved(self, src, dest):
         src_id = None

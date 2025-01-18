@@ -18,7 +18,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
-from qtpy.QtWidgets import QLabel
+from qtpy.QtWidgets import QLabel, QSizePolicy
 from qtpy.QtGui import QPainter, QPen
 from qtpy.QtCore import Qt
 
@@ -31,12 +31,15 @@ class FramedLabel(QLabel):
     def __init__(self, item, *args, **kwargs):
         super().__init__(*args, **kwargs)
         filename = str(item.uri)
-        pixmap = load_pixmap(filename)
-        self.setPixmap(pixmap)
+        self.pixmap_width = 150
+        self.pixmap = load_pixmap(filename, self.pixmap_width)
+        self.setPixmap(self.pixmap)
         self.setAlignment(Qt.AlignCenter)
         self.selected = False
         self.highlight = False
         self.item = item
+
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
 
     def toggle_selected(self):
         self.selected = not self.selected
@@ -57,3 +60,19 @@ class FramedLabel(QLabel):
             pen = QPen(Qt.red, 5)
             painter.setPen(pen)
             painter.drawRect(self.rect())
+
+    def resizeEvent(self, event):
+        # reload pixmap if needed to get reasonable resolution
+        if self.width() > 1.5 * self.pixmap_width:
+            self.pixmap_width = self.width()
+            self.pixmap = load_pixmap(self.item.uri, self.pixmap_width)
+        if self.width() < 0.6 * self.pixmap_width:
+            self.pixmap_width = self.width()
+            self.pixmap = load_pixmap(self.item.uri, self.pixmap_width)
+
+        # scale pixmapx
+        scaled_pixmap = self.pixmap.scaled(
+            self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+        self.setPixmap(scaled_pixmap)
+        super().resizeEvent(event)

@@ -27,6 +27,8 @@ import matplotlib.dates as mdates
 from matplotlib.backend_bases import MouseButton
 import numpy as np
 
+from qtpy.QtWidgets import QSizePolicy
+
 
 class Timeline(FigureCanvas):
     def __init__(self, main):
@@ -44,8 +46,9 @@ class Timeline(FigureCanvas):
 
         self.mpl_connect("button_press_event", self.on_click)
 
-        self.setMinimumHeight(100)
         self.setStyleSheet("background-color: transparent;")
+
+        self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
 
     def plot_histogram(self, dates):
         self.ax.clear()

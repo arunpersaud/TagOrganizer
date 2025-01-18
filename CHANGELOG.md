@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the file system
 - Ability to copy selected items to a folder
 
+### Fixed
+- scaling of thumbnails in grid view, so that we always can see the
+  whole window
+
 ## [0.2] - 2025-01-12
 
 ### Added

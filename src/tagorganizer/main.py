@@ -63,8 +63,10 @@ from .widgets.helper import load_full_pixmap, CommaCompleter
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, app):
         super().__init__()
+
+        self.app = app
 
         self.config = config.ConfigManager()
         self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
@@ -506,7 +508,7 @@ def main():
     """)
 
     app = QApplication(sys.argv)
-    window = MainWindow()
+    window = MainWindow(app)
 
     if commands["--config"]:
         configfile = Path(commands["--config"]).expanduser()
