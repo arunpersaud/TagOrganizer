@@ -434,7 +434,7 @@ class MainWindow(QMainWindow):
                     filepath = Path(item.uri)
                     if filepath.exists():
                         filepath.unlink()
-                db.delete_item(item)
+                db.delete_item(item.id)
 
             self.grid.selected_items = []
             self.update_items()  # Assuming update_items refreshes the displayed items
