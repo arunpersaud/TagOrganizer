@@ -31,15 +31,19 @@ after downloading the repo and before you make commits.
 
 ## Features
 
-- Allow tagging of images using hierachical tags
-- Allow adding and deleting tags and changing the hierachy
-- Allow selecting the shown images by tags (if multiple tags are
-  selected, then the displayed photos will have all the tags, that is we
-  use a logical 'and' between the tags)
+- Tagging of images using hierachical tags (single photos or multiple)
+- Adding and deleting tags and changing the hierachy
+- Selecting the displayed images by tags (if multiple tags are
+  selected, then the displayed photos will have all the tags, that is
+  we use a logical 'and' between the tags), select by an area on the
+  map, select by a min/max date
 - If a tag is selected that has children in the hierachy, all those items are also shown
-- Allow adding new photos from a directory (currently only .jpg and .JPG are supported)
-- Extract date from EXIF data
-- Option to show EXIF data
+- Photos can be added by selecting a directory. All jpg/jpeg files in
+  that directory will be added (including subdirectories)
+- Delete selected photos from the database and/or filesystem
+- Extract date and geolocation from EXIF data
+- Option to show EXIF data and filename in single photo view (keys 'i', 'f')
+- Create a copy of selected photo in a certain directory
 - Import data from old F-Spot libraries
 
 ## User interface
@@ -71,6 +75,11 @@ left of the main window.
 
 In single item mode, you can toggle showing EXIF information by
 hitting the 'i' key.
+
+### Filename
+
+In single item mode, you can show the filename of the item by hitting
+the 'f' key.
 
 ### Tagging
 
@@ -106,6 +115,25 @@ Right clicking on the time range does the same, but for a maximum time.
 Both will create a button that will show up where the other selected
 tags show up. They will have labels like "< 2025-01-01". To remove the
 time constraint, click on the button.
+
+### Selecting an area on the mapView
+
+Zoom the map to the area you want to use and hit the 'Select area'
+button.  The contraint can be lifted by clicking on the button that is
+created in the tag bar.
+
+### Deleting items
+
+The menu (or ctrl+d) provides a way to remove items from the database
+and/or the filesystem.
+
+If not items are selected (blue frames), the current item (red frame)
+will be used.
+
+Before deletion, a popup window will show smaller thumbnails of all
+items. Hovering over those thumbnails will show the filename. In this
+dialog the user can select if the files should also be deleted or if
+the item only should be removed from the database.
 
 ### Profiles
 

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the file system
 - Ability to copy selected items to a folder
 - The 'F'-key will now show the file location in single item view
+- Select photos by area shown in the map window
 
 ### Fixed
 - Scaling of thumbnails in grid view, so that we always can see the
