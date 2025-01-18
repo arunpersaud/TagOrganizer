@@ -13,9 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Delete selected (or current) file(s), either from database or also
   from the file system
 - Ability to copy selected items to a folder
+- The 'F'-key will now show the file location in single item view
 
 ### Fixed
-- scaling of thumbnails in grid view, so that we always can see the
+- Scaling of thumbnails in grid view, so that we always can see the
   whole window
 
 ## [0.2] - 2025-01-12
