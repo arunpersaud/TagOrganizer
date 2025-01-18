@@ -141,8 +141,6 @@ will keep the tag hierarchy intact.
 - Support videos
 - Show map of where images and videos where taken and be able to
   select by a region on a map
-- Ability to copy selected photos to a temp folder (e.g., for further
-  editing)
 - Cache thumbnails or use system thumbnail cache
 - Merge tags (i.e., if we have a tag with a typo and want to merge it
   with another tag, can be done manually already by selecting one tag,

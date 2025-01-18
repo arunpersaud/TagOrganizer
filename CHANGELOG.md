@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timestamps, GPS or items that are not in the configured directories
 - Delete selected (or current) file(s), either from database or also
   from the file system
+- Ability to copy selected items to a folder
 
 ## [0.2] - 2025-01-12
 

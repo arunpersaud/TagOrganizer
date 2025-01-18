@@ -20,6 +20,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 import importlib.metadata
 from pathlib import Path
+import shutil
 import sys
 
 from qtpy.QtWidgets import (
@@ -85,6 +86,7 @@ class MainWindow(QMainWindow):
                 "---",
                 ["Delete", "Ctrl+D", self.delete_items],
                 "---",
+                ["Copy Selection to dir", self.copy_selection],
                 ["Clear Selection", "Ctrl+E", self.clear_selection],
                 "---",
                 ["Quit", "Ctrl+Q", self.close],
@@ -388,6 +390,24 @@ class MainWindow(QMainWindow):
 
     def focus_grid(self):
         self.tabs.setCurrentIndex(0)
+
+    def copy_selection(self):
+        directory = QFileDialog.getExistingDirectory(None, "Select Directory")
+
+        if not directory:
+            return
+        target = Path(directory)
+        if not target.is_dir():
+            print(f"[ERROR] target {target} not a directory.")
+            return
+
+        for item in self.grid.selected_items:
+            source = Path(item.uri)
+            if not source.is_file():
+                print(f"[ERROR] item at {source} does not exist...skipping")
+                continue
+            destination = target / source.name
+            shutil.copy(source, destination)
 
     def clear_selection(self):
         self.grid.clear_selection()
