@@ -3,7 +3,7 @@ from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QPoint
 from qtpy.QtGui import QStandardItemModel, QStandardItem
 
 from .. import db
-from .tag_bar import NOT_ALLOWED_TAGS
+from .tag_bar import RESERVED_TAGS
 
 
 class CustomStandardItemModel(QStandardItemModel):
@@ -112,5 +112,5 @@ class TagView(QTreeView):
                         a.appendRow(tmp)
                         break
 
-        for tag in NOT_ALLOWED_TAGS:
+        for tag in RESERVED_TAGS:
             self.add_tag(tag, background=Qt.lightGray)

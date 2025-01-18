@@ -57,7 +57,7 @@ from .widgets import (
     MapWidget,
     TagBar,
     TagView,
-    NOT_ALLOWED_TAGS,
+    RESERVED_TAGS,
 )
 from .widgets.helper import load_full_pixmap, CommaCompleter
 
@@ -319,7 +319,7 @@ class MainWindow(QMainWindow):
         tag_list = []
         for t in tags:
             tag = db.get_tag(t)
-            if tag in NOT_ALLOWED_TAGS:
+            if tag in RESERVED_TAGS:
                 print(f"Tag with name '{tag}' is not allowed due to internal use!")
                 continue
 
@@ -484,7 +484,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(
                         self, "Duplicate Tag", "The tag name already exists."
                     )
-                elif tag_name in NOT_ALLOWED_TAGS:
+                elif tag_name in RESERVED_TAGS:
                     QMessageBox.warning(
                         self, "Tag name not allowed", "The tag name is used internally."
                     )

@@ -25,7 +25,7 @@ from datetime import datetime
 
 from qtpy.QtWidgets import QHBoxLayout, QPushButton, QSizePolicy, QWidget
 
-NOT_ALLOWED_TAGS = ["No Time", "No GPS", "Wrong dir"]
+RESERVED_TAGS = ["No Time", "No GPS", "Wrong dir"]
 
 
 @dataclass
@@ -114,7 +114,7 @@ class TagBar(QHBoxLayout):
         tag_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
         tag_button.clicked.connect(lambda flag, t=tag_button: self.remove_tag_button(t))
         self.addWidget(tag_button, 0)
-        if tag_name in NOT_ALLOWED_TAGS:
+        if tag_name in RESERVED_TAGS:
             self.bool[tag_name].value = True
             self.bool[tag_name].widget = tag_button
         else:
