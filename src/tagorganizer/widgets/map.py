@@ -2,45 +2,19 @@ import io
 import folium
 from folium.plugins import FastMarkerCluster
 from qtpy.QtWebEngineWidgets import QWebEngineView
-from qtpy.QtWebChannel import QWebChannel
-from qtpy.QtCore import QObject, Slot, Signal
+from qtpy.QtWidgets import QWidget, QVBoxLayout, QPushButton
 
 import numpy as np
 
 
-class MapBackend(QObject):
-    boundsChanged = Signal(list)
-    markerClicked = Signal(str)
-
-    def __init__(self):
+class MapView(QWebEngineView):
+    def __init__(self, main):
         super().__init__()
-
-    @Slot(list)
-    def on_bounds_received(self, bounds):
-        print(f"North-East: {bounds[0]}, {bounds[1]}")
-        print(f"South-West: {bounds[2]}, {bounds[3]}")
-        self.boundsChanged.emit(bounds)
-
-    @Slot(str)
-    def on_marker_clicked(self, marker_id):
-        print(f"Marker clicked: {marker_id}")
-        self.markerClicked.emit(marker_id)
-
-
-class MapWidget(QWebEngineView):
-    def __init__(self):
-        super().__init__()
+        self.main = main
 
         self.map = folium.Map(location=[37.7749, -122.4194], zoom_start=2)
-        self.backend = MapBackend()
-        self.channel = QWebChannel()
-        self.channel.registerObject("backend", self.backend)
-        self.page().setWebChannel(self.channel)
+        self.map_name = ""
         self.load_map()
-
-        # Connect signals to slots
-        self.backend.boundsChanged.connect(self.handle_bounds_changed)
-        self.backend.markerClicked.connect(self.handle_marker_clicked)
 
     def set_location(self, longitude, latitude, zoom):
         self.map.location = [latitude, longitude]
@@ -48,17 +22,24 @@ class MapWidget(QWebEngineView):
         self.load_map()
 
     def get_bounds(self):
-        self.page().runJavaScript(
-            """
-            var bounds = map.getBounds();
-            var ne = bounds.getNorthEast();
-            var sw = bounds.getSouthWest();
-            [ne.lat, ne.lng, sw.lat, sw.lng];
-        """,
-            self.backend.on_bounds_received,
+        self.page().runJavaScript(f"{self.map_name}.getBounds()", self.bounds_callback)
+
+    def bounds_callback(self, bounds):
+        NE = bounds["_northEast"]
+        SW = bounds["_southWest"]
+
+        self.main.tag_bar.selected_area.set_values(
+            min_longitude=SW["lng"],
+            max_longitude=NE["lng"],
+            min_latitude=SW["lat"],
+            max_latitude=NE["lat"],
         )
+        self.main.tag_bar.add_area_tag()
 
     def set_markers(self, coords: list[float, float]):
+        # recreate map, to get rid of old markers
+        self.map = folium.Map(location=[37.7749, -122.4194], zoom_start=2)
+
         FastMarkerCluster(coords).add_to(self.map)
 
         coords = np.array(coords)
@@ -72,33 +53,36 @@ class MapWidget(QWebEngineView):
         data = io.BytesIO()
         self.map.save(data, close_file=False)
         html_content = data.getvalue().decode()
-        html_content = self.add_web_channel(html_content)
+        for line in html_content.split("\n"):
+            if "L.map" in line:
+                tmp = line.strip()
+                tmp = tmp.split()
+                self.map_name = tmp[1]
+                print(self.map_name)
         self.setHtml(html_content)
 
-    def add_web_channel(self, html_content):
-        return html_content.replace(
-            "</head>",
-            """
-            <script type="text/javascript" src="qrc:///qtwebchannel/qwebchannel.js"></script>
-            <script type="text/javascript">
-                document.addEventListener("DOMContentLoaded", function() {
-                    new QWebChannel(qt.webChannelTransport, function(channel) {
-                        window.backend = channel.objects.backend;
-                    });
-                    map.on('moveend', function() {
-                        var bounds = map.getBounds();
-                        var ne = bounds.getNorthEast();
-                        var sw = bounds.getSouthWest();
-                        backend.on_bounds_received([ne.lat, ne.lng, sw.lat, sw.lng]);
-                    });
-                });
-            </script>
-            </head>
-            """,
-        )
 
-    def handle_bounds_changed(self, bounds):
-        print(f"Bounds changed: {bounds}")
+class MapWidget(QWidget):
+    def __init__(self, main):
+        super().__init__()
+        self.main = main
 
-    def handle_marker_clicked(self, marker_id):
-        print(f"Marker clicked: {marker_id}")
+        layout = QVBoxLayout()
+
+        # Create two QLabel widgets
+        self.view = MapView(main)
+        self.button = QPushButton("Select area")
+        self.button.clicked.connect(self.select_area)
+
+        # Add the QLabel widgets to the layout
+        layout.addWidget(self.view)
+        layout.addWidget(self.button)
+
+        # Set the layout for the QWidget
+        self.setLayout(layout)
+
+    def set_markers(self, coords):
+        self.view.set_markers(coords)
+
+    def select_area(self):
+        self.view.get_bounds()

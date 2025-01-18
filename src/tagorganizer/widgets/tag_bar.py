@@ -47,6 +47,21 @@ class SelectedBool:
 
 
 @dataclass
+class SelectedArea:
+    min_longitude: float | None = None
+    max_longitude: float | None = None
+    min_latitude: float | None = None
+    max_latitude: float | None = None
+    widget: QWidget | None = None
+
+    def set_values(self, min_longitude, max_longitude, min_latitude, max_latitude):
+        self.min_latitude = min_latitude
+        self.max_latitude = max_latitude
+        self.min_longitude = min_longitude
+        self.max_longitude = max_longitude
+
+
+@dataclass
 class Filters:
     tags: list[str] | None = None
     start_date: datetime | None = None
@@ -68,8 +83,10 @@ class TagBar(QHBoxLayout):
         self.main = main
 
         self.selected_tags: list[SelectedTag] = []
+
         self.selected_times_min = SelectedTime()
         self.selected_times_max = SelectedTime()
+        self.selected_area = SelectedArea()
         self.bool = {
             "Wrong dir": SelectedBool(),
             "No Time": SelectedBool(),
@@ -136,6 +153,7 @@ class TagBar(QHBoxLayout):
 
         tag_name = f"{min_max} {date.strftime('%Y-%m-%d')}"
         tag_button = QPushButton(tag_name)
+        tag_button.setObjectName("Time")
         tag_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
         tag_button.clicked.connect(lambda flag, t=tag_button: self.remove_tag_button(t))
         if min_max == ">":
@@ -147,11 +165,27 @@ class TagBar(QHBoxLayout):
 
         self.main.update_items()
 
+    def add_area_tag(self):
+        tag_name = "Area"
+        tag_button = QPushButton(tag_name)
+        tag_button.setObjectName("Area")
+        tag_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+        tag_button.clicked.connect(lambda flag, t=tag_button: self.remove_tag_button(t))
+
+        self.addWidget(tag_button, 0)
+        self.selected_area.widget = tag_button
+
+        self.main.update_items()
+
     def get_filters(self) -> Filters:
         return Filters(
             tags=[x.name for x in self.selected_tags],
             start_date=self.selected_times_min.timestamp,
             end_date=self.selected_times_max.timestamp,
+            min_longitude=self.selected_area.min_longitude,
+            max_longitude=self.selected_area.max_longitude,
+            min_latitude=self.selected_area.min_latitude,
+            max_latitude=self.selected_area.max_latitude,
             wrong_dir=self.bool["Wrong dir"].value,
             no_time=self.bool["No Time"].value,
             no_gps=self.bool["No GPS"].value,
@@ -175,6 +209,10 @@ class TagBar(QHBoxLayout):
             elif w == self.selected_times_max.widget:
                 w.setParent(None)
                 self.selected_times_max = SelectedTime()
+                del w
+            elif w == self.selected_area.widget:
+                w.setParent(None)
+                self.selected_area = SelectedArea()
                 del w
             else:
                 for key, value in self.bool.items():

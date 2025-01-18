@@ -151,7 +151,7 @@ class MainWindow(QMainWindow):
 
         self.single_item = SingleItem()
 
-        self.map = MapWidget()
+        self.map = MapWidget(self)
 
         self.messages = QTextEdit()
         self.messages.setReadOnly(True)
