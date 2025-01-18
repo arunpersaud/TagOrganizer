@@ -35,13 +35,10 @@ from qtpy.QtWidgets import (
     QStatusBar,
     QTabWidget,
     QTextEdit,
-    QTreeView,
     QVBoxLayout,
     QWidget,
-    QMenu,
 )
-from qtpy.QtGui import QStandardItemModel, QStandardItem
-from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QEvent, QPoint
+from qtpy.QtCore import Qt, QEvent
 
 from docopt import docopt
 
@@ -58,30 +55,10 @@ from .widgets import (
     Timeline,
     MapWidget,
     TagBar,
+    TagView,
     NOT_ALLOWED_TAGS,
 )
 from .widgets.helper import load_full_pixmap, CommaCompleter
-
-
-class CustomStandardItemModel(QStandardItemModel):
-    itemsMoved = Signal(object, object)
-
-    def dropMimeData(self, data, action, row, column, parent):
-        result = super().dropMimeData(data, action, row, column, parent)
-        fmt = "application/x-qstandarditemmodeldatalist"
-        if not result:
-            return result
-
-        destination_item = self.itemFromIndex(parent)
-        if data.hasFormat(fmt):
-            d = data.data(fmt)
-            data_stream = QDataStream(d, QIODevice.ReadOnly)
-
-            row = data_stream.readInt32()
-            column = data_stream.readInt32()
-            source_item = self.item(row, column)
-            self.itemsMoved.emit(source_item, destination_item)
-        return result
 
 
 class MainWindow(QMainWindow):
@@ -153,23 +130,10 @@ class MainWindow(QMainWindow):
         layout2 = QHBoxLayout()
 
         # Set up the tag view
-        self.tag_view = QTreeView()
-        self.tag_model = CustomStandardItemModel()
-        self.tag_model.setHorizontalHeaderLabels(["Tags"])
-        self.tag_view.setModel(self.tag_model)
-        self.tag_view.setDragDropMode(QTreeView.InternalMove)
-        self.tag_view.setSelectionMode(QTreeView.ExtendedSelection)
-
-        self.tag_model.itemsMoved.connect(self.on_tag_moved)
-
-        self.tag_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tag_view.customContextMenuRequested.connect(self.show_tag_menu)
-
-        self.tag_view.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
-        self.tag_view.doubleClicked.connect(self.select_tag)
+        self.tag_view = TagView(self)
 
         # Populate the tag view with some example tags
-        self.update_tags()
+        self.tag_view.update_tags()
 
         # Selected Tags
         self.tag_bar = TagBar(self)
@@ -258,27 +222,6 @@ class MainWindow(QMainWindow):
             tmp.setShortcut(shortcut)
         menu.addAction(tmp)
 
-    def select_tag(self, index: int):
-        tag_name = self.tag_model.itemFromIndex(index).text()
-        self.tag_bar.add_tag(tag_name)
-
-    def show_tag_menu(self, position: QPoint):
-        index = self.tag_view.indexAt(position)
-        if not index.isValid():
-            return
-
-        tag_id = self.tag_model.itemFromIndex(index).data()
-        menu = QMenu()
-
-        delete_action = menu.addAction("Delete Tag")
-        delete_action.triggered.connect(lambda: self.delete_tag(tag_id))
-
-        menu.exec(self.tag_view.viewport().mapToGlobal(position))
-
-    def delete_tag(self, tag_id: int):
-        db.delete_tag(tag_id)
-        self.update_tags()
-
     def update_items(self):
         filters = self.tag_bar.get_filters()
 
@@ -319,7 +262,7 @@ class MainWindow(QMainWindow):
     def change_profile(self, name):
         self.tasks.stop()
         self.config.set_current_profile(name)
-        self.update_tags()
+        self.tag_view.update_tags()
         self.update_items()
         self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
 
@@ -380,9 +323,7 @@ class MainWindow(QMainWindow):
 
             if tag is None:
                 tag_id = db.add_tag(t)
-                tag_item = QStandardItem(t)
-                tag_item.setData(tag_id)
-                self.tag_model.appendRow(tag_item)
+                self.tag_view.add_tag(t, id=tag_id)
                 tag = db.get_tag(t)
             tag_list.append(tag)
 
@@ -467,46 +408,6 @@ class MainWindow(QMainWindow):
         self.single_item.load_exif(str(item.uri))
         self.tabs.setCurrentWidget(self.single_item)
 
-    def on_tag_moved(self, src, dest):
-        src_id = None
-        dest_id = None
-        if src:
-            src_id = src.data()
-        if dest:
-            dest_id = dest.data()
-
-        src = db.get_tag_by_id(src_id)
-        dest = db.get_tag_by_id(dest_id)
-
-        db.set_parent_tag(src, dest)
-
-    def update_tags(self):
-        self.tag_model.removeRows(0, self.tag_model.rowCount())
-
-        tags = db.get_all_tags()
-        # create Qt Items
-        out = []
-        for t in tags:
-            tmp = QStandardItem(t.name)
-            tmp.setEditable(False)
-            tmp.setData(t.id)
-            out.append((tmp, t))
-        # set up the hierachy
-        for tmp, t in out:
-            if t.parent_id is None:
-                self.tag_model.appendRow(tmp)
-            else:
-                for a, b in out:
-                    if b.id == t.parent_id:
-                        a.appendRow(tmp)
-                        break
-
-        for tag in NOT_ALLOWED_TAGS:
-            tmp = QStandardItem(tag)
-            tmp.setEditable(False)
-            tmp.setBackground(Qt.lightGray)
-            self.tag_model.appendRow(tmp)
-
     def setup_autocomplete(self):
         tags = db.get_all_tags()
         tags = [t.name for t in tags]
@@ -569,9 +470,7 @@ class MainWindow(QMainWindow):
                     )
                 else:
                     tag_id = db.add_tag(tag_name)
-                    tag_item = QStandardItem(tag_name)
-                    tag_item.setData(tag_id)
-                    self.tag_model.appendRow(tag_item)
+                    self.tag_view.add_tag(tag_name, id=tag_id)
         self.setup_autocomplete()
 
 
