@@ -184,7 +184,14 @@ class MainWindow(QMainWindow):
                 (Qt.Key_Down, Qt.ShiftModifier): self.grid.shift_move_down,
             },
             "single": {
+                Qt.Key_Left: self.grid.move_left,
+                Qt.Key_Right: self.grid.move_right,
+                Qt.Key_Up: self.grid.move_up,
+                Qt.Key_Down: self.grid.move_down,
+                (Qt.Key_Up, Qt.ShiftModifier): self.grid.shift_move_up,
+                (Qt.Key_Down, Qt.ShiftModifier): self.grid.shift_move_down,
                 Qt.Key_I: self.single_item.toggle_exif_visibility,
+                Qt.Key_F: self.single_item.toggle_filename_visibility,
                 Qt.Key_Escape: self.focus_grid,
             },
         }
@@ -428,6 +435,7 @@ class MainWindow(QMainWindow):
 
         self.single_item.setPixmap(pixmap)
         self.single_item.load_exif(str(item.uri))
+        self.single_item.filename.setText(item.uri)
         self.tabs.setCurrentWidget(self.single_item)
 
     def setup_autocomplete(self):

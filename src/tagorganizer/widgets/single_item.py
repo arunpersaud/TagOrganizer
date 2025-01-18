@@ -20,6 +20,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 from qtpy.QtWidgets import (
     QLabel,
+    QLineEdit,
     QTableWidget,
     QTableWidgetItem,
     QScrollArea,
@@ -76,8 +77,15 @@ class SingleItem(QWidget):
         self.scroll_area_container.setLayout(self.scroll_area_layout)
         self.scroll_area_container.setVisible(False)
 
+        self.filename = QLineEdit()
+        self.filename.setReadOnly(True)
+        self.filename.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.filename.setStyleSheet("background: transparent; border: none;")
+        self.filename.setVisible(False)
+
         layout.addWidget(self.item)
         layout.addWidget(self.scroll_area_container)
+        layout.addWidget(self.filename)
 
         self.setLayout(layout)
 
@@ -121,3 +129,6 @@ class SingleItem(QWidget):
         self.scroll_area_container.setVisible(
             not self.scroll_area_container.isVisible()
         )
+
+    def toggle_filename_visibility(self):
+        self.filename.setVisible(not self.filename.isVisible())

@@ -63,6 +63,9 @@ class ImageGridWidget(QWidget):
             if self.widgets:
                 n = self.highlight % len(self.widgets)
                 self.widgets[n].set_highlight(True)
+            # update single item if in view
+            if self.main.tabs.currentWidget() == self.main.single_item:
+                self.main.show_current_item()
 
         return wrapper
 
