@@ -22,18 +22,59 @@ from functools import lru_cache
 from pathlib import Path
 
 from qtpy.QtWidgets import QCompleter
-from qtpy.QtGui import QPixmap, QTransform
+from qtpy.QtGui import QPixmap, QTransform, QImage
 from qtpy.QtCore import Qt
 
 import exifread as exif
+import cv2
+
+from .. import config
 
 
 @lru_cache(1_000)
-def load_pixmap(file, size=150):
-    pixmap = QPixmap(file)
-    pixmap = pixmap.scaledToWidth(size, Qt.SmoothTransformation)
-    orientation = get_orientation(file)
-    pixmap = rotate_pixmap(pixmap, orientation)
+def load_pixmap(filepath: Path, size=150):
+    if not filepath.is_file():
+        print(f"[ERROR] cannot find file {filepath}")
+        return
+    file = str(filepath)
+
+    if filepath.suffix.lower() in config.PHOTO_SUFFIX:
+        pixmap = QPixmap(file)
+        pixmap = pixmap.scaledToWidth(size, Qt.SmoothTransformation)
+        orientation = get_orientation(file)
+        pixmap = rotate_pixmap(pixmap, orientation)
+    elif filepath.suffix.lower() in config.VIDEO_SUFFIX:
+        cap = cv2.VideoCapture(file)
+
+        time = 1  # in s
+
+        # Set the position of the frame to capture
+        cap.set(cv2.CAP_PROP_POS_MSEC, time * 1000)
+
+        success, frame = cap.read()
+
+        if not success:
+            print(f"[ERROR] {filepath} don't know how to create thumbnail.")
+            print(f"        Failed to capture frame at {time} seconds.")
+            cap.release()
+            return None
+
+        # Convert the frame to a QImage
+        height, width, channel = frame.shape
+        bytes_per_line = 3 * width
+        q_image = QImage(
+            frame.data, width, height, bytes_per_line, QImage.Format_RGB888
+        ).rgbSwapped()
+
+        # Convert the QImage to a QPixmap
+        pixmap = QPixmap.fromImage(q_image)
+
+        # Release the video capture object
+        cap.release()
+
+    else:
+        print(f"[ERROR] {filepath} don't know how to create thumbnail.")
+        return
 
     return pixmap
 

@@ -1,6 +1,6 @@
 ## TagOrganizer
 
-Help organize photos and (eventually) videos.
+Help organize photos and videos.
 
 The program is currently still in very early development stages, but
 can already be used for organizing images.
@@ -38,7 +38,7 @@ after downloading the repo and before you make commits.
   we use a logical 'and' between the tags), select by an area on the
   map, select by a min/max date
 - If a tag is selected that has children in the hierachy, all those items are also shown
-- Photos can be added by selecting a directory. All jpg/jpeg files in
+- Photos/Videos can be added by selecting a directory. All jpg/jpeg files in
   that directory will be added (including subdirectories)
 - Delete selected photos from the database and/or filesystem
 - Extract date and geolocation from EXIF data
@@ -165,8 +165,7 @@ will keep the tag hierarchy intact.
 
 ## Planned features
 
-- Support more image formats
-- Support videos
+- Support more image and video formats
 - Cache thumbnails or use system thumbnail cache
 - Merge tags (i.e., if we have a tag with a typo and want to merge it
   with another tag, can be done manually already by selecting one tag,

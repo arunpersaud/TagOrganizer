@@ -28,6 +28,7 @@ from qtpy.QtCore import QTimer
 from more_itertools import chunked
 
 from . import db
+from . import config
 from .widgets.helper import load_exif
 
 
@@ -174,7 +175,7 @@ def task_add_geolocation_to_db():
 
 def task_move_files(photo_dir: Path, video_dir: Path):
     print("[INFO] sorting files into default dirs")
-    items = db.get_all_items_not_in_dir([photo_dir, video_dir], ["jpg", "jpeg"])
+    items = db.get_all_items_not_in_dir([photo_dir, video_dir], config.ALL_SUFFIX)
 
     total = len(items)
     current = 0
@@ -192,9 +193,9 @@ def task_move_files(photo_dir: Path, video_dir: Path):
                 continue
 
             ext = filepath.suffix.lower()
-            if ext in [".jpg", ".jpeg"]:
+            if ext in config.PHOTO_SUFFIX:
                 correct_dir = Path(photo_dir)
-            elif ext in [".mp4", ".avi", ".mov"]:
+            elif ext in config.VIDEO_SUFFIX:
                 correct_dir = Path(video_dir)
             else:
                 print(f"[Error] item {item.uri} cannot handle {ext}")

@@ -20,6 +20,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 from functools import wraps
 import time
+from pathlib import Path
 
 from qtpy.QtWidgets import QWidget, QGridLayout
 from qtpy.QtCore import QTimer
@@ -176,7 +177,7 @@ class ImageGridWidget(QWidget):
                 continue
             files = db.get_images(i, filters)
             for f in files:
-                load_pixmap(str(f.uri))
+                load_pixmap(Path(f.uri))
                 if time.time() - start > 0.1:
                     return
 

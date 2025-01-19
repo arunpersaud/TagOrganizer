@@ -59,7 +59,7 @@ from .widgets import (
     TagView,
     RESERVED_TAGS,
 )
-from .widgets.helper import load_full_pixmap, CommaCompleter
+from .widgets.helper import CommaCompleter
 
 
 class MainWindow(QMainWindow):
@@ -431,14 +431,9 @@ class MainWindow(QMainWindow):
         if not widget:
             return
         item = widget.item
-        pixmap = load_full_pixmap(str(item.uri))
-        pixmap = pixmap.scaled(
-            self.single_item.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
 
-        self.single_item.setPixmap(pixmap)
-        self.single_item.load_exif(str(item.uri))
-        self.single_item.filename.setText(item.uri)
+        self.single_item.set_item(item)
+
         self.tabs.setCurrentWidget(self.single_item)
 
     def setup_autocomplete(self):
@@ -479,10 +474,10 @@ class MainWindow(QMainWindow):
             print("selected: ", directory)
             mydir = Path(directory)
             files = []
-            for ext in ["jpg", "jpeg"]:
-                new = list(mydir.rglob(f"*.{ext}"))
+            for ext in config.ALL_SUFFIX:
+                new = list(mydir.rglob(f"*{ext}"))
                 files = files + new
-                new = list(mydir.rglob(f"*.{ext.upper()}"))
+                new = list(mydir.rglob(f"*{ext.upper()}"))
                 files = files + new
             db.add_images(files)
             self.update_items()

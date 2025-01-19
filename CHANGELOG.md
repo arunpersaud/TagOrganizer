@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- support for videos using vlc-python (for playback) and cv2 (for thumbnails)
+
+## [0.3] - 2025-01-18
+
+### Added
 - New automatically created tags that will show images without
   timestamps, GPS or items that are not in the configured directories
 - Delete selected (or current) file(s), either from database or also

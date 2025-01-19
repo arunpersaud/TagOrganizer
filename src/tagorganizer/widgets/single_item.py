@@ -18,6 +18,9 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+from pathlib import Path
+import sys
+
 from qtpy.QtWidgets import (
     QLabel,
     QLineEdit,
@@ -27,13 +30,152 @@ from qtpy.QtWidgets import (
     QStackedLayout,
     QHBoxLayout,
     QWidget,
+    QVBoxLayout,
+    QPushButton,
+    QSlider,
 )
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QTimer
 
-from .helper import load_exif
+import vlc
+
+from .helper import load_exif, load_full_pixmap
+from .. import config
 
 
-class SingleItem(QWidget):
+class VideoItem(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.instance = vlc.Instance()
+
+        # Create a VLC media player
+        self.media_player = self.instance.media_player_new()
+
+        # Create the video widget and media player
+        self.video_widget = QWidget(self)
+
+        # Create a container widget for the video and buttons
+        self.container = QVBoxLayout()
+        self.container.addWidget(self.video_widget)
+
+        # Create the control buttons
+        self.play_button = QPushButton("Play")
+        self.pause_button = QPushButton("Pause")
+        self.forward_button = QPushButton("Forward")
+        self.backward_button = QPushButton("Backward")
+        self.stop_button = QPushButton("Stop", self)
+
+        self.play_button.clicked.connect(self.playVideo)
+        self.pause_button.clicked.connect(self.pauseVideo)
+        self.forward_button.clicked.connect(self.forwardVideo)
+        self.backward_button.clicked.connect(self.backwardVideo)
+        self.stop_button.clicked.connect(self.stopVideo)
+
+        # Create a slider for seeking through the video
+        self.position_slider = QSlider(Qt.Horizontal, self)
+        self.position_slider.setToolTip("Position")
+        self.position_slider.setMaximum(1000)
+        self.position_slider.sliderMoved.connect(self.set_position)
+
+        # Create a slider for volume control
+        self.volume_slider = QSlider(Qt.Horizontal, self)
+        self.volume_slider.setToolTip("Volume")
+        self.volume_slider.setMaximum(100)
+        self.volume_slider.setValue(self.media_player.audio_get_volume())
+        self.volume_slider.valueChanged.connect(self.set_volume)
+
+        # Create a label for the current position
+        self.position_label = QLabel("00:00", self)
+
+        position_layout = QHBoxLayout()
+        position_layout.addWidget(self.position_label)
+        position_layout.addWidget(self.position_slider)
+
+        # Create a layout for the volume slider
+        volume_layout = QHBoxLayout()
+        volume_layout.addWidget(QLabel("Volume", self))
+        volume_layout.addWidget(self.volume_slider)
+
+        # Create a layout for the control buttons
+        control_layout = QHBoxLayout()
+        control_layout.addWidget(self.play_button)
+        control_layout.addWidget(self.pause_button)
+        control_layout.addWidget(self.stop_button)
+        control_layout.addWidget(self.forward_button)
+        control_layout.addWidget(self.backward_button)
+
+        # Add the controls widget to the stacked layout
+        self.container.addLayout(control_layout)
+        self.container.addLayout(position_layout)
+        self.container.addLayout(volume_layout)
+
+        # Set the main layout for the widget
+        self.setLayout(self.container)
+
+        # Set the video widget as the media player's output
+        if sys.platform.startswith("linux"):  # for Linux using the X Server
+            self.media_player.set_xwindow(self.video_widget.winId())
+        elif sys.platform == "win32":  # for Windows
+            self.media_player.set_hwnd(self.video_widget.winId())
+        elif sys.platform == "darwin":  # for macOS
+            self.media_player.set_nsobject(int(self.video_widget.winId()))
+
+        # Create a timer to update the position slider and label
+        self.timer = QTimer(self)
+        self.timer.setInterval(1000)
+        self.timer.timeout.connect(self.update_ui)
+        self.timer.start()
+
+    def set_position(self, position):
+        """Set the video position."""
+        self.media_player.set_position(position / 1000.0)
+
+    def set_volume(self, volume):
+        """Set the volume."""
+        self.media_player.audio_set_volume(volume)
+
+    def update_ui(self):
+        """Update the UI elements."""
+        # Update the position slider and label
+        media_pos = self.media_player.get_position()
+        self.position_slider.setValue(int(media_pos * 1000))
+        self.position_label.setText(self.format_time(self.media_player.get_time()))
+
+    @staticmethod
+    def format_time(ms):
+        """Format time in milliseconds to mm:ss."""
+        seconds = ms // 1000
+        minutes = seconds // 60
+        seconds = seconds % 60
+        return f"{minutes:02}:{seconds:02}"
+
+    def set_video(self, item):
+        self.media_player.stop()
+        self.media = self.instance.media_new(item.uri)
+        self.media_player.set_media(self.media)
+        self.set_position(100)
+
+    def playVideo(self):
+        self.media_player.play()
+
+    def stopVideo(self):
+        self.media_player.stop()
+
+    def pauseVideo(self):
+        self.media_player.pause()
+
+    def forwardVideo(self):
+        self.media_player.set_time(
+            self.media_player.get_time() + 10000
+        )  # Forward 10 seconds
+
+    def backwardVideo(self):
+        self.media_player.set_time(
+            self.media_player.get_time() - 10000
+        )  # Backward 10 seconds
+
+
+class PhotoItem(QWidget):
     def __init__(self):
         super().__init__()
         layout = QStackedLayout()
@@ -77,15 +219,8 @@ class SingleItem(QWidget):
         self.scroll_area_container.setLayout(self.scroll_area_layout)
         self.scroll_area_container.setVisible(False)
 
-        self.filename = QLineEdit()
-        self.filename.setReadOnly(True)
-        self.filename.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.filename.setStyleSheet("background: transparent; border: none;")
-        self.filename.setVisible(False)
-
         layout.addWidget(self.item)
         layout.addWidget(self.scroll_area_container)
-        layout.addWidget(self.filename)
 
         self.setLayout(layout)
 
@@ -130,5 +265,57 @@ class SingleItem(QWidget):
             not self.scroll_area_container.isVisible()
         )
 
+    def set_photo(self, item):
+        pixmap = load_full_pixmap(str(item.uri))
+        pixmap = pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+        self.setPixmap(pixmap)
+        self.load_exif(str(item.uri))
+
+
+class SingleItem(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QStackedLayout()
+        layout.setStackingMode(QStackedLayout.StackAll)
+
+        self.photo = PhotoItem()
+        self.video = VideoItem()
+
+        self.filename = QLineEdit()
+        self.filename.setReadOnly(True)
+        self.filename.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.filename.setStyleSheet("background: transparent; border: none;")
+        self.filename.setVisible(False)
+
+        layout.addWidget(self.photo)
+        layout.addWidget(self.video)
+        layout.addWidget(self.filename)
+
+        self.setLayout(layout)
+
+    def toggle_exif_visibility(self):
+        self.photo.toggle_exif_visibility()
+
     def toggle_filename_visibility(self):
         self.filename.setVisible(not self.filename.isVisible())
+
+    def set_item(self, item):
+        file_path = Path(item.uri)
+
+        if not file_path.is_file():
+            print(f"[ERROR] file {file_path} does not exist")
+            return
+
+        self.filename.setText(item.uri)
+
+        if file_path.suffix.lower() in config.PHOTO_SUFFIX:
+            self.photo.set_photo(item)
+            self.video.setVisible(False)
+            self.photo.setVisible(True)
+        elif file_path.suffix.lower() in config.VIDEO_SUFFIX:
+            self.video.set_video(item)
+            self.photo.setVisible(False)
+            self.video.setVisible(True)
+        else:
+            print(f"[ERROR] file {file_path} has unknown file type.")

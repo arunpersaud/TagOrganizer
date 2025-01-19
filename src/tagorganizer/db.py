@@ -165,20 +165,19 @@ def get_all_items_with_location():
         return results.all()
 
 
-def get_all_items_not_in_dir(directories: list[Path], endings: list[str]):
+def get_all_items_not_in_dir(directories: list[Path], suffix: list[str]):
     with Session(engine) as session:
         tmp = []
-        for e in endings:
+        for e in suffix:
             tmp.append(e.lower())
             tmp.append(e.upper())
-        tmp = endings
 
         query = select(Item)
 
         for directory in directories:
             query = query.where(~Item.uri.startswith(str(directory)))
 
-        conditions = [Item.uri.endswith(ext) for ext in endings]
+        conditions = [Item.uri.endswith(ext) for ext in suffix]
         query = query.where(or_(*conditions))
 
         items = session.exec(query).all()

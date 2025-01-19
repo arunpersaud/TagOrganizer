@@ -18,6 +18,8 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+from pathlib import Path
+
 from qtpy.QtWidgets import QLabel, QSizePolicy
 from qtpy.QtGui import QPainter, QPen
 from qtpy.QtCore import Qt
@@ -30,7 +32,7 @@ class FramedLabel(QLabel):
 
     def __init__(self, item, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        filename = str(item.uri)
+        filename = Path(item.uri)
         self.pixmap_width = 150
         self.pixmap = load_pixmap(filename, self.pixmap_width)
         self.setPixmap(self.pixmap)
@@ -65,10 +67,10 @@ class FramedLabel(QLabel):
         # reload pixmap if needed to get reasonable resolution
         if self.width() > 1.5 * self.pixmap_width:
             self.pixmap_width = self.width()
-            self.pixmap = load_pixmap(self.item.uri, self.pixmap_width)
+            self.pixmap = load_pixmap(Path(self.item.uri), self.pixmap_width)
         if self.width() < 0.6 * self.pixmap_width:
             self.pixmap_width = self.width()
-            self.pixmap = load_pixmap(self.item.uri, self.pixmap_width)
+            self.pixmap = load_pixmap(Path(self.item.uri), self.pixmap_width)
 
         # scale pixmapx
         scaled_pixmap = self.pixmap.scaled(
