@@ -58,7 +58,6 @@ class MapView(QWebEngineView):
                 tmp = line.strip()
                 tmp = tmp.split()
                 self.map_name = tmp[1]
-                print(self.map_name)
         self.setHtml(html_content)
 
 
