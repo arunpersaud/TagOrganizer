@@ -165,6 +165,18 @@ def get_all_items_with_location():
         return results.all()
 
 
+def get_items_without_hashes() -> list[Item]:
+    with Session(engine) as session:
+        query = select(Item)
+        conditions = [
+            Item.uri_md5 == sa.null(),
+            Item.data_xxhash == sa.null(),
+        ]
+        query = query.where(or_(*conditions))
+        results = session.exec(query)
+        return results.all()
+
+
 def get_all_items_not_in_dir(directories: list[Path], suffix: list[str]):
     with Session(engine) as session:
         tmp = []

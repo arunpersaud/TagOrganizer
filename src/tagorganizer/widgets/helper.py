@@ -19,6 +19,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
 from functools import lru_cache
+import hashlib
 from pathlib import Path
 
 from qtpy.QtWidgets import QCompleter
@@ -27,6 +28,7 @@ from qtpy.QtCore import Qt
 
 import exifread as exif
 import cv2
+import xxhash
 
 from .. import config
 
@@ -126,3 +128,23 @@ class CommaCompleter(QCompleter):
 
     def splitPath(self, path: str) -> list[str]:
         return [path.split(",")[-1].strip()]
+
+
+def calculate_md5(input_string: str) -> str:
+    md5_hash = hashlib.md5()
+    md5_hash.update(input_string.encode("utf-8"))
+    md5_hex = md5_hash.hexdigest()
+
+    return md5_hex
+
+
+def calculate_xxhash(file_path: Path) -> str:
+    hasher = xxhash.xxh128()
+
+    with open(file_path, "rb") as file:
+        for chunk in iter(lambda: file.read(4096), b""):
+            hasher.update(chunk)
+
+    xxhash_hex = hasher.hexdigest()
+
+    return xxhash_hex

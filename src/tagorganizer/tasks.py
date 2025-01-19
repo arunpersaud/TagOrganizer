@@ -29,7 +29,7 @@ from more_itertools import chunked
 
 from . import db
 from . import config
-from .widgets.helper import load_exif
+from .widgets.helper import load_exif, calculate_md5, calculate_xxhash
 
 
 class TaskManager:
@@ -173,7 +173,34 @@ def task_add_geolocation_to_db():
     print("[INFO] Done updating geolocation in db")
 
 
+def task_update_hashes():
+    print("[INFO] Updating hashes in db")
+    items = db.get_items_without_hashes()
+
+    total = len(items)
+    current = 0
+    N = 10
+
+    for chunk in chunked(items, N):
+        need_update = []
+        for item in chunk:
+            filepath = Path(item.uri)
+            if not filepath.is_file():
+                continue
+            item.uri_md5 = calculate_md5(item.uri)
+            item.data_xxhash = calculate_xxhash(filepath)
+            need_update.append(item)
+        db.update_items_in_db(need_update)
+        current += N
+        yield total, current
+    print("[INFO] Done updating hashes in db")
+
+
 def task_move_files(photo_dir: Path, video_dir: Path):
+    """Move files to the directories named in the config file.
+
+    We use different directories for photos and videos.
+    """
     print("[INFO] sorting files into default dirs")
     items = db.get_all_items_not_in_dir([photo_dir, video_dir], config.ALL_SUFFIX)
 
@@ -181,17 +208,19 @@ def task_move_files(photo_dir: Path, video_dir: Path):
     current = 0
     N = 10
 
-    print("   ", photo_dir)
-    print("   ", video_dir)
+    print("   photo:", photo_dir)
+    print("   video:", video_dir)
 
     for chunk in chunked(items, N):
         need_update = []
         for item in chunk:
+            # check that file actually exists
             filepath = Path(item.uri)
             if not filepath.is_file():
                 print(f"[Error] item {item.uri} does not exist")
                 continue
 
+            # figure out where to save the file
             ext = filepath.suffix.lower()
             if ext in config.PHOTO_SUFFIX:
                 correct_dir = Path(photo_dir)
@@ -201,22 +230,22 @@ def task_move_files(photo_dir: Path, video_dir: Path):
                 print(f"[Error] item {item.uri} cannot handle {ext}")
                 continue
 
+            # figure out where to save the file
             if item.date:
                 year = item.date.year
                 month = item.date.month
                 day = item.date.day
+                correct_path = (
+                    correct_dir
+                    / f"{year:04d}"
+                    / f"{month:02d}"
+                    / f"{day:02d}"
+                    / filepath.name
+                )
             else:
                 print(f"[Error] item {item.uri} has no date set")
-                continue
+                correct_path = correct_dir / "no-date" / filepath.name
 
-            # Construct the new directory path using the date components
-            correct_path = (
-                correct_dir
-                / f"{year:04d}"
-                / f"{month:02d}"
-                / f"{day:02d}"
-                / filepath.name
-            )
             # lower the case for the extension
             correct_path = correct_path.with_suffix(ext)
 
@@ -230,6 +259,8 @@ def task_move_files(photo_dir: Path, video_dir: Path):
 
                 shutil.move(filepath, correct_path)
                 item.uri = str(correct_path)
+                item.uri_md5 = calculate_md5(item.uri)
+                item.data_xxhash = calculate_xxhash(correct_path)
                 need_update.append(item)
                 print(f"Moved {filepath} to {correct_path}")
             except Exception:
