@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.app = app
+        self.filters = None
 
         self.config = config.ConfigManager()
         self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
@@ -239,10 +240,12 @@ class MainWindow(QMainWindow):
         items = db.get_images(self.grid.page, filters)
         self.grid.show_images(items)
 
-        dates, coords = db.get_times_and_location_from_images(filters)
+        if filters != self.filters:
+            dates, coords = db.get_times_and_location_from_images(filters)
 
-        self.timeline.plot_histogram(dates)
-        self.map.set_markers(coords)
+            self.timeline.plot_histogram(dates)
+            self.map.set_markers(coords)
+            self.filter = filters
 
     def create_profile_menu(self):
         if "Profiles" not in self.menu:
