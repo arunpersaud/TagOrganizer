@@ -35,8 +35,19 @@ APP_AUTHOR = "TagOrganizer"
 config_dir = Path(platformdirs.user_config_dir(APP_NAME, APP_AUTHOR))
 default_config_file_path = config_dir / "config.ini"
 
-PHOTO_SUFFIX = [".jpg", ".jpeg"]
-VIDEO_SUFFIX = [".avi", ".mp4"]
+PHOTO_SUFFIX = [
+    ".jpg",
+    ".jpeg",
+    ".bmp",
+    ".gif",
+    ".png",
+    ".pbm",
+    ".pgm",
+    ".tiff",
+    ".tif",
+    ".webp",
+]
+VIDEO_SUFFIX = [".avi", ".mp4", ".mkv", ".mov", ".wmv", ".flv", ".webm"]
 ALL_SUFFIX = PHOTO_SUFFIX + VIDEO_SUFFIX
 
 

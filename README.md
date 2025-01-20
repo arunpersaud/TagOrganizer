@@ -38,13 +38,15 @@ after downloading the repo and before you make commits.
   we use a logical 'and' between the tags), select by an area on the
   map, select by a min/max date
 - If a tag is selected that has children in the hierachy, all those items are also shown
-- Photos/Videos can be added by selecting a directory. All jpg/jpeg files in
+- Photos/Videos can be added by selecting a directory. All files in
   that directory will be added (including subdirectories)
 - Delete selected photos from the database and/or filesystem
 - Extract date and geolocation from EXIF data
 - Option to show EXIF data and filename in single photo view (keys 'i', 'f')
 - Create a copy of selected photo in a certain directory
 - Import data from old F-Spot libraries
+- Support photo formats: jpg/jpeg, bmp, gif, png, pbm, pgm, tiff/tif, webp
+- Supported video formats: avi, mp4, mkv, mov, wmv, flv, webm
 
 ## User interface
 
@@ -165,7 +167,6 @@ will keep the tag hierarchy intact.
 
 ## Planned features
 
-- Support more image and video formats
 - Merge tags (i.e., if we have a tag with a typo and want to merge it
   with another tag, can be done manually already by selecting one tag,
   adding the other and then deleting the first tag)

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for videos using vlc-python (for playback) and cv2 (for thumbnails)
 - Saving thumbnails for faster startup
 - Start using message tab to display status information, etc.
+- Added support for more image/video formats (depending on QPixmap, vlc, cv2)
 
 ## [0.3] - 2025-01-18
 
