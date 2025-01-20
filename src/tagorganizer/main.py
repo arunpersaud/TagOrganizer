@@ -59,7 +59,7 @@ from .widgets import (
     Timeline,
     RESERVED_TAGS,
 )
-from .widgets.helper import CommaCompleter
+from .widgets.helper import CommaCompleter, get_thumbnail_path
 
 
 class MainWindow(QMainWindow):
@@ -322,6 +322,7 @@ class MainWindow(QMainWindow):
         text += f"DB location: {self.config.db}\n"
         text += f"Photo location: {self.config.photos}\n"
         text += f"Video location: {self.config.videos}\n"
+        text += f"Thumbnail location: {get_thumbnail_path(self.config.photos)}\n"
         QMessageBox.about(self, "TagOrganizer", text)
 
     def handle_tags(self):

@@ -25,21 +25,24 @@ from qtpy.QtGui import QPainter, QPen
 from qtpy.QtCore import Qt
 
 from .helper import load_pixmap
+from ..models import Item
 
 
 class FramedLabel(QLabel):
     """A widget to show an thumbnail that can draw blue and red frames around it."""
 
-    def __init__(self, item, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        filename = Path(item.uri)
+    def __init__(self, item: Item, photos_path: Path):
+        super().__init__()
+
+        self.item = item
+        self.photos_path = photos_path
+
         self.pixmap_width = 150
-        self.pixmap = load_pixmap(filename, self.pixmap_width)
+        self.pixmap = load_pixmap(item, self.pixmap_width, photos_path=photos_path)
         self.setPixmap(self.pixmap)
         self.setAlignment(Qt.AlignCenter)
         self.selected = False
         self.highlight = False
-        self.item = item
 
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
 
@@ -67,10 +70,10 @@ class FramedLabel(QLabel):
         # reload pixmap if needed to get reasonable resolution
         if self.width() > 1.5 * self.pixmap_width:
             self.pixmap_width = self.width()
-            self.pixmap = load_pixmap(Path(self.item.uri), self.pixmap_width)
+            self.pixmap = load_pixmap(self.item, self.pixmap_width, self.photos_path)
         if self.width() < 0.6 * self.pixmap_width:
             self.pixmap_width = self.width()
-            self.pixmap = load_pixmap(Path(self.item.uri), self.pixmap_width)
+            self.pixmap = load_pixmap(self.item, self.pixmap_width, self.photos_path)
 
         # scale pixmapx
         scaled_pixmap = self.pixmap.scaled(

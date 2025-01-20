@@ -68,3 +68,11 @@ class Item(SQLModel, table=True):
     latitude: float | None = Field(default=None, index=True)
 
     tags: list[Tag] = Relationship(back_populates="items", link_model=ItemTagLink)
+
+    def __hash__(self):
+        return self.id
+
+    def __eq__(self, other):
+        if isinstance(other, Item):
+            return self.id == other.id
+        return False

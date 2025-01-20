@@ -21,6 +21,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 from functools import lru_cache
 import hashlib
 from pathlib import Path
+import sys
 
 from qtpy.QtWidgets import QCompleter
 from qtpy.QtGui import QPixmap, QTransform, QImage
@@ -31,14 +32,48 @@ import cv2
 import xxhash
 
 from .. import config
+from ..models import Item
+
+
+def get_thumbnail_path(photos_path: Path) -> Path:
+    if sys.platform.startswith("linux"):
+        return Path.home() / ".cache" / "thumbnails" / "large"
+    else:
+        return photos_path / "thumbnails"
+
+
+def save_thumbnail(pixmap: QPixmap, md5: str, photos_path: Path) -> None:
+    thumbnail_path = get_thumbnail_path(photos_path)
+    if sys.platform.startswith("linux"):
+        thumbnail = thumbnail_path / f"{md5}.png"
+    else:
+        md5_dir = md5[:2]
+        md5_file = md5[2:]
+        thumbnail = thumbnail_path / md5_dir / f"{md5_file}.png"
+    thumbnail.parent.mkdir(parents=True, exist_ok=True)
+    pixmap.save(str(thumbnail), "PNG")
 
 
 @lru_cache(1_000)
-def load_pixmap(filepath: Path, size=150):
+def load_pixmap(item: Item, size: int, photos_path: Path):
+    filepath = Path(item.uri)
+
     if not filepath.is_file():
         print(f"[ERROR] cannot find file {filepath}")
         return
+
     file = str(filepath)
+
+    if item.uri_md5:
+        thumbnail_path = get_thumbnail_path(photos_path)
+        if sys.platform.startswith("linux"):
+            thumbnail = thumbnail_path / f"{item.uri_md5}.png"
+        else:
+            md5_dir = item.uri_md5[:2]
+            md5_file = item.uri_md5[2:]
+            thumbnail = thumbnail_path / md5_dir / f"{md5_file}.png"
+        if thumbnail.is_file():
+            return QPixmap(str(thumbnail))
 
     if filepath.suffix.lower() in config.PHOTO_SUFFIX:
         pixmap = QPixmap(file)
@@ -78,6 +113,8 @@ def load_pixmap(filepath: Path, size=150):
         print(f"[ERROR] {filepath} don't know how to create thumbnail.")
         return
 
+    if item.uri_md5:
+        save_thumbnail(pixmap, item.uri_md5, photos_path)
     return pixmap
 
 

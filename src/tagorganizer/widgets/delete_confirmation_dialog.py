@@ -18,8 +18,6 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
-from pathlib import Path
-
 from qtpy.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -35,12 +33,12 @@ from .helper import load_pixmap
 
 
 class DeleteConfirmationDialog(QDialog):
-    def __init__(self, items, parent=None):
-        super().__init__(parent)
-        self.items = items
-        self.init_ui()
+    def __init__(self, items, main):
+        super().__init__()
 
-    def init_ui(self):
+        self.items = items
+        self.main = main
+
         self.setWindowTitle("Confirm Deletion")
 
         layout = QVBoxLayout()
@@ -55,7 +53,7 @@ class DeleteConfirmationDialog(QDialog):
 
         for item in self.items:
             label = QLabel()
-            pixmap = load_pixmap(Path(item.uri), size=80)
+            pixmap = load_pixmap(item, size=80, photos_dir=self.main.config.photos)
             label.setPixmap(pixmap)
             label.setToolTip(item.uri)
             scroll_layout.addWidget(label)

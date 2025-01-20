@@ -20,7 +20,6 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 from functools import wraps
 import time
-from pathlib import Path
 
 from qtpy.QtWidgets import QWidget, QGridLayout
 from qtpy.QtCore import QTimer
@@ -78,7 +77,7 @@ class ImageGridWidget(QWidget):
         self.clear()
 
         for i, item in enumerate(items):
-            label = FramedLabel(item)
+            label = FramedLabel(item, self.main.config.photos)
             if item in self.selected_items:
                 label.selected = True
             self.widgets.append(label)
@@ -175,9 +174,9 @@ class ImageGridWidget(QWidget):
                 continue
             if i > N // self.N:
                 continue
-            files = db.get_images(i, filters)
-            for f in files:
-                load_pixmap(Path(f.uri))
+            items = db.get_images(i, filters)
+            for item in items:
+                load_pixmap(item, 150, self.main.config.photos)
                 if time.time() - start > 0.1:
                     return
 
@@ -187,7 +186,7 @@ class ImageGridWidget(QWidget):
                 continue
             if i >= N:
                 continue
-            file = db.get_current_image(i, filters)
-            load_full_pixmap(str(file.uri))
+            item = db.get_current_image(i, filters)
+            load_full_pixmap(str(item.uri))
             if time.time() - start > 0.1:
                 return
