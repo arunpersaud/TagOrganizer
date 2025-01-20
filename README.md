@@ -166,7 +166,6 @@ will keep the tag hierarchy intact.
 ## Planned features
 
 - Support more image and video formats
-- Cache thumbnails or use system thumbnail cache
 - Merge tags (i.e., if we have a tag with a typo and want to merge it
   with another tag, can be done manually already by selecting one tag,
   adding the other and then deleting the first tag)
