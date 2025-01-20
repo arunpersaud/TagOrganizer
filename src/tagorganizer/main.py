@@ -35,7 +35,6 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QStatusBar,
     QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -51,12 +50,13 @@ from .widgets import (
     AddTagDialog,
     DeleteConfirmationDialog,
     ImageGridWidget,
+    MapWidget,
+    Messages,
     ProfileDialog,
     SingleItem,
-    Timeline,
-    MapWidget,
     TagBar,
     TagView,
+    Timeline,
     RESERVED_TAGS,
 )
 from .widgets.helper import CommaCompleter
@@ -154,14 +154,15 @@ class MainWindow(QMainWindow):
 
         self.map = MapWidget(self)
 
-        self.messages = QTextEdit()
-        self.messages.setReadOnly(True)
+        self.messages = Messages(self)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self.grid, "Items")
         self.tabs.addTab(self.single_item, "Single")
         self.tabs.addTab(self.map, "Map")
         self.tabs.addTab(self.messages, "Messages")
+
+        self.tabs.currentChanged.connect(self.on_tab_changed)
 
         self.update_items()
 
@@ -213,6 +214,11 @@ class MainWindow(QMainWindow):
         # and not be in the tag_line
         self.grid.setFocus()
 
+    def on_tab_changed(self, index):
+        """Reset the tab color when the Messages tab is selected."""
+        if self.tabs.widget(index) == self.messages:
+            self.messages.reset_tab_color()
+
     def create_menu(self, menu: dict):
         for key, submenu in menu.items():
             tmp = self.menu_bar.addMenu(key)
@@ -249,7 +255,7 @@ class MainWindow(QMainWindow):
 
     def create_profile_menu(self):
         if "Profiles" not in self.menu:
-            print("[ERROR] no 'Profiles' menu")
+            self.messages.add("[ERROR] no 'Profiles' menu")
             return
 
         self.menu["Profiles"].clear()
@@ -301,7 +307,7 @@ class MainWindow(QMainWindow):
             self.create_profile_menu()
 
     def new_config(self):
-        print(
+        self.messages.add(
             "Not yet implemented, but you can create an ini file manually (can be empty) and then change to it"
         )
 
@@ -332,7 +338,9 @@ class MainWindow(QMainWindow):
         for t in tags:
             tag = db.get_tag(t)
             if tag in RESERVED_TAGS:
-                print(f"Tag with name '{tag}' is not allowed due to internal use!")
+                self.messages.add(
+                    f"Tag with name '{tag}' is not allowed due to internal use!"
+                )
                 continue
 
             if tag is None:
@@ -410,13 +418,13 @@ class MainWindow(QMainWindow):
             return
         target = Path(directory)
         if not target.is_dir():
-            print(f"[ERROR] target {target} not a directory.")
+            self.messages.add(f"[ERROR] target {target} not a directory.")
             return
 
         for item in self.grid.selected_items:
             source = Path(item.uri)
             if not source.is_file():
-                print(f"[ERROR] item at {source} does not exist...skipping")
+                self.messages.add(f"[ERROR] item at {source} does not exist...skipping")
                 continue
             destination = target / source.name
             shutil.copy(source, destination)
@@ -471,7 +479,7 @@ class MainWindow(QMainWindow):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
 
         if directory:
-            print("selected: ", directory)
+            self.messages.add("selected: ", directory)
             mydir = Path(directory)
             files = []
             for ext in config.ALL_SUFFIX:

@@ -64,6 +64,7 @@ class TaskManager:
         self.generators = deque()
         self.progressbar_label.setVisible(False)
         self.progressbar.setVisible(False)
+        self.main.messages.add("Task done")
 
     def run_next_task(self):
         if not self.generators:
@@ -82,14 +83,18 @@ class TaskManager:
                 self.progressbar.setVisible(False)
 
     def db_update_timestamps(self):
+        self.main.messages.add("Task: Updating timestamps")
         self.register_generator(task_add_timestamp_to_db())
         self.start()
 
     def db_update_locations(self):
+        self.main.messages.add("Task: Updating locations")
         self.register_generator(task_add_geolocation_to_db())
         self.start()
 
     def move_files(self):
+        self.main.messages.add("Task: moving files")
+
         self.register_generator(
             task_move_files(self.main.config.photos, self.main.config.videos)
         )
@@ -97,7 +102,6 @@ class TaskManager:
 
 
 def task_add_timestamp_to_db():
-    print("[INFO] Updating timestamps in db")
     items = db.get_items_without_date()
 
     total = len(items)
@@ -123,7 +127,6 @@ def task_add_timestamp_to_db():
         db.update_items_in_db(need_update)
         current += N
         yield total, current
-    print("[INFO] Done updating timestamps in db")
 
 
 def convert_to_degrees(value, ref):
@@ -138,7 +141,6 @@ def convert_to_degrees(value, ref):
 
 
 def task_add_geolocation_to_db():
-    print("[INFO] Updating geolocations in db")
     items = db.get_items_without_location()
 
     total = len(items)
@@ -170,11 +172,9 @@ def task_add_geolocation_to_db():
         db.update_items_in_db(need_update)
         current += N
         yield total, current
-    print("[INFO] Done updating geolocation in db")
 
 
 def task_update_hashes():
-    print("[INFO] Updating hashes in db")
     items = db.get_items_without_hashes()
 
     total = len(items)
@@ -193,7 +193,6 @@ def task_update_hashes():
         db.update_items_in_db(need_update)
         current += N
         yield total, current
-    print("[INFO] Done updating hashes in db")
 
 
 def task_move_files(photo_dir: Path, video_dir: Path):
@@ -201,15 +200,11 @@ def task_move_files(photo_dir: Path, video_dir: Path):
 
     We use different directories for photos and videos.
     """
-    print("[INFO] sorting files into default dirs")
     items = db.get_all_items_not_in_dir([photo_dir, video_dir], config.ALL_SUFFIX)
 
     total = len(items)
     current = 0
     N = 10
-
-    print("   photo:", photo_dir)
-    print("   video:", video_dir)
 
     for chunk in chunked(items, N):
         need_update = []
@@ -268,4 +263,3 @@ def task_move_files(photo_dir: Path, video_dir: Path):
         db.update_items_in_db(need_update)
         current += N
         yield total, current
-    print("[INFO] done sorting files into default dirs")
