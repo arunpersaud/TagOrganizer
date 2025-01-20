@@ -172,5 +172,5 @@ will keep the tag hierarchy intact.
   adding the other and then deleting the first tag)
 - Duplicate detection (on filename and on image data)
 - Clean up the database
-- Print name of files that are in the configured directories for
-  photos and videos, but not in the database
+- update db (hashes, timestamp, etc) when adding images (currently one
+  needs to run the appropiate tasks)

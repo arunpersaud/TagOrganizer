@@ -86,6 +86,16 @@ def delete_item(id: int):
             session.commit()
 
 
+def check_item_in_db(uri: str):
+    with Session(engine) as session:
+        query = select(Item).where(Item.uri == uri)
+        result = session.exec(query).first()
+        if result is None:
+            return
+        else:
+            return result.id
+
+
 def get_all_tags():
     with Session(engine) as session:
         results = session.exec(select(Tag))
@@ -121,9 +131,8 @@ def set_parent_tag_by_id(child_id: int, parent_id: int):
 def add_images(files):
     with Session(engine) as session:
         for f in files:
-            existing_item = session.exec(select(Item).where(Item.uri == str(f))).first()
-            if existing_item:
-                print(f"Item with uri '{f}' already exists with ID: {existing_item.id}")
+            if check_item_in_db(str(f)) is not None:
+                print(f"Item with uri '{f}' already exists in DB.")
                 continue
             tmp = Item(uri=str(f))
             session.add(tmp)
@@ -132,12 +141,9 @@ def add_images(files):
 
 def add_image(filename):
     with Session(engine) as session:
-        existing_item = session.exec(select(Item).where(Item.uri == filename)).first()
-        if existing_item:
-            print(
-                f"Item with uri '{filename}' already exists with ID: {existing_item.id}"
-            )
-            return existing_item.id
+        if item_id := check_item_in_db(filename):
+            print(f"Item with uri '{filename}' already exists in DB")
+            return item_id
         tmp = Item(uri=str(filename))
         session.add(tmp)
         session.commit()
@@ -280,10 +286,11 @@ def get_images(page: int = 0, filters: Filters | None = None) -> list[Item]:
         return items
 
 
-def get_number_of_items(filters: Filters):
+def get_number_of_items(filters: Filters | None = None):
     with Session(engine) as session:
         query = select(func.count(Item.id))
-        query = filter_query(query, filters)
+        if filters:
+            query = filter_query(query, filters)
         return session.exec(query).one()
 
 

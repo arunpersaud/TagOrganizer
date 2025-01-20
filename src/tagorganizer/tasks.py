@@ -40,7 +40,6 @@ class TaskManager:
         self.timer = QTimer()
         self.timer.timeout.connect(self.run_next_task)
         self.current_gen_index = 0
-        self.task_data = []
 
         self.progressbar_label = QLabel("Task")
         self.progressbar = QProgressBar()
@@ -65,10 +64,7 @@ class TaskManager:
         self.generators = deque()
         self.progressbar_label.setVisible(False)
         self.progressbar.setVisible(False)
-        for m in self.task_data:
-            self.main.messages.add(m)
         self.main.messages.add("Task done")
-        self.task_data = []
 
     def run_next_task(self):
         if not self.generators:
@@ -109,6 +105,12 @@ class TaskManager:
         )
         self.start()
 
+    def list_files_not_in_db(self):
+        """List files that are in photo/video dir, but not in the db."""
+        self.main.messages.add("Task: List files that are not in the database")
+        self.register_generator(self.task_list_files_not_in_db())
+        self.start()
+
     def task_add_timestamp_to_db(self):
         items = db.get_items_without_date()
 
@@ -137,8 +139,8 @@ class TaskManager:
             db.update_items_in_db(need_update)
             current += N
             yield total, current
-        self.task_data.append(f"total items without timestamp in db={total}")
-        self.task_data.append(f"added timesstamp to {fixed} items")
+        self.main.messages.add(f"total items without timestamp in db={total}")
+        self.main.messages.add(f"added timesstamp to {fixed} items")
 
     def convert_to_degrees(self, value, ref):
         d = float(value.values[0])
@@ -184,8 +186,8 @@ class TaskManager:
             db.update_items_in_db(need_update)
             current += N
             yield total, current
-        self.task_data.append(f"total items without geolocation in db={total}")
-        self.task_data.append(f"added geolocation to {fixed} items")
+        self.main.messages.add(f"total items without geolocation in db={total}")
+        self.main.messages.add(f"added geolocation to {fixed} items")
 
     def task_update_hashes(self):
         items = db.get_items_without_hashes()
@@ -208,8 +210,8 @@ class TaskManager:
             db.update_items_in_db(need_update)
             current += N
             yield total, current
-        self.task_data.append(f"total items without hashes in db={total}")
-        self.task_data.append(f"added hashes to {fixed} items")
+        self.main.messages.add(f"total items without hashes in db={total}")
+        self.main.messages.add(f"added hashes to {fixed} items")
 
     def task_move_files(self, photo_dir: Path, video_dir: Path):
         """Move files to the directories named in the config file.
@@ -229,7 +231,7 @@ class TaskManager:
                 # check that file actually exists
                 filepath = Path(item.uri)
                 if not filepath.is_file():
-                    self.task_data.append(f"[Error] item {item.uri} does not exist")
+                    self.main.messages.add(f"[Error] item {item.uri} does not exist")
                     continue
 
                 # figure out where to save the file
@@ -239,7 +241,7 @@ class TaskManager:
                 elif ext in config.VIDEO_SUFFIX:
                     correct_dir = Path(video_dir)
                 else:
-                    self.task_data.append(
+                    self.main.messages.add(
                         f"[Error] item {item.uri} cannot handle {ext}"
                     )
                     continue
@@ -257,14 +259,14 @@ class TaskManager:
                         / filepath.name
                     )
                 else:
-                    self.task_data.append(f"[Error] item {item.uri} has no date set")
+                    self.main.messages.add(f"[Error] item {item.uri} has no date set")
                     correct_path = correct_dir / "no-date" / filepath.name
 
                 # lower the case for the extension
                 correct_path = correct_path.with_suffix(ext)
 
                 if correct_path.exists():
-                    self.task_data.append(
+                    self.main.messages.add(
                         f"File already exists in the correct directory: {correct_path}"
                     )
                     continue
@@ -279,13 +281,52 @@ class TaskManager:
                     item.data_xxhash = calculate_xxhash(correct_path)
                     need_update.append(item)
                     moved += 1
-                    self.task_data.append(f"Moved {filepath} to {correct_path}")
+                    self.main.messages.add(f"Moved {filepath} to {correct_path}")
                 except Exception:
-                    self.task_data.append(
+                    self.main.messages.add(
                         f"Failed to move {filepath} to {correct_path}"
                     )
             db.update_items_in_db(need_update)
             current += N
             yield total, current
-        self.task_data.append(f"total items outside photo/video dirs: {total}")
-        self.task_data.append(f"moved {moved} items")
+        self.main.messages.add(f"total items outside photo/video dirs: {total}")
+        self.main.messages.add(f"moved {moved} items")
+
+    def task_list_files_not_in_db(self):
+        self.main.messages.add(
+            f"   Photos in {self.main.config.photos}, but not in db:"
+        )
+        N = 10
+        current = 0
+
+        photos = list(self.main.config.photos.rglob("*"))
+        videos = list(self.main.config.videos.rglob("*"))
+
+        total = len(photos) + len(videos)
+
+        for chunk in chunked(photos, N):
+            for file in chunk:
+                if file.is_dir():
+                    continue
+                if "thumbnails" in str(file):
+                    continue
+                if ".DS_Store" in str(file):
+                    continue
+                res = db.check_item_in_db(str(file))
+                if res is None:
+                    self.main.messages.add(f"      {file}")
+            current += N
+            yield total, current
+
+        self.main.messages.add(
+            f"   Videos in {self.main.config.videos}, but not in db:"
+        )
+        for chunk in chunked(videos, N):
+            for file in chunk:
+                if file.is_dir():
+                    continue
+                res = db.check_item_in_db(str(file))
+                if res is None:
+                    self.main.messages.add(f"      {file}")
+            current += N
+            yield total, current
