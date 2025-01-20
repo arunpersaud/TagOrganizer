@@ -92,6 +92,11 @@ class TaskManager:
         self.register_generator(task_add_geolocation_to_db())
         self.start()
 
+    def db_update_hashes(self):
+        self.main.messages.add("Task: Updating hashes")
+        self.register_generator(task_update_hashes())
+        self.start()
+
     def move_files(self):
         self.main.messages.add("Task: moving files")
 

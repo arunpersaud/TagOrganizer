@@ -169,8 +169,8 @@ def get_items_without_hashes() -> list[Item]:
     with Session(engine) as session:
         query = select(Item)
         conditions = [
-            Item.uri_md5 == sa.null(),
-            Item.data_xxhash == sa.null(),
+            Item.uri_md5 == "",
+            Item.data_xxhash == "",
         ]
         query = query.where(or_(*conditions))
         results = session.exec(query)
