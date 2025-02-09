@@ -97,7 +97,7 @@ class MainWindow(QMainWindow):
             "Tasks": [
                 ["Update Timestamps in DB", self.tasks.db_update_timestamps],
                 ["Update Locations in DB", self.tasks.db_update_locations],
-                ["Update Hashse in DB", self.tasks.db_update_hashes],
+                ["Update Hashes in DB", self.tasks.db_update_hashes],
                 ["Check for Files in Default Dirs", self.tasks.list_files_not_in_db],
                 ["Move Files to Default Dirs", self.tasks.move_files],
             ],
