@@ -274,10 +274,12 @@ class PhotoItem(QWidget):
 
 
 class SingleItem(QWidget):
-    def __init__(self):
+    def __init__(self, main):
         super().__init__()
         layout = QStackedLayout()
         layout.setStackingMode(QStackedLayout.StackAll)
+
+        self.main = main
 
         self.photo = PhotoItem()
         self.video = VideoItem()
@@ -304,7 +306,7 @@ class SingleItem(QWidget):
         file_path = Path(item.uri)
 
         if not file_path.is_file():
-            print(f"[ERROR] file {file_path} does not exist")
+            self.main.messages.add(f"[ERROR] file {file_path} does not exist")
             return
 
         self.filename.setText(item.uri)
@@ -318,4 +320,4 @@ class SingleItem(QWidget):
             self.photo.setVisible(False)
             self.video.setVisible(True)
         else:
-            print(f"[ERROR] file {file_path} has unknown file type.")
+            self.main.messages.add(f"[ERROR] file {file_path} has unknown file type.")

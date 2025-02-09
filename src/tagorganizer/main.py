@@ -152,7 +152,7 @@ class MainWindow(QMainWindow):
         # Set up the image view
         self.grid = ImageGridWidget(self)
 
-        self.single_item = SingleItem()
+        self.single_item = SingleItem(self)
 
         self.map = MapWidget(self)
 

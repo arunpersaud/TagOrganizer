@@ -131,7 +131,9 @@ class TaskManager:
                     try:
                         date_obj = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
                     except ValueError:
-                        print(f"Cannot parse date '{date_str}' for {entry.uri}")
+                        self.main.messages.add(
+                            f"Cannot parse date '{date_str}' for {entry.uri}"
+                        )
                         continue
                     entry.date = date_obj
                     fixed += 1
@@ -293,17 +295,17 @@ class TaskManager:
         self.main.messages.add(f"moved {moved} items")
 
     def task_list_files_not_in_db(self):
-        self.main.messages.add(
-            f"   Photos in {self.main.config.photos}, but not in db:"
-        )
-        N = 10
         current = 0
 
         photos = list(self.main.config.photos.rglob("*"))
         videos = list(self.main.config.videos.rglob("*"))
 
         total = len(photos) + len(videos)
+        N = 10
 
+        self.main.messages.add(
+            f"   Photos in {self.main.config.photos}, but not in db:"
+        )
         for chunk in chunked(photos, N):
             for file in chunk:
                 if file.is_dir():
