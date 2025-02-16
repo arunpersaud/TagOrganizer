@@ -114,8 +114,9 @@ class MainWindow(QMainWindow):
         # Set up the status bar
         self.status_bar = QStatusBar(self)
         self.setStatusBar(self.status_bar)
-        self.selected_items_label = QLabel("Selected Items: 0")
-        self.status_bar.addWidget(self.selected_items_label)
+        self.numbers = [0, 0, 0]
+        self.numbers_label = QLabel("View: 0 Selected: 0 Total: 0")
+        self.status_bar.addWidget(self.numbers_label)
 
         # Create a QLineEdit for tags
         self.tag_line_edit = QLineEdit()
@@ -216,6 +217,16 @@ class MainWindow(QMainWindow):
         # and not be in the tag_line
         self.grid.setFocus()
 
+    def update_numbers(self, view=None, selected=None, total=None):
+        if view:
+            self.numbers[0] = view
+        if selected:
+            self.numbers[1] = selected
+        if total:
+            self.numbers[2] = total
+        view, selected, total = self.numbers
+        self.numbers_label.setText(f"View: {view} Selected: {selected} Total: {total}")
+
     def on_tab_changed(self, index):
         """Reset the tab color when the Messages tab is selected."""
         if self.tabs.widget(index) == self.messages:
@@ -244,6 +255,10 @@ class MainWindow(QMainWindow):
 
     def update_items(self):
         filters = self.tag_bar.get_filters()
+
+        nr_items = db.get_number_of_items(filters)
+        nr_total_items = db.get_number_of_items()
+        self.update_numbers(view=nr_items, total=nr_total_items)
 
         items = db.get_images(self.grid.page, filters)
         self.grid.show_images(items)
@@ -435,7 +450,7 @@ class MainWindow(QMainWindow):
     def clear_selection(self):
         self.grid.clear_selection()
         self.grid.selected_items = []
-        self.selected_items_label.setText("Selected items: 0")
+        self.update_numbers(selected=0)
 
     def show_current_item(self):
         widget = self.grid.current_item()

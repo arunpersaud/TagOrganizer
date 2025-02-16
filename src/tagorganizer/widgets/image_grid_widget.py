@@ -125,9 +125,7 @@ class ImageGridWidget(QWidget):
                 self.selected_items.remove(item)
             else:
                 self.selected_items.append(item)
-            self.main.selected_items_label.setText(
-                f"Selected items: {len(self.selected_items)}"
-            )
+            self.main.update_numbers(selected=len(self.selected_items))
             self.main.display_common_tags()
 
             return

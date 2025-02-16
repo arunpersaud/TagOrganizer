@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added support for more image/video formats (depending on QPixmap, vlc, cv2)
 - Task to print files that are in the default dirs, but not in the db
   (to make cleanup easier)
+- Show number of filtered, selected, and total images
 
 ## [0.3] - 2025-01-18
 
