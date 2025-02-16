@@ -110,6 +110,9 @@ class TagBar(QHBoxLayout):
                 self.bool[key].value = False
 
         self.selected_tags = []
+        self.remove_tag_button(self.selected_times_min.widget)
+        self.remove_tag_button(self.selected_times_max.widget)
+        self.remove_tag_button(self.selected_area.widget)
         self.main.update_items()
 
     def get_all_names(self):
@@ -193,6 +196,10 @@ class TagBar(QHBoxLayout):
         )
 
     def remove_tag_button(self, w):
+        # so that we can also pass empty time selections in here
+        if w is None:
+            return
+
         found = False
         for i, tmp in enumerate(self.selected_tags):
             if w == tmp.widget:
