@@ -36,7 +36,6 @@ class ImageGridWidget(QWidget):
         self.rows = 5
         self.N = self.columns * self.rows
         self.highlight = 0
-        self.number_of_items = 0
         self.page = 0
         self.selected_items = []
 
@@ -57,11 +56,13 @@ class ImageGridWidget(QWidget):
         @wraps(func)
         def wrapper(self, *args):
             if self.widgets:
-                n = self.highlight % len(self.widgets)
+                n = self.highlight % self.N
+                n = min(n, len(self.widgets) - 1)
                 self.widgets[n].set_highlight(False)
             func(self, *args)
             if self.widgets:
-                n = self.highlight % len(self.widgets)
+                n = self.highlight % self.N
+                n = min(n, len(self.widgets) - 1)
                 self.widgets[n].set_highlight(True)
             # update single item if in view
             if self.main.tabs.currentWidget() == self.main.single_item:
@@ -82,7 +83,6 @@ class ImageGridWidget(QWidget):
                 label.selected = True
             self.widgets.append(label)
             self.layout.addWidget(label, row, col)
-            item = self.layout.itemAtPosition(row, col).widget()
             col += 1
             if col >= self.columns:
                 col = 0
@@ -114,9 +114,7 @@ class ImageGridWidget(QWidget):
 
     def toggle_selection(self):
         if self.widgets:
-            current = self.highlight % len(self.widgets)
-
-            widget = self.widgets[current]
+            widget = self.current_item()
             widget.toggle_selected()
 
             item = widget.item
@@ -136,9 +134,9 @@ class ImageGridWidget(QWidget):
 
     @change_highlight
     def move_right(self):
-        N = db.get_number_of_items(self.main.tag_bar.get_filters())
+        N = self.main.numbers[2]
 
-        self.highlight = min(self.highlight + 1, N)
+        self.highlight = min(self.highlight + 1, N - 1)
 
     @change_highlight
     def move_up(self):
@@ -150,15 +148,15 @@ class ImageGridWidget(QWidget):
 
     @change_highlight
     def move_down(self):
-        N = db.get_number_of_items(self.main.tag_bar.get_filters())
+        N = self.main.numbers[2]
 
-        self.highlight = min(self.highlight + self.columns, N)
+        self.highlight = min(self.highlight + self.columns, N - 1)
 
     @change_highlight
     def shift_move_down(self):
-        N = db.get_number_of_items(self.main.tag_bar.get_filters())
+        N = self.main.numbers[2]
 
-        self.highlight = min(self.highlight + self.N, N)
+        self.highlight = min(self.highlight + self.N, N - 1)
 
     def preload_items(self):
         start = time.time()
