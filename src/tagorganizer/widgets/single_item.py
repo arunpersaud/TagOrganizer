@@ -114,7 +114,7 @@ class VideoItem(QWidget):
 
         # Set the video widget as the media player's output
         if sys.platform.startswith("linux"):  # for Linux using the X Server
-            self.media_player.set_xwindow(self.video_widget.winId())
+            self.media_player.set_xwindow(int(self.video_widget.winId()))
         elif sys.platform == "win32":  # for Windows
             self.media_player.set_hwnd(self.video_widget.winId())
         elif sys.platform == "darwin":  # for macOS
