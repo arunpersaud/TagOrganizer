@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (to make cleanup easier)
 - Show number of filtered, selected, and total images
 
+### Fixed
+- Behaviour of cursor keys on the last page
+
 ## [0.3] - 2025-01-18
 
 ### Added
@@ -48,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Focus on grid of images and not the tag editor
 - Renamed 'Add Tag' in menu to 'Add New Tag'
 
-### Fixes
+### Fixed
 
 - Timeline bug when no dates are available yet in the database
 - Catch some errors when parsing dates from EXIF
