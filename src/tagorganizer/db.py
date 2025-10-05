@@ -185,17 +185,17 @@ def get_items_without_hashes() -> list[Item]:
 
 def get_all_items_not_in_dir(directories: list[Path], suffix: list[str]):
     with Session(engine) as session:
-        tmp = []
+        all_suffixes = []
         for e in suffix:
-            tmp.append(e.lower())
-            tmp.append(e.upper())
+            all_suffixes.append(e.lower())
+            all_suffixes.append(e.upper())
 
         query = select(Item)
 
-        for directory in directories:
+        for directory in set(directories):
             query = query.where(~Item.uri.startswith(str(directory)))
 
-        conditions = [Item.uri.endswith(ext) for ext in suffix]
+        conditions = [Item.uri.endswith(ext) for ext in all_suffixes]
         query = query.where(or_(*conditions))
 
         items = session.exec(query).all()

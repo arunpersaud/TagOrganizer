@@ -105,10 +105,29 @@ class TaskManager:
         )
         self.start()
 
+    def fix_no_date_files(self):
+        self.main.messages.add("Task: Check files for new dates")
+        self.register_generator(
+            self.task_fix_no_date_files(
+                self.main.config.photos, self.main.config.videos
+            )
+        )
+        self.start()
+
     def list_files_not_in_db(self):
         """List files that are in photo/video dir, but not in the db."""
         self.main.messages.add("Task: List files that are not in the database")
         self.register_generator(self.task_list_files_not_in_db())
+        self.start()
+
+    def list_files_not_in_config_dir(self):
+        """List files that are in photo/video dir, but not in the db."""
+        self.main.messages.add("Task: List files that are outside of the config dirs")
+        self.register_generator(
+            self.task_list_files_not_in_config_dir(
+                self.main.config.photos, self.main.config.videos
+            )
+        )
         self.start()
 
     def task_add_timestamp_to_db(self):
@@ -289,12 +308,37 @@ class TaskManager:
                         f"Failed to move {filepath} to {correct_path}"
                     )
             db.update_items_in_db(need_update)
-            current += N
+            current += len(chunk)
             yield total, current
         self.main.messages.add(f"total items outside photo/video dirs: {total}")
         self.main.messages.add(f"moved {moved} items")
 
+    def task_list_files_not_in_config_dir(self, photo_dir: Path, video_dir: Path):
+        """Move files to the directories named in the config file.
+
+        We use different directories for photos and videos.
+        """
+        items = db.get_all_items_not_in_dir([photo_dir, video_dir], config.ALL_SUFFIX)
+
+        total = len(items)
+        current = 0
+        N = 10
+
+        for chunk in chunked(items, N):
+            for item in chunk:
+                filepath = Path(item.uri)
+                if not filepath.is_file():
+                    self.main.messages.add(f"[Error] item {item.uri} does not exist")
+                    continue
+
+                self.main.messages.add(f"File: {filepath}")
+            current += len(chunk)
+            yield total, current
+        self.main.messages.add(f"total items outside photo/video dirs: {total}")
+
     def task_list_files_not_in_db(self):
+        """List files that are in the config dirs, but not in the db."""
+
         current = 0
 
         photos = list(self.main.config.photos.rglob("*"))
@@ -332,3 +376,81 @@ class TaskManager:
                     self.main.messages.add(f"      {file}")
             current += N
             yield total, current
+
+    def task_fix_no_date_files(self, photo_dir: Path, video_dir: Path):
+        """Move items from 'no-date' to their correct date-based location if date is now available."""
+        self.main.messages.add("Task: Moving files out of 'no-date' if date is now set")
+
+        # Find all items whose path includes 'no-date'
+        items = db.get_all_items_with_location()  # Use a broad search
+        items = [
+            item
+            for item in items
+            if "/no-date/" in item.uri or "\\no-date\\" in item.uri
+        ]
+
+        total = len(items)
+        current = 0
+        N = 10
+        moved = 0
+
+        for chunk in chunked(items, N):
+            need_update = []
+
+            for item in chunk:
+                filepath = Path(item.uri)
+
+                if not filepath.is_file():
+                    self.main.messages.add(f"[Error] item {item.uri} does not exist")
+                    continue
+
+                if not item.date:
+                    self.main.messages.add(f"[Skip] item {item.uri} still has no date")
+                    continue
+
+                ext = filepath.suffix.lower()
+                if ext in config.PHOTO_SUFFIX:
+                    correct_dir = Path(photo_dir)
+                elif ext in config.VIDEO_SUFFIX:
+                    correct_dir = Path(video_dir)
+                else:
+                    self.main.messages.add(f"[Error] Unknown file type: {item.uri}")
+                    continue
+
+                year = item.date.year
+                month = item.date.month
+                day = item.date.day
+                correct_path = (
+                    correct_dir
+                    / f"{year:04d}"
+                    / f"{month:02d}"
+                    / f"{day:02d}"
+                    / filepath.name
+                )
+                correct_path = correct_path.with_suffix(ext)  # Normalize extension case
+
+                if correct_path.exists():
+                    self.main.messages.add(f"File already exists: {correct_path}")
+                    continue
+
+                try:
+                    correct_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(filepath, correct_path)
+
+                    item.uri = str(correct_path)
+                    item.uri_md5 = calculate_md5(item.uri)
+                    item.data_xxhash = calculate_xxhash(correct_path)
+                    need_update.append(item)
+                    moved += 1
+                    self.main.messages.add(
+                        f"Moved from no-date: {filepath} → {correct_path}"
+                    )
+                except Exception as e:
+                    self.main.messages.add(f"[Error] Failed to move {filepath}: {e}")
+
+            db.update_items_in_db(need_update)
+            current += len(chunk)
+            yield total, current
+
+        self.main.messages.add(f"Total items in 'no-date': {total}")
+        self.main.messages.add(f"Moved {moved} items to correct date folders")

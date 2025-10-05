@@ -99,6 +99,11 @@ class MainWindow(QMainWindow):
                 ["Update Locations in DB", self.tasks.db_update_locations],
                 ["Update Hashes in DB", self.tasks.db_update_hashes],
                 ["Check for Files in Default Dirs", self.tasks.list_files_not_in_db],
+                [
+                    "Check for Files outside of Default Dirs",
+                    self.tasks.list_files_not_in_config_dir,
+                ],
+                ["Move Files with new date set", self.tasks.fix_no_date_files],
                 ["Move Files to Default Dirs", self.tasks.move_files],
             ],
             "Profiles": [],
@@ -497,7 +502,7 @@ class MainWindow(QMainWindow):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
 
         if directory:
-            self.messages.add("selected: ", directory)
+            self.messages.add(f"selected: {directory}")
             mydir = Path(directory)
             files = []
             for ext in config.ALL_SUFFIX:
@@ -507,6 +512,7 @@ class MainWindow(QMainWindow):
                 files = files + new
             db.add_images(files)
             self.update_items()
+            self.messages.add(f"finished adding {directory}")
 
     def add_tag(self):
         dialog = AddTagDialog(self)
