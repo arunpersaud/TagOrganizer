@@ -15,9 +15,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Task to print files that are in the default dirs, but not in the db
   (to make cleanup easier)
 - Show number of filtered, selected, and total images
+- A test suite, run with `pytest`
+- `--verbose` option for debug logging
+
+### Changed
+- Thumbnails are decoded on background threads instead of the GUI thread,
+  so the window stays responsive while a page loads
+- Diagnostics go through the `logging` module rather than `print`, so they
+  are visible when the app is started from a desktop launcher
+- Indexes on `uri` and `data_xxhash`; scanning a directory for files already
+  in the database is roughly fifteen times faster
+- The initial database migration now describes the real schema, and a test
+  checks the migrations and the models cannot drift apart
 
 ### Fixed
 - Behaviour of cursor keys on the last page
+- Creating a new database, or a new profile, crashed on startup with
+  "duplicate column name: longitude"
+- Tags typed into the tag bar were not applied when several images were
+  selected; only single images were tagged
+- On a partly filled last page, the highlighted image was not the one that
+  got tagged, deleted or opened
+- Filtering by a tag left out images that carried both that tag and one of
+  its subtags
+- Deleting images, and the tag context menu, raised an error instead of
+  opening
+- The timeline drew a whole multi-year collection as a handful of day-wide
+  bins
+- The image cursor could move past the end of a filtered selection
+- The counters in the status bar could not go back to zero
+- A missing or unreadable file no longer breaks the whole page of thumbnails
+- "No GPS" and "Wrong dir" could be created as ordinary tags, colliding with
+  the built-in filters
+- Importing from F-Spot dropped every photo's date
+- Switching profiles kept the previous database file open
 
 ## [0.3] - 2025-01-18
 
