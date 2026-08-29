@@ -215,15 +215,10 @@ class ImageGridWidget(QWidget):
                 if time.time() - start > budget:
                     return
 
-        # full files +- 5 from current image
-        for i in range(self.highlight - 5, self.highlight + 6):
-            if i < 0:
-                continue
-            if i >= N:
-                continue
-            item = db.get_current_image(i, filters)
-            if item is None:
-                continue
+        # full files +- 5 from current image. One ranged query, not eleven
+        # single-row ones: each of those opens its own session and sorts the
+        # whole table, which costs more than this method's entire budget.
+        for item in db.get_image_range(self.highlight - 5, 11, filters):
             load_full_pixmap(str(item.uri))
             if time.time() - start > budget:
                 return

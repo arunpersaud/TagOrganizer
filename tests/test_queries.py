@@ -222,3 +222,35 @@ class TestF19AddImagesOptimization:
         with Session(temp_db) as session:
             items = session.exec(select(Item)).all()
         assert len(items) == 1
+
+
+class TestGetImageRange:
+    """get_image_range: one query for a window of items, in display order.
+
+    The preloader used to call get_current_image once per item. Each call
+    opens its own session and sorts the whole table, which cost ~100 ms for
+    eleven items at 30k rows - more than the preloader's entire frame budget.
+    """
+
+    def test_range_matches_per_item_lookup(self, seeded_db):
+        ranged = [item.uri for item in db.get_image_range(0, 4, None)]
+        per_item = [db.get_current_image(i, None).uri for i in range(4)]
+        assert ranged == per_item
+
+    def test_range_matches_page_from_get_images(self, seeded_db):
+        assert [i.uri for i in db.get_images(0, None)] == [
+            i.uri for i in db.get_image_range(0, 25, None)
+        ]
+
+    def test_negative_start_is_clamped(self, seeded_db):
+        """The preloader asks for highlight-5, which is negative near the top."""
+        assert [i.uri for i in db.get_image_range(-3, 5, None)] == [
+            i.uri for i in db.get_image_range(0, 2, None)
+        ]
+
+    def test_range_past_the_end_is_empty(self, seeded_db):
+        assert db.get_image_range(999, 10, None) == []
+        assert db.get_image_range(0, 0, None) == []
+
+    def test_get_current_image_past_the_end_returns_none(self, seeded_db):
+        assert db.get_current_image(999, None) is None
