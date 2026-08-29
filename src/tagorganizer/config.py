@@ -25,7 +25,7 @@ import sys
 import os
 
 from . import db
-from .migrations import upgrade_db
+from .migrations import upgrade_db, stamp_db
 
 # Define the application name and author
 APP_NAME = "TagOrganizer"
@@ -86,10 +86,20 @@ class ConfigManager:
         db.set_engine(self.db)
         os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{self.db}"
 
+        # Check if database file already exists
+        db_path = Path(self.db)
+        db_is_new = not db_path.exists()
+
         # ensure we are using the latest version
         db.create_db()
-        # run alembic
-        upgrade_db()
+
+        # For new databases, stamp at head instead of running upgrade
+        # (since create_all just created the full schema).
+        # For existing databases, run upgrade to apply any pending migrations.
+        if db_is_new:
+            stamp_db("head")
+        else:
+            upgrade_db()
 
     def find_new_database_name(self, dir, profile=None):
         """Find an unused database name."""

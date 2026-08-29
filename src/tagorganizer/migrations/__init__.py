@@ -21,3 +21,13 @@ def upgrade_db(revision="head"):
 
 def downgrade_db(revision):
     command.downgrade(ALEMBIC_CFG, revision)
+
+
+def stamp_db(revision="head"):
+    """Stamp the database at a revision without running migrations.
+
+    Used for newly created databases that already have the full schema
+    created via SQLModel.metadata.create_all().
+    """
+    print(f"DB: stamp at {revision}")
+    command.stamp(ALEMBIC_CFG, revision)

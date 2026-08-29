@@ -57,9 +57,9 @@ class Tag(SQLModel, table=True):
 
 class Item(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    uri: str
+    uri: str = Field(index=True)
     uri_md5: str = Field(default="")
-    data_xxhash: str = Field(default="")
+    data_xxhash: str = Field(default="", index=True)
     camera: str | None = Field(default=None, index=True)
     date: datetime | None = Field(default=None, index=True)
 
@@ -70,9 +70,19 @@ class Item(SQLModel, table=True):
     tags: list[Tag] = Relationship(back_populates="items", link_model=ItemTagLink)
 
     def __hash__(self):
-        return self.id
+        # Unsaved items have no id yet, so fall back to identity. __eq__ below
+        # matches that, keeping the "a == b implies hash(a) == hash(b)"
+        # invariant intact for sets, dicts and lru_cache.
+        if self.id is None:
+            return id(self)
+        return hash((type(self).__name__, self.id))
 
     def __eq__(self, other):
-        if isinstance(other, Item):
-            return self.id == other.id
-        return False
+        if not isinstance(other, Item):
+            return NotImplemented
+        if self.id is None or other.id is None:
+            # Two unsaved items are only equal if they are the same object;
+            # comparing None to None would otherwise call every unsaved item
+            # equal to every other one.
+            return self is other
+        return self.id == other.id
