@@ -20,6 +20,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 import configparser
 import platformdirs
+import logging
 from pathlib import Path
 import sys
 import os
@@ -30,6 +31,8 @@ from .migrations import upgrade_db, stamp_db
 # Define the application name and author
 APP_NAME = "TagOrganizer"
 APP_AUTHOR = "TagOrganizer"
+
+logger = logging.getLogger(__name__)
 
 # Define the path to the config file
 config_dir = Path(platformdirs.user_config_dir(APP_NAME, APP_AUTHOR))
@@ -72,7 +75,7 @@ class ConfigManager:
         self.config.read(self.config_file)
 
         if self.profile not in self.config:
-            print(f"[ERROR] {self.profile} not found in {self.config_file}")
+            logger.error("profile %s not found in %s", self.profile, self.config_file)
             sys.exit(3)
 
         self.db = self.config[self.profile]["database"]
@@ -138,12 +141,12 @@ class ConfigManager:
         self, name: str, database_path: Path, photo_dir: str, video_dir: str
     ):
         if name in self.config:
-            print("[ERROR] Name already exist in config... not adding it")
+            logger.error("profile %r already exists in the config; not adding it", name)
             return
 
         db_name = self.find_new_database_name(database_path, name)
         if db_name is None:
-            print(f"[ERROR] Cannot find a valid database name in {database_path}")
+            logger.error("cannot find an unused database name in %s", database_path)
             sys.exit()
 
         db_path = database_path / db_name

@@ -18,6 +18,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+import logging
 from pathlib import Path
 
 from sqlmodel import SQLModel, create_engine, select, Session, func, delete
@@ -28,12 +29,37 @@ from sqlalchemy import or_
 from .models import Tag, Item, ItemTagLink
 from .widgets.tag_bar import Filters
 
+logger = logging.getLogger(__name__)
+
 engine = None
 
 
 def set_engine(db_dir: str):
+    """Point this module at a profile's database.
+
+    Disposes the previous engine first. Without that, every profile switch
+    left the old engine behind with a pooled connection still holding its
+    database file open, and the Profiles menu can switch any number of times
+    in one session.
+    """
     global engine
+    if engine is not None:
+        engine.dispose()
     engine = create_engine(f"sqlite:///{db_dir}")
+
+
+def new_session() -> Session:
+    """Open a session on the configured database.
+
+    Every query below goes through here, so there is one place that knows how
+    sessions are made and one clear error when no profile has been loaded yet
+    rather than an AttributeError on None deep inside a query.
+    """
+    if engine is None:
+        raise RuntimeError(
+            "No database configured - call set_engine() before querying."
+        )
+    return Session(engine)
 
 
 def create_db():
@@ -41,20 +67,20 @@ def create_db():
 
 
 def get_tag(name):
-    with Session(engine) as session:
+    with new_session() as session:
         return session.exec(select(Tag).where(Tag.name == name)).first()
 
 
 def get_tag_by_id(id):
-    with Session(engine) as session:
+    with new_session() as session:
         return session.exec(select(Tag).where(Tag.id == id)).first()
 
 
 def add_tag(name):
-    with Session(engine) as session:
+    with new_session() as session:
         existing_tag = session.exec(select(Tag).where(Tag.name == name)).first()
         if existing_tag:
-            print(f"Tag with name '{name}' already exists with ID: {existing_tag.id}")
+            logger.debug("tag %r already exists with id %s", name, existing_tag.id)
             return existing_tag.id
 
         new_tag = Tag(name=name)
@@ -64,11 +90,11 @@ def add_tag(name):
 
 
 def delete_tag(id: int):
-    with Session(engine) as session:
+    with new_session() as session:
         tag = session.get(Tag, id)
         if tag:
             if tag.children:
-                print("[WARNING] cannot delete this tag, since it has subtags")
+                logger.warning("cannot delete tag %s: it still has subtags", id)
                 return
             # unclear if this is needed or can be optimized by setting
             # other flags in the model
@@ -78,7 +104,7 @@ def delete_tag(id: int):
 
 
 def delete_item(id: int):
-    with Session(engine) as session:
+    with new_session() as session:
         item = session.get(Item, id)
         if item:
             session.exec(delete(ItemTagLink).where(ItemTagLink.item_id == id))
@@ -87,7 +113,7 @@ def delete_item(id: int):
 
 
 def check_item_in_db(uri: str):
-    with Session(engine) as session:
+    with new_session() as session:
         query = select(Item).where(Item.uri == uri)
         result = session.exec(query).first()
         if result is None:
@@ -97,30 +123,32 @@ def check_item_in_db(uri: str):
 
 
 def get_all_tags():
-    with Session(engine) as session:
+    with new_session() as session:
         results = session.exec(select(Tag))
         return results.all()
 
 
 def set_parent_tag(child: Tag, parent: Tag):
     if child is None:
-        print("No child given")
+        logger.error("set_parent_tag called without a child")
     if parent is None:
-        print("No parent given")
+        logger.error("set_parent_tag called without a parent")
 
-    with Session(engine) as session:
+    with new_session() as session:
         child.parent_id = parent.id
         session.add(child)
         session.commit()
 
 
 def set_parent_tag_by_id(child_id: int, parent_id: int):
-    with Session(engine) as session:
+    with new_session() as session:
         child = session.get(Tag, child_id)
         parent = session.get(Tag, parent_id)
         if (not child) or (not parent):
-            print(
-                f"Could set parent_tag by id child_id {child_id} parent_id {parent_id}"
+            logger.error(
+                "could not set parent tag: child_id=%s parent_id=%s",
+                child_id,
+                parent_id,
             )
             return
         child.parent_id = parent.id
@@ -131,17 +159,17 @@ def set_parent_tag_by_id(child_id: int, parent_id: int):
 def add_images(files):
     """Add multiple images to the database in a single session.
 
-    Pre-loads existing URIs to avoid nested session calls. Skips duplicates
-    and prints a message for each skipped URI.
+    Pre-loads existing URIs to avoid nested session calls. Skips duplicates,
+    including a path repeated within `files`.
     """
-    with Session(engine) as session:
+    with new_session() as session:
         # Pre-load all existing URIs in a single query
         existing_uris = set(session.exec(select(Item.uri)).all())
 
         for f in files:
             f_str = str(f)
             if f_str in existing_uris:
-                print(f"Item with uri '{f}' already exists in DB.")
+                logger.debug("item %s already in the database", f)
                 continue
             tmp = Item(uri=f_str)
             session.add(tmp)
@@ -153,9 +181,9 @@ def add_images(files):
 
 
 def add_image(filename):
-    with Session(engine) as session:
+    with new_session() as session:
         if item_id := check_item_in_db(filename):
-            print(f"Item with uri '{filename}' already exists in DB")
+            logger.debug("item %s already in the database", filename)
             return item_id
         tmp = Item(uri=str(filename))
         session.add(tmp)
@@ -164,28 +192,28 @@ def add_image(filename):
 
 
 def get_items_without_date() -> list[Item]:
-    with Session(engine) as session:
+    with new_session() as session:
         statement = select(Item).where(Item.date == sa.null())
         results = session.exec(statement)
         return results.all()
 
 
 def get_items_without_location() -> list[Item]:
-    with Session(engine) as session:
+    with new_session() as session:
         statement = select(Item).where(Item.longitude == sa.null())
         results = session.exec(statement)
         return results.all()
 
 
 def get_all_items_with_location():
-    with Session(engine) as session:
+    with new_session() as session:
         statement = select(Item).where(Item.longitude != sa.null())
         results = session.exec(statement)
         return results.all()
 
 
 def get_items_without_hashes() -> list[Item]:
-    with Session(engine) as session:
+    with new_session() as session:
         query = select(Item)
         conditions = [
             Item.uri_md5 == "",
@@ -197,7 +225,7 @@ def get_items_without_hashes() -> list[Item]:
 
 
 def get_all_items_not_in_dir(directories: list[Path], suffix: list[str]):
-    with Session(engine) as session:
+    with new_session() as session:
         all_suffixes = []
         for e in suffix:
             all_suffixes.append(e.lower())
@@ -216,7 +244,7 @@ def get_all_items_not_in_dir(directories: list[Path], suffix: list[str]):
 
 
 def update_items_in_db(items: list[Item]) -> None:
-    with Session(engine) as session:
+    with new_session() as session:
         for i in items:
             session.add(i)
         session.commit()
@@ -224,7 +252,7 @@ def update_items_in_db(items: list[Item]) -> None:
 
 def get_all_tag_ids(tag_names: list[str]) -> list[int]:
     """Fetch all tag IDs including children for given tag names."""
-    with Session(engine) as session:
+    with new_session() as session:
         tag_ids = set()
         tags = session.exec(select(Tag).where(Tag.name.in_(tag_names))).all()
 
@@ -295,7 +323,7 @@ def _apply_standard_order(query):
 
 
 def get_images(page: int = 0, filters: Filters | None = None) -> list[Item]:
-    with Session(engine) as session:
+    with new_session() as session:
         query = select(Item)
         if filters:
             query = filter_query(query, filters)
@@ -311,7 +339,7 @@ def get_images(page: int = 0, filters: Filters | None = None) -> list[Item]:
 
 
 def get_number_of_items(filters: Filters | None = None):
-    with Session(engine) as session:
+    with new_session() as session:
         query = select(func.count(Item.id))
         if filters:
             query = filter_query(query, filters)
@@ -319,7 +347,7 @@ def get_number_of_items(filters: Filters | None = None):
 
 
 def get_times_and_location_from_images(filters: Filters | None = None) -> list:
-    with Session(engine) as session:
+    with new_session() as session:
         query = select(Item.date, Item.longitude, Item.latitude)
 
         if filters:
@@ -364,7 +392,7 @@ def get_image_range(
     if count <= 0:
         return []
 
-    with Session(engine) as session:
+    with new_session() as session:
         query = select(Item)
         if filters:
             query = filter_query(query, filters)
@@ -375,7 +403,7 @@ def get_image_range(
 
 
 def get_common_tags(items: list[Item]) -> list[Tag]:
-    with Session(engine) as session:
+    with new_session() as session:
         # Load items and their tags
         items = session.exec(
             select(Item)
@@ -396,7 +424,7 @@ def get_common_tags(items: list[Item]) -> list[Tag]:
 
 
 def set_tags(items: list[Item], tags: list[Tag]) -> None:
-    with Session(engine) as session:
+    with new_session() as session:
         items = session.exec(
             select(Item)
             .where(Item.id.in_([item.id for item in items]))
@@ -417,7 +445,7 @@ def set_tags(items: list[Item], tags: list[Tag]) -> None:
 
 
 def set_tag_photo_by_ids(item_id, tag_id):
-    with Session(engine) as session:
+    with new_session() as session:
         existing_item = session.exec(
             select(ItemTagLink).where(
                 ItemTagLink.item_id == item_id, ItemTagLink.tag_id == tag_id

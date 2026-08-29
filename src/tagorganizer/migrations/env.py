@@ -8,11 +8,14 @@ from alembic import context
 from sqlmodel import SQLModel
 from tagorganizer.models import Tag, Item, ItemTagLink  # noqa: F401
 
+import logging
 import os
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+logger = logging.getLogger("alembic.env")
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -26,7 +29,7 @@ target_metadata = SQLModel.metadata
 TAGORGANIZER_DB_URL = os.getenv("TAGORGANIZER_DB_URL")
 if TAGORGANIZER_DB_URL:
     config.set_main_option("sqlalchemy.url", TAGORGANIZER_DB_URL)
-    print(f"DB using: {TAGORGANIZER_DB_URL}")
+    logger.info("using database %s", TAGORGANIZER_DB_URL)
 else:
     raise Exception("TAGORGANIZER_DB_URL environment variable not set.")
 
