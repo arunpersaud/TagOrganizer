@@ -21,10 +21,10 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 from pathlib import Path
 
 from qtpy.QtWidgets import QLabel, QSizePolicy
-from qtpy.QtGui import QPainter, QPen
+from qtpy.QtGui import QPainter, QPen, QImage, QPixmap
 from qtpy.QtCore import Qt
 
-from .helper import load_pixmap
+from .helper import get_thumbnail_loader
 from ..models import Item
 
 
@@ -36,15 +36,44 @@ class FramedLabel(QLabel):
 
         self.item = item
         self.photos_path = photos_path
-
         self.pixmap_width = 150
-        self.pixmap = load_pixmap(item, self.pixmap_width, photos_path=photos_path)
-        self.show_pixmap(self.pixmap)
+
+        self.pixmap = None
+
+        # Show placeholder immediately (filename)
+        self.show_pixmap(None)
         self.setAlignment(Qt.AlignCenter)
         self.selected = False
         self.highlight = False
 
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+
+        # Request thumbnail decode asynchronously
+        loader = get_thumbnail_loader()
+        loader.thumbnail_ready.connect(self._on_thumbnail_ready)
+        loader.load(item, self.pixmap_width, photos_path)
+
+    def _on_thumbnail_ready(self, key, qimage: QImage) -> None:
+        """Take a decode result if it is for what this tile is showing.
+
+        Results are addressed by (item id, size) rather than by widget, so a
+        tile picks up whatever decode matches its current item and requested
+        size - including one the preloader started for that same item. The
+        same check is what stops a stale result painting over a tile that has
+        since been reused for a different photo, or a small thumbnail landing
+        after a resize has already asked for a larger one.
+        """
+        if key != get_thumbnail_loader().key_for(self.item, self.pixmap_width):
+            return
+
+        if qimage is None or qimage.isNull():
+            self.show_pixmap(None)
+            return
+
+        # QPixmap may only be built on the GUI thread, which is where this
+        # slot runs. load_qimage has already written the disk cache entry.
+        self.pixmap = QPixmap.fromImage(qimage)
+        self.show_pixmap(self.pixmap)
 
     def show_pixmap(self, pixmap):
         """Show a thumbnail, or the file name when there is no thumbnail.
@@ -81,20 +110,33 @@ class FramedLabel(QLabel):
 
     def resizeEvent(self, event):
         # reload pixmap if needed to get reasonable resolution
+        size_changed = False
         if self.width() > 1.5 * self.pixmap_width:
             self.pixmap_width = self.width()
-            self.pixmap = load_pixmap(self.item, self.pixmap_width, self.photos_path)
+            size_changed = True
         if self.width() < 0.6 * self.pixmap_width:
             self.pixmap_width = self.width()
-            self.pixmap = load_pixmap(self.item, self.pixmap_width, self.photos_path)
+            size_changed = True
 
-        # scale pixmapx
-        if self.pixmap is None:
-            self.show_pixmap(None)
-        else:
-            self.show_pixmap(
-                self.pixmap.scaled(
-                    self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+        if size_changed:
+            # Request new thumbnail at larger size asynchronously
+            loader = get_thumbnail_loader()
+            loader.load(self.item, self.pixmap_width, self.photos_path)
+            # Keep showing current pixmap or placeholder while loading
+            if self.pixmap is not None:
+                self.show_pixmap(
+                    self.pixmap.scaled(
+                        self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                    )
                 )
-            )
+        else:
+            # No reload needed, just scale current pixmap
+            if self.pixmap is None:
+                self.show_pixmap(None)
+            else:
+                self.show_pixmap(
+                    self.pixmap.scaled(
+                        self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                    )
+                )
         super().resizeEvent(event)

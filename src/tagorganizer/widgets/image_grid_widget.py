@@ -25,7 +25,7 @@ from qtpy.QtWidgets import QWidget, QGridLayout
 from qtpy.QtCore import QTimer
 
 from .framed_label import FramedLabel
-from .helper import load_pixmap, load_full_pixmap
+from .helper import load_full_pixmap, get_thumbnail_loader
 from .. import db
 
 
@@ -112,23 +112,24 @@ class ImageGridWidget(QWidget):
                 row += 1
 
     def clear(self):
-        for row in range(self.layout.rowCount()):
-            for col in range(self.layout.columnCount()):
-                item = self.layout.itemAtPosition(row, col)
-                if item is not None:
-                    widget = item.widget()
-                    if widget is not None:
-                        widget.deleteLater()
+        # Take the items out of the layout as well as scheduling the widgets
+        # for deletion. deleteLater only queues the delete, so a layout that
+        # still holds the old items reports stale widgets at those positions
+        # until the event loop gets a turn - and show_images adds the new row
+        # of tiles before that happens.
+        while (item := self.layout.takeAt(0)) is not None:
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
         self.widgets = []
 
     def clear_selection(self):
-        for row in range(self.layout.rowCount()):
-            for col in range(self.layout.columnCount()):
-                item = self.layout.itemAtPosition(row, col)
-                if item is not None:
-                    widget = item.widget()
-                    if widget.selected:
-                        widget.toggle_selected()
+        # Walk the widgets we built rather than probing layout positions:
+        # itemAtPosition can hand back something that is not a FramedLabel, and
+        # reading .selected off it raises.
+        for widget in self.widgets:
+            if widget.selected:
+                widget.toggle_selected()
 
     def current_item(self):
         if self.widgets:
@@ -198,12 +199,18 @@ class ImageGridWidget(QWidget):
             self._preload_complete = False
 
         start = time.time()
-        budget = 0.03  # 30 ms budget
+        budget = 0.01  # 10 ms budget (mostly DB queries now, decode is async)
 
         filters = self.main.tag_bar.get_filters()
         N = db.get_number_of_items(filters)
+        loader = get_thumbnail_loader()
 
-        # thumbnails +- 2 pages
+        # thumbnails +- 2 pages, handed to the pool rather than decoded here.
+        # The worker writes the disk cache entry, so this is worth doing even
+        # though nothing displays the result: the tile that eventually shows
+        # this item finds the thumbnail already on disk. The loader drops
+        # requests it is already working on, so re-offering the same pages on
+        # every tick costs nothing.
         for i in range(self.page - 2, self.page + 3):
             if i < 0:
                 continue
@@ -211,7 +218,8 @@ class ImageGridWidget(QWidget):
                 continue
             items = db.get_images(i, filters)
             for item in items:
-                load_pixmap(item, 150, self.main.config.photos)
+                # Submit to thread pool but don't block waiting for result
+                loader.load(item, 150, self.main.config.photos)
                 if time.time() - start > budget:
                     return
 
