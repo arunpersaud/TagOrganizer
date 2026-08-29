@@ -19,6 +19,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import importlib.metadata
+import logging
 from pathlib import Path
 import shutil
 import sys
@@ -60,6 +61,8 @@ from .widgets import (
     RESERVED_TAGS,
 )
 from .widgets.helper import CommaCompleter, get_thumbnail_path
+
+logger = logging.getLogger(__name__)
 
 
 def is_reserved_tag(name: str) -> bool:
@@ -547,6 +550,21 @@ class MainWindow(QMainWindow):
         self.setup_autocomplete()
 
 
+def configure_logging(verbose: bool = False) -> None:
+    """Send library log records to the console.
+
+    The modules under tagorganizer log through logging.getLogger(__name__) and
+    deliberately install no handlers of their own - that is the application's
+    job, and doing it here means importing the package never has side effects.
+    Without this call the CLI paths, including the f-spot import, would be
+    silent.
+    """
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(levelname)-7s %(name)s: %(message)s",
+    )
+
+
 def main():
     commands = docopt("""
     Usage:
@@ -555,8 +573,11 @@ def main():
     --config=<file>                 Use this config file
     --profile=<profile>             Use this profile
     --import-from-f-spot=<f-spot>   Try to load data from this f-spot database
+    --verbose                       Log debug messages as well
 
     """)
+
+    configure_logging(verbose=commands["--verbose"])
 
     app = QApplication(sys.argv)
     window = MainWindow(app)
@@ -564,16 +585,16 @@ def main():
     if commands["--config"]:
         configfile = Path(commands["--config"]).expanduser()
         if not configfile.is_file():
-            print(f"[Error]  config file {configfile} cannot be opened... existing")
+            logger.error("config file %s cannot be opened... exiting", configfile)
             sys.exit(1)
         window.config.set_config_file(configfile)
         window.create_profile_menu()
-        print("Starting with config file:", configfile)
+        logger.info("Starting with config file: %s", configfile)
 
     if commands["--profile"]:
         profile = commands["--profile"]
         window.change_profile(profile)
-        print("Starting with profile: ", profile)
+        logger.info("Starting with profile: %s", profile)
 
     if commands["--import-from-f-spot"]:
         old_db = Path(commands["--import-from-f-spot"]).expanduser()

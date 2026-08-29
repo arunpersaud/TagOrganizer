@@ -18,6 +18,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,21 +29,25 @@ from sqlmodel import Session, select
 from . import db
 from .models import Item, ItemTagLink
 
+logger = logging.getLogger(__name__)
+
 
 def import_f_spot(filename: Path):
     if not filename.is_file():
-        print(f"[Error] f-spot database {filename} cannot be opened... existing")
+        logger.error(
+            "[Error] f-spot database %s cannot be opened... existing", filename
+        )
         sys.exit(2)
 
-    print("Importing from ", filename)
-    print("Assuming this is an F-Spot database.")
+    logger.info("Importing from %s", filename)
+    logger.info("Assuming this is an F-Spot database.")
 
     DATABASE_URL = f"sqlite:///{filename}"
     # Use raw SQLAlchemy engine to avoid registering F-Spot tables in SQLModel.metadata
     fspot_engine = sa_create_engine(DATABASE_URL)
 
     with fspot_engine.connect() as connection:
-        print("Trying to access the data...")
+        logger.info("Trying to access the data...")
 
         # Check photos table exists and is readable
         try:
@@ -51,10 +56,10 @@ def import_f_spot(filename: Path):
             )
             photos_check = result.fetchall()
             if not photos_check:
-                print("Could not open the photo table")
+                logger.error("Could not open the photo table")
                 sys.exit(1)
         except Exception:
-            print("Could not open the photo table")
+            logger.error("Could not open the photo table")
             sys.exit(1)
 
         # Check tags table exists and is readable
@@ -64,10 +69,10 @@ def import_f_spot(filename: Path):
             )
             tags_check = result.fetchall()
             if not tags_check:
-                print("Could not open the tags table")
+                logger.error("Could not open the tags table")
                 sys.exit(1)
         except Exception:
-            print("Could not open the tags table")
+            logger.error("Could not open the tags table")
             sys.exit(1)
 
         # Check photo_tags table exists and is readable
@@ -77,16 +82,16 @@ def import_f_spot(filename: Path):
             )
             photostags_check = result.fetchall()
             if not photostags_check:
-                print("Could not open the photo-tag link table")
+                logger.error("Could not open the photo-tag link table")
                 sys.exit(1)
         except Exception:
-            print("Could not open the photo-tag link table")
+            logger.error("Could not open the photo-tag link table")
             sys.exit(1)
 
-        print("Access was successfull!")
+        logger.info("Access was successfull!")
 
     # Import tags
-    print("Importing tags...")
+    logger.info("Importing tags...")
     with fspot_engine.connect() as connection:
         result = connection.execute(text("SELECT id, name, category_id FROM tags"))
         tags = result.fetchall()
@@ -105,10 +110,10 @@ def import_f_spot(filename: Path):
             parent_id = tag_lookup[category_id]
             db.set_parent_tag_by_id(child_id, parent_id)
 
-    print("Importing tags...done")
+    logger.info("Importing tags...done")
 
     # Import images with optimized transaction handling
-    print("Importing images...")
+    logger.info("Importing images...")
     with fspot_engine.connect() as connection:
         result = connection.execute(
             text("SELECT id, time, base_uri, filename FROM photos")
@@ -131,13 +136,13 @@ def import_f_spot(filename: Path):
 
             file = Path(filename)
             if not file.is_file():
-                print(f"Image {file} does not exist...skipping")
+                logger.warning("Image %s does not exist...skipping", file)
                 continue
 
             # Check if already in db
             existing = session.exec(select(Item).where(Item.uri == filename)).first()
             if existing:
-                print(f"Item with uri '{filename}' already exists in DB")
+                logger.warning("Item with uri '%s' already exists in DB", filename)
                 photos_lookup[fspot_id] = existing.id
                 continue
 
@@ -159,10 +164,10 @@ def import_f_spot(filename: Path):
 
         session.commit()
 
-    print("Importing images...done")
+    logger.info("Importing images...done")
 
     # Add links between images and tags with optimized transaction handling
-    print("Adding links between images and tags")
+    logger.info("Adding links between images and tags")
     with fspot_engine.connect() as connection:
         result = connection.execute(text("SELECT photo_id, tag_id FROM photo_tags"))
         photostags = result.fetchall()
@@ -176,7 +181,7 @@ def import_f_spot(filename: Path):
             item_id = photos_lookup.get(photo_id)
 
             if (tag_id_new is None) or (item_id is None):
-                print("[Warning] missing ids... skipping one tag<->item pair")
+                logger.warning("[Warning] missing ids... skipping one tag<->item pair")
                 continue
 
             # Check if link already exists
@@ -194,7 +199,7 @@ def import_f_spot(filename: Path):
 
         session.commit()
 
-    print("Adding links between images and tags...done")
+    logger.info("Adding links between images and tags...done")
 
-    print("Import done")
+    logger.info("Import done")
     sys.exit(0)

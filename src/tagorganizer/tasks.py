@@ -18,6 +18,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+import logging
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +31,8 @@ from more_itertools import chunked
 from . import db
 from . import config
 from .widgets.helper import load_exif, calculate_md5, calculate_xxhash
+
+logger = logging.getLogger(__name__)
 
 
 class TaskManager:
@@ -304,6 +307,7 @@ class TaskManager:
                     moved += 1
                     self.main.messages.add(f"Moved {filepath} to {correct_path}")
                 except Exception:
+                    logger.exception("Failed to move %s to %s", filepath, correct_path)
                     self.main.messages.add(
                         f"Failed to move {filepath} to {correct_path}"
                     )
@@ -446,6 +450,7 @@ class TaskManager:
                         f"Moved from no-date: {filepath} → {correct_path}"
                     )
                 except Exception as e:
+                    logger.exception("Failed to move %s", filepath)
                     self.main.messages.add(f"[Error] Failed to move {filepath}: {e}")
 
             db.update_items_in_db(need_update)
