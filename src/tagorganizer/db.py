@@ -318,15 +318,16 @@ def get_number_of_items(filters: Filters | None = None):
         return session.exec(query).one()
 
 
-def get_times_and_location_from_images(filters: Filters = None) -> list:
+def get_times_and_location_from_images(filters: Filters | None = None) -> list:
     with Session(engine) as session:
         query = select(Item.date, Item.longitude, Item.latitude)
 
         if filters:
             query = filter_query(query, filters)
 
-        # Sort by date in descending order
-        query = query.order_by(Item.date.desc())
+        # Same ordering as the grid: the timeline reads dates[0] and dates[-1]
+        # as the span ends, so it has to agree with what the user is looking at.
+        query = _apply_standard_order(query)
 
         items = session.exec(query).all()
 
