@@ -62,17 +62,17 @@ class TagView(QTreeView):
         db.set_parent_tag(src, dest)
 
     def show_tag_menu(self, position: QPoint):
-        index = self.tag_view.indexAt(position)
+        index = self.indexAt(position)
         if not index.isValid():
             return
 
         tag_id = self.tag_model.itemFromIndex(index).data()
-        menu = QMenu()
+        self.tag_menu = QMenu()
 
-        delete_action = menu.addAction("Delete Tag")
+        delete_action = self.tag_menu.addAction("Delete Tag")
         delete_action.triggered.connect(lambda: self.delete_tag(tag_id))
 
-        menu.exec(self.tag_view.viewport().mapToGlobal(position))
+        self.tag_menu.exec(self.viewport().mapToGlobal(position))
 
     def select_tag(self, index: int):
         tag_name = self.tag_model.itemFromIndex(index).text()

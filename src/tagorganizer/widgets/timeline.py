@@ -18,9 +18,8 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
-from datetime import datetime
+from datetime import datetime, date
 
-from dateutil.relativedelta import relativedelta
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.dates as mdates
@@ -28,6 +27,46 @@ from matplotlib.backend_bases import MouseButton
 import numpy as np
 
 from qtpy.QtWidgets import QSizePolicy
+
+
+def get_histogram_locator_and_bins(start, end):
+    """
+    Determine the appropriate matplotlib date locator and bin count for a date range.
+
+    Args:
+        start: Start date (datetime or date object)
+        end: End date (datetime or date object)
+
+    Returns:
+        tuple: (locator_class, bin_count)
+    """
+    # Convert date objects to datetime if needed
+    if isinstance(start, date) and not isinstance(start, datetime):
+        start = datetime.combine(start, datetime.min.time())
+    if isinstance(end, date) and not isinstance(end, datetime):
+        end = datetime.combine(end, datetime.min.time())
+
+    # Calculate total span in days
+    total_days = (end - start).days
+
+    if total_days <= 0:
+        total_days = 1
+
+    # Choose locator and bins based on span
+    if total_days <= 30:
+        locator = mdates.DayLocator()
+        bins = max(1, total_days)
+    elif total_days <= 365 * 5:
+        locator = mdates.MonthLocator()
+        bins = max(1, total_days // 30)
+    else:
+        locator = mdates.YearLocator()
+        bins = max(1, total_days // 365)
+
+    # Cap bins to avoid absurdly large values
+    bins = min(bins, 365)
+
+    return locator, bins
 
 
 class Timeline(FigureCanvas):
@@ -57,26 +96,19 @@ class Timeline(FigureCanvas):
 
         start = dates[-1] if dates else datetime(2000, 1, 1)
         end = dates[0] if dates else datetime.now()
-        delta = relativedelta(end, start)
-        if delta.days <= 30:
-            self.ax.xaxis.set_major_locator(mdates.DayLocator())
-            self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-            bins = delta.days
-        elif delta.days <= 365:
-            self.ax.xaxis.set_major_locator(mdates.WeekLocator())
-            self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-            bins = delta.days
-        elif delta <= 365 * 5:
-            self.ax.xaxis.set_major_locator(mdates.MonthLocator())
-            self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-            bins = delta.months
-        else:
-            self.ax.xaxis.set_major_locator(mdates.YearLocator())
-            self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
-            bins = delta.years
 
-        if not bins:
-            bins = 1
+        # Get locator and bins based on date range
+        locator, bins = get_histogram_locator_and_bins(start, end)
+        self.ax.xaxis.set_major_locator(locator)
+
+        # Set formatter based on span
+        total_days = (end - start).days if dates else 0
+        if total_days <= 365:
+            self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+        elif total_days <= 365 * 5:
+            self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+        else:
+            self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
 
         self.ax.hist(self.dates_plt, bins=bins)
 

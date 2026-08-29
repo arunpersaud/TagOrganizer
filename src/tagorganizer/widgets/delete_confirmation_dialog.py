@@ -53,8 +53,11 @@ class DeleteConfirmationDialog(QDialog):
 
         for item in self.items:
             label = QLabel()
-            pixmap = load_pixmap(item, size=80, photos_dir=self.main.config.photos)
-            label.setPixmap(pixmap)
+            pixmap = load_pixmap(item, size=80, photos_path=self.main.config.photos)
+            if pixmap:
+                label.setPixmap(pixmap)
+            else:
+                label.setText(item.uri)
             label.setToolTip(item.uri)
             scroll_layout.addWidget(label)
 
