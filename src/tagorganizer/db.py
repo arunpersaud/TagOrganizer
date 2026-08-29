@@ -129,13 +129,26 @@ def set_parent_tag_by_id(child_id: int, parent_id: int):
 
 
 def add_images(files):
+    """Add multiple images to the database in a single session.
+
+    Pre-loads existing URIs to avoid nested session calls. Skips duplicates
+    and prints a message for each skipped URI.
+    """
     with Session(engine) as session:
+        # Pre-load all existing URIs in a single query
+        existing_uris = set(session.exec(select(Item.uri)).all())
+
         for f in files:
-            if check_item_in_db(str(f)) is not None:
+            f_str = str(f)
+            if f_str in existing_uris:
                 print(f"Item with uri '{f}' already exists in DB.")
                 continue
-            tmp = Item(uri=str(f))
+            tmp = Item(uri=f_str)
             session.add(tmp)
+            # also guard against the same path appearing twice in `files`:
+            # add_directory globs both "*.jpg" and "*.JPG", which match the
+            # same file on case-insensitive filesystems.
+            existing_uris.add(f_str)
         session.commit()
 
 
@@ -247,16 +260,18 @@ def filter_query(query, filter: Filters):
 
     # Filter by tags
     if filter.tags:
-        tag_ids = get_all_tag_ids(filter.tags)
-        subquery = (
-            select(ItemTagLink.item_id)
-            .join(Tag, Tag.id == ItemTagLink.tag_id)
-            .filter(Tag.id.in_(tag_ids))
-            .group_by(ItemTagLink.item_id)
-            .having(func.count(ItemTagLink.tag_id) == len(filter.tags))
-            .subquery()
-        )
-        query = query.where(Item.id.in_(select(subquery.c.item_id)))
+        # Build one subquery per requested tag to check for that tag or its descendants.
+        # This correctly handles items tagged with both parent and child tags.
+        # Each subquery checks: does this item have at least one link to this tag's hierarchy?
+        # We AND them together so multi-tag filters use AND semantics.
+        for tag_name in filter.tags:
+            tag_ids = get_all_tag_ids([tag_name])
+            subquery = (
+                select(ItemTagLink.item_id)
+                .where(ItemTagLink.tag_id.in_(tag_ids))
+                .subquery()
+            )
+            query = query.where(Item.id.in_(select(subquery.c.item_id)))
 
     if filter.no_time:
         query = query.where(Item.date == sa.null())
@@ -270,14 +285,23 @@ def filter_query(query, filter: Filters):
     return query
 
 
+def _apply_standard_order(query):
+    """Apply consistent ordering: newest dates first, then oldest, then undated.
+
+    Uses nullslast() to explicitly place NULL dates at the end, and Item.id
+    as a tiebreaker to ensure deterministic ordering between calls.
+    """
+    return query.order_by(Item.date.desc().nullslast(), Item.id)
+
+
 def get_images(page: int = 0, filters: Filters | None = None) -> list[Item]:
     with Session(engine) as session:
         query = select(Item)
         if filters:
             query = filter_query(query, filters)
 
-        # Sort by date in descending order
-        query = query.order_by(Item.date.desc())
+        # Sort by date in descending order, then by id for determinism
+        query = _apply_standard_order(query)
 
         # Pagination
         query = query.offset(25 * page).limit(25)
@@ -322,6 +346,9 @@ def get_current_image(number, filters: Filters | None = None):
         query = select(Item)
         if filters:
             query = filter_query(query, filters)
+
+        # Apply same ordering as get_images for consistency
+        query = _apply_standard_order(query)
 
         results = session.exec(query.offset(number).limit(1))
         return results.first()
