@@ -39,12 +39,25 @@ class FramedLabel(QLabel):
 
         self.pixmap_width = 150
         self.pixmap = load_pixmap(item, self.pixmap_width, photos_path=photos_path)
-        self.setPixmap(self.pixmap)
+        self.show_pixmap(self.pixmap)
         self.setAlignment(Qt.AlignCenter)
         self.selected = False
         self.highlight = False
 
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+
+    def show_pixmap(self, pixmap):
+        """Show a thumbnail, or the file name when there is no thumbnail.
+
+        load_pixmap returns None when the file has been moved or deleted
+        outside the application, or is a format it cannot decode. Passing that
+        straight to setPixmap raises TypeError and takes down the whole grid
+        page, so fall back to showing which file is missing.
+        """
+        if pixmap is None:
+            self.setText(Path(self.item.uri).name)
+            return
+        self.setPixmap(pixmap)
 
     def toggle_selected(self):
         self.selected = not self.selected
@@ -76,8 +89,12 @@ class FramedLabel(QLabel):
             self.pixmap = load_pixmap(self.item, self.pixmap_width, self.photos_path)
 
         # scale pixmapx
-        scaled_pixmap = self.pixmap.scaled(
-            self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
-        self.setPixmap(scaled_pixmap)
+        if self.pixmap is None:
+            self.show_pixmap(None)
+        else:
+            self.show_pixmap(
+                self.pixmap.scaled(
+                    self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+            )
         super().resizeEvent(event)
