@@ -50,19 +50,42 @@ class ImageGridWidget(QWidget):
         self.preloader = QTimer()
         self.preloader.timeout.connect(self.preload_items)
         self.preloader.start(100)
+        # (page, highlight) the preloader last worked on, and whether that
+        # pass finished rather than stopping on its time budget.
+        self._last_preload_position = None
+        self._preload_complete = False
+
+    @staticmethod
+    def _get_widget_index(highlight, N, widget_count):
+        """Calculate the widget index for a given highlight position.
+
+        Args:
+            highlight: The global highlight position
+            N: The page size (columns * rows)
+            widget_count: The number of widgets currently displayed
+
+        Returns:
+            The index of the widget on the current page (0-based)
+        """
+        if widget_count == 0:
+            return 0
+        n = highlight % N
+        return min(n, widget_count - 1)
 
     @staticmethod
     def change_highlight(func):
         @wraps(func)
         def wrapper(self, *args):
             if self.widgets:
-                n = self.highlight % self.N
-                n = min(n, len(self.widgets) - 1)
+                n = ImageGridWidget._get_widget_index(
+                    self.highlight, self.N, len(self.widgets)
+                )
                 self.widgets[n].set_highlight(False)
             func(self, *args)
             if self.widgets:
-                n = self.highlight % self.N
-                n = min(n, len(self.widgets) - 1)
+                n = ImageGridWidget._get_widget_index(
+                    self.highlight, self.N, len(self.widgets)
+                )
                 self.widgets[n].set_highlight(True)
             # update single item if in view
             if self.main.tabs.currentWidget() == self.main.single_item:
@@ -109,7 +132,7 @@ class ImageGridWidget(QWidget):
 
     def current_item(self):
         if self.widgets:
-            current = self.highlight % len(self.widgets)
+            current = self._get_widget_index(self.highlight, self.N, len(self.widgets))
             return self.widgets[current]
 
     def toggle_selection(self):
@@ -134,7 +157,7 @@ class ImageGridWidget(QWidget):
 
     @change_highlight
     def move_right(self):
-        N = self.main.numbers[2]
+        N = self.main.numbers[0]
 
         self.highlight = min(self.highlight + 1, N - 1)
 
@@ -148,32 +171,48 @@ class ImageGridWidget(QWidget):
 
     @change_highlight
     def move_down(self):
-        N = self.main.numbers[2]
+        N = self.main.numbers[0]
 
         self.highlight = min(self.highlight + self.columns, N - 1)
 
     @change_highlight
     def shift_move_down(self):
-        N = self.main.numbers[2]
+        N = self.main.numbers[0]
 
         self.highlight = min(self.highlight + self.N, N - 1)
 
     def preload_items(self):
+        # Skip if grid tab is not visible
+        if self.main.tabs.currentWidget() != self:
+            return
+
+        # Skip only when the previous pass for this position ran to
+        # completion. A pass that stopped on the time budget still has work
+        # left, so it has to be resumed on the next tick rather than skipped.
+        position = (self.page, self.highlight)
+        if position == self._last_preload_position and self._preload_complete:
+            return
+
+        if position != self._last_preload_position:
+            self._last_preload_position = position
+            self._preload_complete = False
+
         start = time.time()
+        budget = 0.03  # 30 ms budget
 
         filters = self.main.tag_bar.get_filters()
         N = db.get_number_of_items(filters)
 
         # thumbnails +- 2 pages
         for i in range(self.page - 2, self.page + 3):
-            if i < 1:
+            if i < 0:
                 continue
             if i > N // self.N:
                 continue
             items = db.get_images(i, filters)
             for item in items:
                 load_pixmap(item, 150, self.main.config.photos)
-                if time.time() - start > 0.1:
+                if time.time() - start > budget:
                     return
 
         # full files +- 5 from current image
@@ -183,6 +222,10 @@ class ImageGridWidget(QWidget):
             if i >= N:
                 continue
             item = db.get_current_image(i, filters)
+            if item is None:
+                continue
             load_full_pixmap(str(item.uri))
-            if time.time() - start > 0.1:
+            if time.time() - start > budget:
                 return
+
+        self._preload_complete = True
