@@ -62,6 +62,17 @@ from .widgets import (
 from .widgets.helper import CommaCompleter, get_thumbnail_path
 
 
+def is_reserved_tag(name: str) -> bool:
+    """Is this name one of the internal filter buttons?
+
+    Compared case-insensitively: handle_tags runs every entered tag through
+    str.title(), which turns "No GPS" into "No Gps" and "Wrong dir" into
+    "Wrong Dir", so an exact match would let two of the three reserved names
+    through and create a real tag colliding with the filter button.
+    """
+    return name.strip().casefold() in {r.casefold() for r in RESERVED_TAGS}
+
+
 class MainWindow(QMainWindow):
     def __init__(self, app):
         super().__init__()
@@ -359,7 +370,7 @@ class MainWindow(QMainWindow):
 
         tag_list = []
         for t in tags:
-            if t in RESERVED_TAGS:
+            if is_reserved_tag(t):
                 self.messages.add(
                     f"Tag with name '{t}' is not allowed due to internal use!"
                 )
@@ -526,7 +537,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(
                         self, "Duplicate Tag", "The tag name already exists."
                     )
-                elif tag_name in RESERVED_TAGS:
+                elif is_reserved_tag(tag_name):
                     QMessageBox.warning(
                         self, "Tag name not allowed", "The tag name is used internally."
                     )

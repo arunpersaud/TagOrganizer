@@ -430,3 +430,30 @@ class TestF15DeleteEmptyGrid:
         assert (
             current_item_call is not None
         ), "Should have a guard checking if current is None"
+
+
+class TestReservedTagsAreCaseInsensitive:
+    """handle_tags runs entered names through str.title() before checking them.
+
+    That turns "No GPS" into "No Gps" and "Wrong dir" into "Wrong Dir", so an
+    exact-match check let two of the three reserved names through and created
+    a real tag colliding with the filter button.
+    """
+
+    def test_every_reserved_name_is_rejected_after_title_casing(self):
+        from tagorganizer.main import is_reserved_tag
+        from tagorganizer.widgets.tag_bar import RESERVED_TAGS
+
+        for reserved in RESERVED_TAGS:
+            assert is_reserved_tag(reserved), reserved
+            # the exact transformation handle_tags applies
+            assert is_reserved_tag(reserved.strip().title()), reserved
+            assert is_reserved_tag(reserved.lower()), reserved
+            assert is_reserved_tag(reserved.upper()), reserved
+            assert is_reserved_tag(f"  {reserved}  "), reserved
+
+    def test_ordinary_names_are_not_reserved(self):
+        from tagorganizer.main import is_reserved_tag
+
+        for name in ("Holiday", "Beach", "No", "GPS", "Wrong", "No GPSX"):
+            assert not is_reserved_tag(name), name
