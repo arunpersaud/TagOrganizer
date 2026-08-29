@@ -223,11 +223,11 @@ class MainWindow(QMainWindow):
         self.grid.setFocus()
 
     def update_numbers(self, view=None, selected=None, total=None):
-        if view:
+        if view is not None:
             self.numbers[0] = view
-        if selected:
+        if selected is not None:
             self.numbers[1] = selected
-        if total:
+        if total is not None:
             self.numbers[2] = total
         view, selected, total = self.numbers
         self.numbers_label.setText(f"View: {view} Selected: {selected} Total: {total}")
@@ -273,7 +273,7 @@ class MainWindow(QMainWindow):
 
             self.timeline.plot_histogram(dates)
             self.map.set_markers(coords)
-            self.filter = filters
+            self.filters = filters
 
     def create_profile_menu(self):
         if "Profiles" not in self.menu:
@@ -359,13 +359,13 @@ class MainWindow(QMainWindow):
 
         tag_list = []
         for t in tags:
-            tag = db.get_tag(t)
-            if tag in RESERVED_TAGS:
+            if t in RESERVED_TAGS:
                 self.messages.add(
-                    f"Tag with name '{tag}' is not allowed due to internal use!"
+                    f"Tag with name '{t}' is not allowed due to internal use!"
                 )
                 continue
 
+            tag = db.get_tag(t)
             if tag is None:
                 tag_id = db.add_tag(t)
                 self.tag_view.add_tag(t, id=tag_id)
@@ -380,7 +380,7 @@ class MainWindow(QMainWindow):
                 return
             item_list = [current.item]
 
-            db.set_tags(item_list, tag_list)
+        db.set_tags(item_list, tag_list)
 
     def display_common_tags(self):
         if self.grid.selected_items:
@@ -476,11 +476,13 @@ class MainWindow(QMainWindow):
         self.tag_line_edit.setCompleter(completer)
 
     def delete_items(self):
-        items_to_delete = (
-            self.grid.selected_items
-            if self.grid.selected_items
-            else [self.grid.current_item().item]
-        )
+        if self.grid.selected_items:
+            items_to_delete = self.grid.selected_items
+        else:
+            current = self.grid.current_item()
+            if current is None:
+                return
+            items_to_delete = [current.item]
 
         if not items_to_delete:
             return
