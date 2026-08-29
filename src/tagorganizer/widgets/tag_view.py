@@ -82,7 +82,7 @@ class TagView(QTreeView):
         db.delete_tag(tag_id)
         self.update_tags()
 
-    def add_tag(self, name: str, id: int = None, background=None):
+    def add_tag(self, name: str, id: int | None = None, background=None):
         """Add a tag at the top level of the hierachy."""
         tmp = QStandardItem(name)
         tmp.setEditable(False)

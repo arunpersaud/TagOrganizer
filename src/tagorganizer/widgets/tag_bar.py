@@ -200,14 +200,12 @@ class TagBar(QHBoxLayout):
         if w is None:
             return
 
-        found = False
-        for i, tmp in enumerate(self.selected_tags):
-            if w == tmp.widget:
-                found = True
-                break
-        if found:
+        index = next(
+            (i for i, tmp in enumerate(self.selected_tags) if w == tmp.widget), None
+        )
+        if index is not None:
             w.setParent(None)
-            del self.selected_tags[i]
+            del self.selected_tags[index]
         else:
             if w == self.selected_times_min.widget:
                 w.setParent(None)

@@ -77,7 +77,7 @@ class ImageGridWidget(QWidget):
 
         self.clear()
 
-        for i, item in enumerate(items):
+        for item in items:
             label = FramedLabel(item, self.main.config.photos)
             if item in self.selected_items:
                 label.selected = True
