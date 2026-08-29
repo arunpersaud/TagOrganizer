@@ -19,11 +19,14 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlmodel import SQLModel, Field, create_engine, Session, select
+from sqlalchemy import create_engine as sa_create_engine, text
+from sqlmodel import Session, select
 
 from . import db
+from .models import Item, ItemTagLink
 
 
 def import_f_spot(filename: Path):
@@ -34,74 +37,92 @@ def import_f_spot(filename: Path):
     print("Importing from ", filename)
     print("Assuming this is an F-Spot database.")
 
-    class FSPOT_Tag(SQLModel, table=True):
-        __tablename__ = "tags"
-        id: int | None = Field(default=None, primary_key=True)
-        name: str
-        category_id: int | None = Field(default=None, foreign_key="tags.id")
-        is_category: bool
-        sort_priority: int | None = Field(default=None)
-        icon: str | None = Field(default=None)
-
-    class FSPOT_Photo(SQLModel, table=True):
-        __tablename__ = "photos"
-        id: int | None = Field(default=None, primary_key=True)
-        time: int
-        base_uri: str
-        filename: str
-        description: str
-        roll_id: int
-        default_version_id: int
-        rating: int | None = Field(default=None)
-
-    class FSPOT_PhotoTag(SQLModel, table=True):
-        __tablename__ = "photo_tags"
-        photo_id: int | None = Field(
-            default=None, foreign_key="photos.id", primary_key=True
-        )
-        tag_id: int | None = Field(
-            default=None, foreign_key="tags.id", primary_key=True
-        )
-
     DATABASE_URL = f"sqlite:///{filename}"
-    engine = create_engine(DATABASE_URL)
+    # Use raw SQLAlchemy engine to avoid registering F-Spot tables in SQLModel.metadata
+    fspot_engine = sa_create_engine(DATABASE_URL)
 
-    with Session(engine) as f_spot_session:
+    with fspot_engine.connect() as connection:
         print("Trying to access the data...")
-        photos = f_spot_session.exec(select(FSPOT_Photo).limit(20)).all()
-        if not photos:
+
+        # Check photos table exists and is readable
+        try:
+            result = connection.execute(
+                text("SELECT id, time, base_uri, filename FROM photos LIMIT 20")
+            )
+            photos_check = result.fetchall()
+            if not photos_check:
+                print("Could not open the photo table")
+                sys.exit(1)
+        except Exception:
             print("Could not open the photo table")
             sys.exit(1)
 
-        tags = f_spot_session.exec(select(FSPOT_Tag).limit(20)).all()
-        if not tags:
+        # Check tags table exists and is readable
+        try:
+            result = connection.execute(
+                text("SELECT id, name, category_id FROM tags LIMIT 20")
+            )
+            tags_check = result.fetchall()
+            if not tags_check:
+                print("Could not open the tags table")
+                sys.exit(1)
+        except Exception:
             print("Could not open the tags table")
             sys.exit(1)
 
-        photostags = f_spot_session.exec(select(FSPOT_PhotoTag).limit(20)).all()
-        if not photostags:
+        # Check photo_tags table exists and is readable
+        try:
+            result = connection.execute(
+                text("SELECT photo_id, tag_id FROM photo_tags LIMIT 20")
+            )
+            photostags_check = result.fetchall()
+            if not photostags_check:
+                print("Could not open the photo-tag link table")
+                sys.exit(1)
+        except Exception:
             print("Could not open the photo-tag link table")
             sys.exit(1)
+
         print("Access was successfull!")
 
-        print("Importing tags...")
-        tags = f_spot_session.exec(select(FSPOT_Tag)).all()
-        tag_lookup = {}  # from F-spot ID to new id
-        for t in tags:
-            id = db.add_tag(t.name)
-            tag_lookup[t.id] = id
-        for t in tags:
-            if t.category_id > 0:
-                child_id = tag_lookup[t.id]
-                parent_id = tag_lookup[t.category_id]
-                db.set_parent_tag_by_id(child_id, parent_id)
-        print("Importing tags...done")
+    # Import tags
+    print("Importing tags...")
+    with fspot_engine.connect() as connection:
+        result = connection.execute(text("SELECT id, name, category_id FROM tags"))
+        tags = result.fetchall()
 
-        print("Importing images...")
-        photos = f_spot_session.exec(select(FSPOT_Photo)).all()
-        photos_lookup = {}  # from F-spot ID to new id
-        for p in photos:
-            filename = f"{p.base_uri}/{p.filename}"
+    tag_lookup = {}  # from F-spot ID to new id
+    for tag_row in tags:
+        fspot_id, name, category_id = tag_row
+        new_id = db.add_tag(name)
+        tag_lookup[fspot_id] = new_id
+
+    # Set parent relationships
+    for tag_row in tags:
+        fspot_id, name, category_id = tag_row
+        if category_id and category_id > 0:
+            child_id = tag_lookup[fspot_id]
+            parent_id = tag_lookup[category_id]
+            db.set_parent_tag_by_id(child_id, parent_id)
+
+    print("Importing tags...done")
+
+    # Import images with optimized transaction handling
+    print("Importing images...")
+    with fspot_engine.connect() as connection:
+        result = connection.execute(
+            text("SELECT id, time, base_uri, filename FROM photos")
+        )
+        photos = result.fetchall()
+
+    photos_lookup = {}  # from F-spot ID to new id
+
+    # Use a single session for all photo inserts to reduce transactions
+    with Session(db.engine) as session:
+        for photo_row in photos:
+            fspot_id, time, base_uri, filename_col = photo_row
+
+            filename = f"{base_uri}/{filename_col}"
             filename = filename.removeprefix("file://")
 
             # fix special characters that f-spot escaped
@@ -112,22 +133,68 @@ def import_f_spot(filename: Path):
             if not file.is_file():
                 print(f"Image {file} does not exist...skipping")
                 continue
-            id = db.add_image(filename)
-            photos_lookup[p.id] = id
-        print("Importing images...done")
 
-        print("Adding links between images and tags")
-        photostags = f_spot_session.exec(select(FSPOT_PhotoTag)).all()
-        for p in photostags:
-            tag_id = tag_lookup.get(p.tag_id)
-            item_id = photos_lookup.get(p.photo_id)
+            # Check if already in db
+            existing = session.exec(select(Item).where(Item.uri == filename)).first()
+            if existing:
+                print(f"Item with uri '{filename}' already exists in DB")
+                photos_lookup[fspot_id] = existing.id
+                continue
 
-            if (tag_id is None) or (item_id is None):
+            # Create item with date from F-Spot timestamp
+            item = Item(uri=str(filename))
+            if time and time > 0:
+                try:
+                    # Convert Unix timestamp to UTC datetime (naive)
+                    item.date = datetime.fromtimestamp(time, tz=timezone.utc).replace(
+                        tzinfo=None
+                    )
+                except (ValueError, OSError):
+                    # Handle invalid timestamps - leave date as None
+                    item.date = None
+
+            session.add(item)
+            session.flush()  # Get the id without committing
+            photos_lookup[fspot_id] = item.id
+
+        session.commit()
+
+    print("Importing images...done")
+
+    # Add links between images and tags with optimized transaction handling
+    print("Adding links between images and tags")
+    with fspot_engine.connect() as connection:
+        result = connection.execute(text("SELECT photo_id, tag_id FROM photo_tags"))
+        photostags = result.fetchall()
+
+    # Use a single session for all link inserts to reduce transactions
+    with Session(db.engine) as session:
+        for photo_tag_row in photostags:
+            photo_id, tag_id = photo_tag_row
+
+            tag_id_new = tag_lookup.get(tag_id)
+            item_id = photos_lookup.get(photo_id)
+
+            if (tag_id_new is None) or (item_id is None):
                 print("[Warning] missing ids... skipping one tag<->item pair")
                 continue
 
-            db.set_tag_photo_by_ids(item_id, tag_id)
-        print("Adding links between images and tags...done")
+            # Check if link already exists
+            existing = session.exec(
+                select(ItemTagLink).where(
+                    ItemTagLink.item_id == item_id,
+                    ItemTagLink.tag_id == tag_id_new,
+                )
+            ).first()
+            if existing:
+                continue
+
+            link = ItemTagLink(item_id=item_id, tag_id=tag_id_new)
+            session.add(link)
+
+        session.commit()
+
+    print("Adding links between images and tags...done")
 
     print("Import done")
     sys.exit(0)
