@@ -246,10 +246,36 @@ class MainWindow(QMainWindow):
         view, selected, total = self.numbers
         self.numbers_label.setText(f"View: {view} Selected: {selected} Total: {total}")
 
+    def update_single_item(self) -> bool:
+        """Load the current grid item into the single view.
+
+        Returns False when the grid is empty, so callers can leave the tab alone
+        rather than switching to a blank one.
+        """
+        widget = self.grid.current_item()
+        if not widget:
+            return False
+        self.single_item.set_item(widget.item)
+        return True
+
+    def show_current_item(self):
+        if self.update_single_item():
+            self.tabs.setCurrentWidget(self.single_item)
+
     def on_tab_changed(self, index):
-        """Reset the tab color when the Messages tab is selected."""
-        if self.tabs.widget(index) == self.messages:
+        """Tell a tab that it has become visible.
+
+        Both the single view and the map need this. Nothing else populates the
+        single view, and Leaflet sized itself against a container that had no
+        size while its tab was hidden, so it has to be told to measure again.
+        """
+        widget = self.tabs.widget(index)
+        if widget == self.messages:
             self.messages.reset_tab_color()
+        elif widget == self.single_item:
+            self.update_single_item()
+        elif widget == self.map:
+            self.map.on_shown()
 
     def create_menu(self, menu: dict):
         for key, submenu in menu.items():
@@ -315,10 +341,36 @@ class MainWindow(QMainWindow):
         self.create_action("New Config", self.new_config, self.menu["Profiles"])
         self.create_action("Change Config", self.change_config, self.menu["Profiles"])
 
+    def reset_view_state(self):
+        """Drop everything that belonged to the previous database.
+
+        selected_items matters most: those are ids from the old database, and
+        delete_items would happily act on whatever holds them now. Clearing the
+        cached filters forces update_items to redraw the timeline and the map,
+        which it otherwise skips whenever two profiles compare equal - which
+        they do whenever they share their photo and video directories.
+        """
+        self.grid.page = 0
+        self.grid.highlight = 0
+        self.grid.selected_items = []
+        self.tag_bar.clear_selected_tags()
+        self.filters = None
+        self.update_numbers(selected=0)
+
     def change_profile(self, name):
+        previous = self.config.profile
         self.tasks.stop()
-        self.config.set_current_profile(name)
+        self.single_item.stop_playback()
+        try:
+            self.config.set_current_profile(name)
+        except config.ProfileNotFoundError as error:
+            self.config.profile = previous
+            QMessageBox.warning(self, "Profile not found", str(error))
+            return
+
+        self.reset_view_state()
         self.tag_view.update_tags()
+        self.setup_autocomplete()
         self.update_items()
         self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
 
@@ -326,21 +378,45 @@ class MainWindow(QMainWindow):
         dialog = ProfileDialog()
         if dialog.exec() == QDialog.DialogCode.Accepted:
             profile_data = dialog.get_profile_data()
+            profile_name = profile_data["profile_name"]
             self.config.create_new_profile(
-                profile_data["profile_name"],
+                profile_name,
                 Path(profile_data["db_location"]),
                 profile_data["photos_dir"],
                 profile_data["videos_dir"],
             )
+            if profile_name not in self.config.get_profiles():
+                QMessageBox.warning(
+                    self,
+                    "Profile creation failed",
+                    f"Profile {profile_name!r} could not be created.",
+                )
         self.create_profile_menu()
 
     def change_config(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Select new config file")
-        if file_name:
-            # TODO: add error checking
+        if not file_name:
+            return
+
+        previous_file = self.config.config_file
+        previous_profile = self.config.profile
+        try:
             self.config.set_config_file(Path(file_name))
-            self.change_profile("default")
-            self.create_profile_menu()
+        except config.ProfileNotFoundError as error:
+            # Put the working configuration back: the user is still looking at
+            # the old profile's photos and we have not loaded anything else.
+            self.config.config_file = previous_file
+            self.config.profile = previous_profile
+            self.config.read_config()
+            QMessageBox.warning(self, "Cannot use this config file", str(error))
+            return
+
+        self.reset_view_state()
+        self.tag_view.update_tags()
+        self.setup_autocomplete()
+        self.update_items()
+        self.create_profile_menu()
+        self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
 
     def new_config(self):
         self.messages.add(
@@ -369,7 +445,10 @@ class MainWindow(QMainWindow):
         """
         tag_str = self.tag_line_edit.text()
         tags = tag_str.strip().split(",")
-        tags = [t.strip().title() for t in tags]
+        # Stored as typed. db.get_tag folds case when it looks them up, so the
+        # spelling the user chose survives without forking "iPhone" from
+        # "Iphone" into two separate tags.
+        tags = [t.strip() for t in tags if t.strip()]
 
         tag_list = []
         for t in tags:
@@ -395,6 +474,12 @@ class MainWindow(QMainWindow):
             item_list = [current.item]
 
         db.set_tags(item_list, tag_list)
+
+        self.tag_line_edit.clear()
+        # A tag created just now has to be completable straight away, and the
+        # counts and any active tag filter are stale until the view is redrawn.
+        self.setup_autocomplete()
+        self.update_items()
 
     def display_common_tags(self):
         if self.grid.selected_items:
@@ -464,22 +549,15 @@ class MainWindow(QMainWindow):
                 self.messages.add(f"[ERROR] item at {source} does not exist...skipping")
                 continue
             destination = target / source.name
+            if destination.exists():
+                self.messages.add(f"[ERROR] {destination} already exists...skipping")
+                continue
             shutil.copy(source, destination)
 
     def clear_selection(self):
         self.grid.clear_selection()
         self.grid.selected_items = []
         self.update_numbers(selected=0)
-
-    def show_current_item(self):
-        widget = self.grid.current_item()
-        if not widget:
-            return
-        item = widget.item
-
-        self.single_item.set_item(item)
-
-        self.tabs.setCurrentWidget(self.single_item)
 
     def setup_autocomplete(self):
         tags = db.get_all_tags()
@@ -520,12 +598,14 @@ class MainWindow(QMainWindow):
         if directory:
             self.messages.add(f"selected: {directory}")
             mydir = Path(directory)
-            files = []
-            for ext in config.ALL_SUFFIX:
-                new = list(mydir.rglob(f"*{ext}"))
-                files = files + new
-                new = list(mydir.rglob(f"*{ext.upper()}"))
-                files = files + new
+            # One walk, matching on the lowercased suffix: globbing "*.jpg" and
+            # "*.JPG" misses ".Jpg", which phones and cameras both produce.
+            suffixes = {ext.lower() for ext in config.ALL_SUFFIX}
+            files = [
+                path
+                for path in mydir.rglob("*")
+                if path.is_file() and path.suffix.lower() in suffixes
+            ]
             db.add_images(files)
             self.update_items()
             self.messages.add(f"finished adding {directory}")
@@ -580,14 +660,22 @@ def main():
     configure_logging(verbose=commands["--verbose"])
 
     app = QApplication(sys.argv)
-    window = MainWindow(app)
+    try:
+        window = MainWindow(app)
+    except config.ProfileNotFoundError as error:
+        logger.error("%s", error)
+        sys.exit(3)
 
     if commands["--config"]:
         configfile = Path(commands["--config"]).expanduser()
         if not configfile.is_file():
             logger.error("config file %s cannot be opened... exiting", configfile)
             sys.exit(1)
-        window.config.set_config_file(configfile)
+        try:
+            window.config.set_config_file(configfile)
+        except config.ProfileNotFoundError as error:
+            logger.error("%s", error)
+            sys.exit(3)
         window.create_profile_menu()
         logger.info("Starting with config file: %s", configfile)
 

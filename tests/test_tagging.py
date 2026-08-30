@@ -433,14 +433,14 @@ class TestF15DeleteEmptyGrid:
 
 
 class TestReservedTagsAreCaseInsensitive:
-    """handle_tags runs entered names through str.title() before checking them.
+    """Reserved names must be rejected however the user capitalises them.
 
-    That turns "No GPS" into "No Gps" and "Wrong dir" into "Wrong Dir", so an
-    exact-match check let two of the three reserved names through and created
-    a real tag colliding with the filter button.
+    Tag names are stored as typed, so the check cannot rely on any particular
+    casing: an exact-match test would let "no gps" through and create a real tag
+    colliding with the filter button.
     """
 
-    def test_every_reserved_name_is_rejected_after_title_casing(self):
+    def test_every_reserved_name_is_rejected_whatever_the_casing(self):
         from tagorganizer.main import is_reserved_tag
         from tagorganizer.widgets.tag_bar import RESERVED_TAGS
 
