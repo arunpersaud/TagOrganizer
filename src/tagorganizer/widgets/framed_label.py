@@ -107,6 +107,12 @@ class FramedLabel(QLabel):
     def mousePressEvent(self, event):
         if event.modifiers() & Qt.ShiftModifier:
             self.shiftClicked.emit(self)
+            # Emitting the signal synchronously triggers extend_selection_to, which
+            # calls update_items(). That rebuilds the grid: ImageGridWidget.clear()
+            # takes every tile out of the layout and calls deleteLater() on it,
+            # including this widget. By the time emit returns, this tile is already
+            # scheduled for destruction. We must not hand a mousePressEvent to a
+            # widget that no longer exists.
             return
         super().mousePressEvent(event)
 
