@@ -22,7 +22,6 @@ import configparser
 import platformdirs
 import logging
 from pathlib import Path
-import sys
 import os
 
 from . import db
@@ -54,6 +53,36 @@ VIDEO_SUFFIX = [".avi", ".mp4", ".mkv", ".mov", ".wmv", ".flv", ".webm"]
 ALL_SUFFIX = PHOTO_SUFFIX + VIDEO_SUFFIX
 
 
+class ProfileNotFoundError(Exception):
+    """The requested profile is not defined in this config file.
+
+    Raised rather than exiting: read_config runs while the GUI is up, and a
+    profile the user mistyped must not take the application down with it.
+    """
+
+    def __init__(self, profile: str, config_file):
+        super().__init__(f"profile {profile!r} not found in {config_file}")
+        self.profile = profile
+        self.config_file = Path(config_file)
+
+
+def next_database_name(profile: str, exists, limit: int = 100_000) -> str | None:
+    """First unused database file name for this profile.
+
+    `exists` answers whether a candidate is taken, which keeps the search itself
+    off the filesystem and testable.
+    """
+    name = f"media-{profile}.db"
+    if not exists(name):
+        return name
+
+    for i in range(limit):
+        name = f"media-{profile}-{i:05d}.db"
+        if not exists(name):
+            return name
+    return None
+
+
 class ConfigManager:
     def __init__(self):
         self.config = None
@@ -75,8 +104,7 @@ class ConfigManager:
         self.config.read(self.config_file)
 
         if self.profile not in self.config:
-            logger.error("profile %s not found in %s", self.profile, self.config_file)
-            sys.exit(3)
+            raise ProfileNotFoundError(self.profile, self.config_file)
 
         self.db = self.config[self.profile]["database"]
         self.photos = (
@@ -105,24 +133,10 @@ class ConfigManager:
             upgrade_db()
 
     def find_new_database_name(self, dir, profile=None):
-        """Find an unused database name."""
-
+        """Find an unused database name in `dir`."""
         if profile is None:
             profile = self.profile
-
-        name = f"media-{profile}.db"
-        test = dir / name
-        if not test.exists():
-            return name
-
-        i = 0
-        while True:
-            name = f"media-{profile}-{i:05d}.db"
-            test = dir / name
-            if not test.exists():
-                return name
-            if i > 99_999:
-                return None
+        return next_database_name(profile, lambda name: (dir / name).exists())
 
     def create_default_config(self):
         # Get the user data directory for the application
@@ -140,14 +154,26 @@ class ConfigManager:
     def create_new_profile(
         self, name: str, database_path: Path, photo_dir: str, video_dir: str
     ):
+        name = name.strip()
+        if not name:
+            logger.error("refusing to create a profile with an empty name")
+            return
+        if name.upper() == "DEFAULT":
+            # configparser treats DEFAULT as the fallback section for every
+            # other one, so a profile by that name would leak its keys.
+            logger.error("'DEFAULT' is reserved; pick another profile name")
+            return
         if name in self.config:
             logger.error("profile %r already exists in the config; not adding it", name)
             return
 
+        database_path = Path(database_path)
+        database_path.mkdir(parents=True, exist_ok=True)
+
         db_name = self.find_new_database_name(database_path, name)
         if db_name is None:
             logger.error("cannot find an unused database name in %s", database_path)
-            sys.exit()
+            return
 
         db_path = database_path / db_name
 
