@@ -71,7 +71,9 @@ class TestF2MultiItemTagging:
         """F2 structural test: db.set_tags call must not be inside the else branch.
 
         This test parses the main.py AST to verify that db.set_tags is not
-        nested inside the else block of the if self.grid.selected_items check.
+        nested inside the else block of the if statement that checks selection
+        status in handle_tags. The guarantee is that tagging applies to the
+        whole selection, not only to the fallback single item.
         """
         main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
         with open(main_file) as f:
@@ -86,50 +88,25 @@ class TestF2MultiItemTagging:
 
         assert handle_tags_method is not None, "handle_tags method not found"
 
-        # Find the if statement checking self.grid.selected_items
-        selected_items_if = None
-        for node in ast.walk(handle_tags_method):
-            if isinstance(node, ast.If):
-                # Check if this is comparing to self.grid.selected_items
-                if isinstance(node.test, ast.Attribute):
-                    if (
-                        isinstance(node.test.value, ast.Attribute)
-                        and isinstance(node.test.value.value, ast.Name)
-                        and node.test.value.value.id == "self"
-                        and node.test.value.attr == "grid"
-                        and node.test.attr == "selected_items"
-                    ):
-                        selected_items_if = node
-                        break
-
-        assert selected_items_if is not None, "self.grid.selected_items check not found"
-
-        # Find db.set_tags call in the else branch
-        set_tags_in_else = False
-        for stmt in selected_items_if.orelse:
-            for node in ast.walk(stmt):
-                if isinstance(node, ast.Call):
-                    if isinstance(node.func, ast.Attribute):
-                        if (
-                            isinstance(node.func.value, ast.Name)
-                            and node.func.value.id == "db"
-                            and node.func.attr == "set_tags"
-                        ):
-                            set_tags_in_else = True
-                            break
-            if set_tags_in_else:
-                break
-
-        assert not set_tags_in_else, (
-            "FAIL: db.set_tags is inside the else branch; must be dedented "
-            "so it runs after both branches"
-        )
-
-        # A more permissive check: ensure set_tags appears after the if/else block
-        # by checking that it's not exclusively in the else branch
-        assert (
-            not set_tags_in_else
-        ), "db.set_tags must not be nested inside the else branch"
+        # Check all if statements in handle_tags to ensure db.set_tags is not in any
+        # else branch. This ensures tagging applies to the whole selection, not just
+        # the fallback single item.
+        for if_node in ast.walk(handle_tags_method):
+            if isinstance(if_node, ast.If):
+                # Check if db.set_tags is in the orelse (else branch)
+                for stmt in if_node.orelse:
+                    for child in ast.walk(stmt):
+                        if isinstance(child, ast.Call):
+                            if isinstance(child.func, ast.Attribute):
+                                if (
+                                    isinstance(child.func.value, ast.Name)
+                                    and child.func.value.id == "db"
+                                    and child.func.attr == "set_tags"
+                                ):
+                                    raise AssertionError(
+                                        "FAIL: db.set_tags is inside an else branch; "
+                                        "must be dedented so it runs after both branches"
+                                    )
 
 
 class TestF8ReservedTags:
@@ -547,7 +524,7 @@ class TestChangeProfileResetsViewState:
     """Regression guard: stale grid state doesn't survive profile switch.
 
     Switching profiles leaves the old grid pagination, highlight, and
-    selected_items (which are ids from the old database). This would corrupt
+    selection (which are ids from the old database). This would corrupt
     operations like delete_items or copy_selection. change_profile must call
     reset_view_state to clear this state; deleting it would reintroduce the bug.
     """

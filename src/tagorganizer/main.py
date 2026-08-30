@@ -47,6 +47,7 @@ from . import db
 from . import config
 from . import DBimport
 from . import tasks
+from .selection import Selection
 from .widgets import (
     AddTagDialog,
     DeleteConfirmationDialog,
@@ -167,6 +168,10 @@ class MainWindow(QMainWindow):
 
         # Set up the timeline
         self.timeline = Timeline(self)
+
+        # Owned here rather than by the grid: the grid shows one page of it, and
+        # selecting on the map will feed the same object.
+        self.selection = Selection()
 
         # Set up the image view
         self.grid = ImageGridWidget(self)
@@ -343,7 +348,7 @@ class MainWindow(QMainWindow):
     def reset_view_state(self):
         """Drop everything that belonged to the previous database.
 
-        selected_items matters most: those are ids from the old database, and
+        selection matters most: those are ids from the old database, and
         delete_items would happily act on whatever holds them now. Clearing the
         cached filters forces update_items to redraw the timeline and the map,
         which it otherwise skips whenever two profiles compare equal - which
@@ -351,7 +356,7 @@ class MainWindow(QMainWindow):
         """
         self.grid.page = 0
         self.grid.highlight = 0
-        self.grid.selected_items = []
+        self.selection.clear()
         self.tag_bar.clear_selected_tags()
         self.filters = None
         self.update_numbers(selected=0)
@@ -464,8 +469,8 @@ class MainWindow(QMainWindow):
                 tag = db.get_tag(t)
             tag_list.append(tag)
 
-        if self.grid.selected_items:
-            item_list = self.grid.selected_items
+        if len(self.selection):
+            item_list = db.get_items_by_ids(self.selection.ids())
         else:
             current = self.grid.current_item()
             if current is None:
@@ -481,8 +486,8 @@ class MainWindow(QMainWindow):
         self.update_items()
 
     def display_common_tags(self):
-        if self.grid.selected_items:
-            common_tags = db.get_common_tags(self.grid.selected_items)
+        if len(self.selection):
+            common_tags = db.get_common_tags(db.get_items_by_ids(self.selection.ids()))
         else:
             current = self.grid.current_item()
             if current is None:
@@ -542,7 +547,7 @@ class MainWindow(QMainWindow):
             self.messages.add(f"[ERROR] target {target} not a directory.")
             return
 
-        for item in self.grid.selected_items:
+        for item in db.get_items_by_ids(self.selection.ids()):
             source = Path(item.uri)
             if not source.is_file():
                 self.messages.add(f"[ERROR] item at {source} does not exist...skipping")
@@ -555,7 +560,7 @@ class MainWindow(QMainWindow):
 
     def clear_selection(self):
         self.grid.clear_selection()
-        self.grid.selected_items = []
+        self.selection.clear()
         self.update_numbers(selected=0)
 
     def setup_autocomplete(self):
@@ -567,8 +572,8 @@ class MainWindow(QMainWindow):
         self.tag_line_edit.setCompleter(completer)
 
     def delete_items(self):
-        if self.grid.selected_items:
-            items_to_delete = self.grid.selected_items
+        if len(self.selection):
+            items_to_delete = db.get_items_by_ids(self.selection.ids())
         else:
             current = self.grid.current_item()
             if current is None:
@@ -588,7 +593,7 @@ class MainWindow(QMainWindow):
                         filepath.unlink()
                 db.delete_item(item.id)
 
-            self.grid.selected_items = []
+            self.selection.clear()
             self.update_items()  # Assuming update_items refreshes the displayed items
 
     def add_directory(self):

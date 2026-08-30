@@ -37,7 +37,6 @@ class ImageGridWidget(QWidget):
         self.N = self.columns * self.rows
         self.highlight = 0
         self.page = 0
-        self.selected_items = []
 
         self.main = main
         self.layout = QGridLayout()
@@ -111,7 +110,7 @@ class ImageGridWidget(QWidget):
 
         for item in items:
             label = FramedLabel(item, self.main.config.photos)
-            if item in self.selected_items:
+            if item.id in self.main.selection:
                 label.selected = True
             self.widgets.append(label)
             label.doubleClicked.connect(self.focus_widget)
@@ -151,13 +150,8 @@ class ImageGridWidget(QWidget):
             widget = self.current_item()
             widget.toggle_selected()
 
-            item = widget.item
-
-            if item in self.selected_items:
-                self.selected_items.remove(item)
-            else:
-                self.selected_items.append(item)
-            self.main.update_numbers(selected=len(self.selected_items))
+            self.main.selection.toggle(widget.item.id)
+            self.main.update_numbers(selected=len(self.main.selection))
             self.main.display_common_tags()
 
             return
