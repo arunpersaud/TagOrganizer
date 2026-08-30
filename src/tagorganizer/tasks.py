@@ -30,7 +30,7 @@ from more_itertools import chunked
 
 from . import db
 from . import config
-from .widgets.helper import load_exif, calculate_md5, calculate_xxhash
+from .widgets.helper import load_exif, calculate_md5, calculate_xxhash, forget_thumbnail
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,9 @@ class TaskManager:
         self.timer = QTimer()
         self.timer.timeout.connect(self.run_next_task)
         self.current_gen_index = 0
+        # stop() is called on every profile switch, not only after a task, so it
+        # has to know whether there was anything to finish.
+        self._running = False
 
         self.progressbar_label = QLabel("Task")
         self.progressbar = QProgressBar()
@@ -58,16 +61,20 @@ class TaskManager:
         self.generators.append(gen)
 
     def start(self, interval=500):
+        self._running = True
         self.timer.start(interval)
         self.progressbar_label.setVisible(True)
         self.progressbar.setVisible(True)
 
     def stop(self):
+        was_running = self._running
+        self._running = False
         self.timer.stop()
         self.generators = deque()
         self.progressbar_label.setVisible(False)
         self.progressbar.setVisible(False)
-        self.main.messages.add("Task done")
+        if was_running:
+            self.main.messages.add("Task done")
 
     def run_next_task(self):
         if not self.generators:
@@ -299,7 +306,11 @@ class TaskManager:
                 try:
                     correct_path.parent.mkdir(parents=True, exist_ok=True)
 
+                    old_md5 = item.uri_md5
                     shutil.move(filepath, correct_path)
+                    # The cache is keyed on the uri hash, which changes with the
+                    # path, so the old entries could never be hit again.
+                    forget_thumbnail(old_md5, self.main.config.photos)
                     item.uri = str(correct_path)
                     item.uri_md5 = calculate_md5(item.uri)
                     item.data_xxhash = calculate_xxhash(correct_path)
@@ -375,6 +386,10 @@ class TaskManager:
             for file in chunk:
                 if file.is_dir():
                     continue
+                if "thumbnails" in str(file):
+                    continue
+                if ".DS_Store" in str(file):
+                    continue
                 res = db.check_item_in_db(str(file))
                 if res is None:
                     self.main.messages.add(f"      {file}")
@@ -385,13 +400,7 @@ class TaskManager:
         """Move items from 'no-date' to their correct date-based location if date is now available."""
         self.main.messages.add("Task: Moving files out of 'no-date' if date is now set")
 
-        # Find all items whose path includes 'no-date'
-        items = db.get_all_items_with_location()  # Use a broad search
-        items = [
-            item
-            for item in items
-            if "/no-date/" in item.uri or "\\no-date\\" in item.uri
-        ]
+        items = db.get_items_under_no_date()
 
         total = len(items)
         current = 0
@@ -439,8 +448,11 @@ class TaskManager:
 
                 try:
                     correct_path.parent.mkdir(parents=True, exist_ok=True)
+                    old_md5 = item.uri_md5
                     shutil.move(filepath, correct_path)
-
+                    # The cache is keyed on the uri hash, which changes with the
+                    # path, so the old entries could never be hit again.
+                    forget_thumbnail(old_md5, self.main.config.photos)
                     item.uri = str(correct_path)
                     item.uri_md5 = calculate_md5(item.uri)
                     item.data_xxhash = calculate_xxhash(correct_path)

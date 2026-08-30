@@ -67,8 +67,17 @@ def create_db():
 
 
 def get_tag(name):
+    """Look a tag up by name, ignoring case and surrounding space.
+
+    Names are stored exactly as the user typed them, so the lookup has to fold
+    case - otherwise entering "iphone" would create a second tag beside an
+    existing "iPhone". SQLite's lower() only folds ASCII, so non-ASCII names
+    remain case-sensitive.
+    """
     with new_session() as session:
-        return session.exec(select(Tag).where(Tag.name == name)).first()
+        return session.exec(
+            select(Tag).where(func.lower(Tag.name) == name.strip().lower())
+        ).first()
 
 
 def get_tag_by_id(id):
@@ -77,8 +86,11 @@ def get_tag_by_id(id):
 
 
 def add_tag(name):
+    name = name.strip()
     with new_session() as session:
-        existing_tag = session.exec(select(Tag).where(Tag.name == name)).first()
+        existing_tag = session.exec(
+            select(Tag).where(func.lower(Tag.name) == name.lower())
+        ).first()
         if existing_tag:
             logger.debug("tag %r already exists with id %s", name, existing_tag.id)
             return existing_tag.id
@@ -199,8 +211,32 @@ def get_items_without_date() -> list[Item]:
 
 
 def get_items_without_location() -> list[Item]:
+    """Items missing either coordinate.
+
+    An item with only one coordinate cannot be placed on the map, and
+    filter_query's no_gps filter tests latitude, so both halves have to count.
+    """
     with new_session() as session:
-        statement = select(Item).where(Item.longitude == sa.null())
+        statement = select(Item).where(
+            or_(Item.longitude == sa.null(), Item.latitude == sa.null())
+        )
+        results = session.exec(statement)
+        return results.all()
+
+
+def get_items_under_no_date() -> list[Item]:
+    """Items whose file currently sits in a 'no-date' directory.
+
+    task_move_files parks undated files there, and this is what finds them again
+    once a date has been filled in.
+    """
+    with new_session() as session:
+        statement = select(Item).where(
+            or_(
+                Item.uri.contains("/no-date/"),
+                Item.uri.contains("\\no-date\\"),
+            )
+        )
         results = session.exec(statement)
         return results.all()
 
