@@ -98,14 +98,16 @@ class ConfigManager:
         self.read_config()
 
     def read_config(self):
-        self.config = configparser.ConfigParser()
+        config = configparser.ConfigParser()
         if not self.config_file.exists():
             self.create_default_config()
-        self.config.read(self.config_file)
+        config.read(self.config_file)
 
-        if self.profile not in self.config:
+        if self.profile not in config:
             raise ProfileNotFoundError(self.profile, self.config_file)
 
+        # Profile is valid; now safe to mutate state.
+        self.config = config
         self.db = self.config[self.profile]["database"]
         self.photos = (
             Path(self.config[self.profile]["photo_path"]).expanduser().resolve()
@@ -158,9 +160,11 @@ class ConfigManager:
         if not name:
             logger.error("refusing to create a profile with an empty name")
             return
-        if name.upper() == "DEFAULT":
-            # configparser treats DEFAULT as the fallback section for every
-            # other one, so a profile by that name would leak its keys.
+        if name == configparser.DEFAULTSECT:
+            # configparser treats the literal [DEFAULT] section as the fallback
+            # for every other section, so a profile by that exact name would leak
+            # its keys into all others. Section names are case-sensitive, so
+            # "default" is fine; only the literal "DEFAULT" is forbidden.
             logger.error("'DEFAULT' is reserved; pick another profile name")
             return
         if name in self.config:
