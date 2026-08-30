@@ -168,13 +168,15 @@ class TestLoadQImageOffThread:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
 
-            # Create source image
-            qimage = QImage(100, 100, QImage.Format_RGB32)
+            # Create a non-square source image so we can distinguish cache hit
+            # from fresh decode. A fresh decode of 100x50 scaled to width 150 gives
+            # 150x75. A cache hit returns the cached 150x150 image.
+            qimage = QImage(100, 50, QImage.Format_RGB32)
             qimage.fill(0xFF0000)
             source_file = tmpdir / "source.png"
             qimage.save(str(source_file))
 
-            # Create a cached thumbnail
+            # Create a cached thumbnail with different dimensions
             cached_qimage = QImage(150, 150, QImage.Format_RGB32)
             cached_qimage.fill(0x00FF00)  # Different color
 
@@ -192,7 +194,9 @@ class TestLoadQImageOffThread:
             result = load_qimage(item, 150, tmpdir)
 
             # A cache hit must come back as the cached image, not a fresh decode
-            # of the source: that is the whole point of writing the file.
+            # of the source: that is the whole point of writing the file. The
+            # cached 150x150 image proves we hit the cache. A fresh decode from
+            # the 100x50 source would scale to width 150, giving 150x75.
             assert result is not None
             assert (result.width(), result.height()) == (150, 150)
 
