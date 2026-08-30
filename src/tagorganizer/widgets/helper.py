@@ -22,7 +22,6 @@ from functools import lru_cache
 import hashlib
 import logging
 from pathlib import Path
-import sys
 
 from qtpy.QtWidgets import QCompleter
 from qtpy.QtGui import QPixmap, QTransform, QImage
@@ -39,30 +38,60 @@ logger = logging.getLogger(__name__)
 
 
 def get_thumbnail_path(photos_path: Path) -> Path:
-    if sys.platform.startswith("linux"):
-        return Path.home() / ".cache" / "thumbnails" / "large"
-    else:
-        return photos_path / "thumbnails"
+    """Where cached thumbnails live for this photo directory.
+
+    Beside the photos, on every platform. A thumbnail is a legible copy of the
+    photo, so keeping it here means it inherits whatever protection the original
+    has - an encrypted photo directory does not leak readable copies into an
+    unencrypted cache. This also retires the old Linux branch, which wrote into
+    the shared freedesktop cache while naming files after the md5 of the bare
+    path, where the specification requires the md5 of the file:// URI: those
+    entries were unusable by any other viewer.
+    """
+    return photos_path / "thumbnails"
 
 
-def thumbnail_file(md5: str, photos_path: Path) -> Path:
-    """Where the cached thumbnail for this uri hash lives."""
+def thumbnail_file(md5: str, size: int, photos_path: Path) -> Path:
+    """Where the cached thumbnail for this uri hash and width lives.
+
+    The size belongs in the path. Thumbnails are requested at 150 px and again
+    at the tile width once the grid is resized, and with a single path per file
+    the larger decode overwrote the smaller one and was then handed back to
+    every later request regardless of the size it asked for.
+    """
     thumbnail_path = get_thumbnail_path(photos_path)
-    if sys.platform.startswith("linux"):
-        return thumbnail_path / f"{md5}.png"
-    return thumbnail_path / md5[:2] / f"{md5[2:]}.png"
+    return thumbnail_path / str(size) / md5[:2] / f"{md5[2:]}.png"
 
 
-def save_thumbnail(image, md5: str, photos_path: Path) -> None:
+def save_thumbnail(image, md5: str, size: int, photos_path: Path) -> None:
     """Write a thumbnail to the cache.
 
-    Accepts a QImage or a QPixmap - both provide save(). QImage is the one
-    used from worker threads, since QPixmap may only be touched on the GUI
-    thread.
+    Accepts a QImage or a QPixmap - both provide save(). QImage is the one used
+    from worker threads, since QPixmap may only be touched on the GUI thread.
     """
-    thumbnail = thumbnail_file(md5, photos_path)
+    thumbnail = thumbnail_file(md5, size, photos_path)
     thumbnail.parent.mkdir(parents=True, exist_ok=True)
     image.save(str(thumbnail), "PNG")
+
+
+def forget_thumbnail(uri_md5: str, photos_path: Path) -> None:
+    """Drop every cached size for this uri hash.
+
+    Called when a file moves: the hash is taken over the path, so once the file
+    is somewhere else the old entries can never be hit again and would sit in
+    the cache forever.
+    """
+    if not uri_md5:
+        return
+    root = get_thumbnail_path(photos_path)
+    if not root.is_dir():
+        return
+    for size_dir in root.iterdir():
+        if not size_dir.is_dir():
+            continue
+        candidate = size_dir / uri_md5[:2] / f"{uri_md5[2:]}.png"
+        if candidate.is_file():
+            candidate.unlink()
 
 
 def load_qimage(item: Item, size: int, photos_path: Path) -> QImage | None:
@@ -95,7 +124,7 @@ def load_qimage(item: Item, size: int, photos_path: Path) -> QImage | None:
     # Check thumbnail cache first. A hit returns straight away without
     # re-saving: rewriting the same PNG on every page view is pure disk churn.
     if item.uri_md5:
-        thumbnail = thumbnail_file(item.uri_md5, photos_path)
+        thumbnail = thumbnail_file(item.uri_md5, size, photos_path)
         if thumbnail.is_file():
             return QImage(str(thumbnail))
 
@@ -145,7 +174,7 @@ def load_qimage(item: Item, size: int, photos_path: Path) -> QImage | None:
     # happened when a widget displayed the result, preloading would burn CPU
     # and cache nothing.
     if item.uri_md5:
-        save_thumbnail(qimage, item.uri_md5, photos_path)
+        save_thumbnail(qimage, item.uri_md5, size, photos_path)
 
     return qimage
 

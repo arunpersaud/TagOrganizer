@@ -174,35 +174,27 @@ class TestLoadQImageOffThread:
             source_file = tmpdir / "source.png"
             qimage.save(str(source_file))
 
-            # Create thumbnail cache directory
-            cache_dir = tmpdir / "cache"
-            cache_dir.mkdir()
-
             # Create a cached thumbnail
             cached_qimage = QImage(150, 150, QImage.Format_RGB32)
             cached_qimage.fill(0x00FF00)  # Different color
-            cached_file = cache_dir / "abc123.png"
-            cached_qimage.save(str(cached_file))
 
             # Load with md5 that matches cache entry
             from tagorganizer.models import Item
 
             item = Item(uri=str(source_file), uri_md5="abc123def456")
 
-            # Mock get_thumbnail_path to return our cache dir
             from tagorganizer.widgets import helper
 
-            original_get_path = helper.get_thumbnail_path
-            try:
-                helper.get_thumbnail_path = lambda p: cache_dir.parent
-                result = load_qimage(item, 150, tmpdir)
-            finally:
-                helper.get_thumbnail_path = original_get_path
+            cached = helper.thumbnail_file(item.uri_md5, 150, tmpdir)
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            cached_qimage.save(str(cached))
 
-            # Thumbnail cache check happens - if it finds the cached file,
-            # it returns it immediately
-            assert result is not None or result is None
-            # (Either we find the cache or we decode, both are valid)
+            result = load_qimage(item, 150, tmpdir)
+
+            # A cache hit must come back as the cached image, not a fresh decode
+            # of the source: that is the whole point of writing the file.
+            assert result is not None
+            assert (result.width(), result.height()) == (150, 150)
 
 
 class TestThumbnailLoaderThreadSafety:
@@ -330,3 +322,40 @@ class TestLoadQImageNoQApplication:
             "QImage" in str(return_annotation)
             or return_annotation == inspect.Signature.empty
         )
+
+
+class TestThumbnailCacheKey:
+    def test_size_is_part_of_the_path(self, tmp_path):
+        """A large decode must not overwrite - and then be served as - a small one."""
+        from tagorganizer.widgets.helper import thumbnail_file
+
+        small = thumbnail_file("abcdef0123456789", 150, tmp_path)
+        large = thumbnail_file("abcdef0123456789", 600, tmp_path)
+        assert small != large
+
+    def test_thumbnails_live_beside_the_photos_on_every_platform(self, tmp_path):
+        from tagorganizer.widgets.helper import get_thumbnail_path
+
+        assert get_thumbnail_path(tmp_path) == tmp_path / "thumbnails"
+
+
+class TestForgetThumbnail:
+    def test_removes_every_cached_size(self, tmp_path):
+        from tagorganizer.widgets.helper import forget_thumbnail, thumbnail_file
+
+        md5 = "abcdef0123456789"
+        made = []
+        for size in (150, 600):
+            path = thumbnail_file(md5, size, tmp_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"not really a png")
+            made.append(path)
+
+        forget_thumbnail(md5, tmp_path)
+        assert not any(path.exists() for path in made)
+
+    def test_is_quiet_when_nothing_is_cached(self, tmp_path):
+        from tagorganizer.widgets.helper import forget_thumbnail
+
+        forget_thumbnail("abcdef0123456789", tmp_path)
+        forget_thumbnail("", tmp_path)
