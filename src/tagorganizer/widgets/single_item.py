@@ -20,6 +20,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 from pathlib import Path
 import sys
+import logging
 
 from qtpy.QtWidgets import (
     QLabel,
@@ -33,18 +34,24 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QPushButton,
     QSlider,
+    QSizePolicy,
 )
 from qtpy.QtCore import Qt, QTimer
 
-import vlc
-
 from .helper import load_exif, load_full_pixmap
 from .. import config
+
+logger = logging.getLogger(__name__)
 
 
 class VideoItem(QWidget):
     def __init__(self):
         super().__init__()
+
+        # Imported here rather than at module scope: python-vlc resolves libvlc
+        # during import and raises when it is missing, which would stop the
+        # whole application from starting on a machine with no VLC installed.
+        import vlc
 
         self.instance = vlc.Instance()
 
@@ -153,7 +160,6 @@ class VideoItem(QWidget):
         self.media_player.stop()
         self.media = self.instance.media_new(item.uri)
         self.media_player.set_media(self.media)
-        self.set_position(100)
 
     def playVideo(self):
         self.media_player.play()
@@ -183,6 +189,13 @@ class PhotoItem(QWidget):
 
         self.item = QLabel()
         self.item.setAlignment(Qt.AlignCenter)
+        # The label must never drive the layout. Its sizeHint is the pixmap
+        # size, and set_photo scales the pixmap to this widget's current size -
+        # so a growing hint raises minimumSizeHint, which widens the window,
+        # which makes the next pixmap larger again. Minimums never shrink, so
+        # the window only ever creeps outwards. FramedLabel already does this.
+        self.item.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.item.setMinimumSize(1, 1)
 
         self.exif_table = QTableWidget()
         self.exif_table.setVisible(False)
@@ -218,6 +231,10 @@ class PhotoItem(QWidget):
         self.scroll_area_layout.addWidget(self.scroll_area)
         self.scroll_area_container.setLayout(self.scroll_area_layout)
         self.scroll_area_container.setVisible(False)
+        self.scroll_area_container.setSizePolicy(
+            QSizePolicy.Ignored, QSizePolicy.Ignored
+        )
+        self.scroll_area_container.setMinimumSize(1, 1)
 
         layout.addWidget(self.item)
         layout.addWidget(self.scroll_area_container)
@@ -240,16 +257,21 @@ class PhotoItem(QWidget):
         self.adjust_scroll_area_width()
 
     def adjust_scroll_area_width(self):
-        # Calculate the required width for the scroll area
+        """Size the EXIF panel to its contents without driving the layout.
+
+        setMinimumWidth propagates into PhotoItem.minimumSizeHint and, because
+        minimums never shrink, ratchets the window wider on every navigation. A
+        maximum keeps the panel narrow while the QScrollArea handles anything
+        that does not fit.
+        """
         width = (
             self.exif_table.verticalHeader().width()
             + self.exif_table.columnWidth(0)
             + self.exif_table.columnWidth(1)
             + self.exif_table.verticalScrollBar().width()
         )
-        self.scroll_area.setMinimumWidth(width)
-        self.scroll_area_container.setMinimumWidth(width)
-        self.scroll_area_container.resize(self.item.size())
+        self.scroll_area.setMaximumWidth(width)
+        self.scroll_area_container.setMaximumWidth(width)
 
     def format_str(self, s) -> str:
         s = str(s)
@@ -282,7 +304,7 @@ class SingleItem(QWidget):
         self.main = main
 
         self.photo = PhotoItem()
-        self.video = VideoItem()
+        self.video = None
 
         self.filename = QLineEdit()
         self.filename.setReadOnly(True)
@@ -291,16 +313,42 @@ class SingleItem(QWidget):
         self.filename.setVisible(False)
 
         layout.addWidget(self.photo)
-        layout.addWidget(self.video)
         layout.addWidget(self.filename)
 
         self.setLayout(layout)
+        # StackAll shows every member at once, so the photo has to be the only
+        # visible one until something asks for a video.
+        self.photo.setVisible(True)
 
     def toggle_exif_visibility(self):
         self.photo.toggle_exif_visibility()
 
     def toggle_filename_visibility(self):
         self.filename.setVisible(not self.filename.isVisible())
+
+    def _ensure_video(self):
+        """Build the player on first use, or report why we cannot.
+
+        Returns None when libvlc is unavailable, leaving photo viewing intact.
+        """
+        if self.video is not None:
+            return self.video
+        try:
+            self.video = VideoItem()
+        except Exception:
+            logger.exception("cannot start the video player")
+            self.main.messages.add(
+                "[ERROR] cannot play videos: libvlc is not available"
+            )
+            return None
+        # Before the filename overlay, which has to stay on top.
+        self.layout().insertWidget(1, self.video)
+        return self.video
+
+    def stop_playback(self):
+        """Stop any playing video. Safe when no player was ever built."""
+        if self.video is not None:
+            self.video.stopVideo()
 
     def set_item(self, item):
         file_path = Path(item.uri)
@@ -313,11 +361,15 @@ class SingleItem(QWidget):
 
         if file_path.suffix.lower() in config.PHOTO_SUFFIX:
             self.photo.set_photo(item)
-            self.video.setVisible(False)
+            if self.video is not None:
+                self.video.setVisible(False)
             self.photo.setVisible(True)
         elif file_path.suffix.lower() in config.VIDEO_SUFFIX:
-            self.video.set_video(item)
+            video = self._ensure_video()
+            if video is None:
+                return
+            video.set_video(item)
             self.photo.setVisible(False)
-            self.video.setVisible(True)
+            video.setVisible(True)
         else:
             self.main.messages.add(f"[ERROR] file {file_path} has unknown file type.")
