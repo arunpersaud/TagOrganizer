@@ -7,6 +7,7 @@ These tests verify:
 """
 
 import ast
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -639,3 +640,31 @@ class TestShowSelectedOnlyCallsAddSelectionTag:
                         break
 
         assert calls_add_selection_tag, "show_selected_only must call self.tag_bar.add_selection_tag to filter the view"
+
+
+class TestQtMessageHandler:
+    """Qt's own output goes through logging, and one known-benign line is dropped."""
+
+    def test_drops_the_libpng_iccp_warning(self, caplog):
+        from qtpy.QtCore import QtMsgType
+
+        from tagorganizer.main import qt_message_handler
+
+        with caplog.at_level(logging.DEBUG):
+            qt_message_handler(
+                QtMsgType.QtWarningMsg,
+                None,
+                "libpng warning: iCCP: known incorrect sRGB profile",
+            )
+        assert caplog.records == []
+
+    def test_passes_other_qt_warnings_through(self, caplog):
+        """Only the one known line is suppressed; real warnings must survive."""
+        from qtpy.QtCore import QtMsgType
+
+        from tagorganizer.main import qt_message_handler
+
+        with caplog.at_level(logging.DEBUG):
+            qt_message_handler(QtMsgType.QtWarningMsg, None, "something real broke")
+        assert len(caplog.records) == 1
+        assert "something real broke" in caplog.records[0].getMessage()

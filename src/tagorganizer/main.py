@@ -39,7 +39,7 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from qtpy.QtCore import Qt, QEvent
+from qtpy.QtCore import Qt, QEvent, qInstallMessageHandler, QtMsgType
 
 from docopt import docopt
 
@@ -648,6 +648,28 @@ class MainWindow(QMainWindow):
         self.setup_autocomplete()
 
 
+_QT_LOG_LEVELS = {
+    QtMsgType.QtDebugMsg: logging.DEBUG,
+    QtMsgType.QtInfoMsg: logging.INFO,
+    QtMsgType.QtWarningMsg: logging.WARNING,
+    QtMsgType.QtCriticalMsg: logging.ERROR,
+    QtMsgType.QtFatalMsg: logging.CRITICAL,
+}
+
+# libpng emits this for any PNG carrying an old Adobe colour profile. It is not
+# actionable, it fires once per image decoded, and it lands on stderr
+# underneath our own output. Dropping it here catches every source: the user's
+# photos and our cached thumbnails alike.
+_QT_MESSAGE_NOISE = ("iCCP: known incorrect sRGB profile",)
+
+
+def qt_message_handler(mode, context, message):
+    """Send Qt's own output through logging instead of straight to stderr."""
+    if any(noise in message for noise in _QT_MESSAGE_NOISE):
+        return
+    logging.getLogger("qt").log(_QT_LOG_LEVELS.get(mode, logging.INFO), "%s", message)
+
+
 def configure_logging(verbose: bool = False) -> None:
     """Send library log records to the console.
 
@@ -661,6 +683,7 @@ def configure_logging(verbose: bool = False) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(levelname)-7s %(name)s: %(message)s",
     )
+    qInstallMessageHandler(qt_message_handler)
 
 
 def main():
