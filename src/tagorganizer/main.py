@@ -105,6 +105,7 @@ class MainWindow(QMainWindow):
                 "---",
                 ["Copy Selection to dir", self.copy_selection],
                 ["Clear Selection", "Ctrl+E", self.clear_selection],
+                ["Show Selected Only", "Ctrl+Shift+S", self.show_selected_only],
                 "---",
                 ["Quit", "Ctrl+Q", self.close],
             ],
@@ -562,6 +563,19 @@ class MainWindow(QMainWindow):
         self.grid.clear_selection()
         self.selection.clear()
         self.update_numbers(selected=0)
+
+    def show_selected_only(self):
+        """Restrict the view to the current selection.
+
+        The ids are snapshotted into the filter rather than read live, so
+        deselecting a photo while inside the view removes its blue frame but
+        leaves it on screen - otherwise a mis-deselect would remove the only
+        place the photo could be re-selected from.
+        """
+        if not len(self.selection):
+            self.messages.add("Nothing is selected.")
+            return
+        self.tag_bar.add_selection_tag(self.selection.ids())
 
     def setup_autocomplete(self):
         tags = db.get_all_tags()

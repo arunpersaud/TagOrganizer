@@ -597,3 +597,45 @@ class TestHandleTagsStoresNamesAsTyped:
         assert (
             not calls_title
         ), "handle_tags must not call .title(); tag names must be stored as typed"
+
+
+class TestShowSelectedOnlyCallsAddSelectionTag:
+    """Regression guard: show_selected_only must apply the selection filter.
+
+    Deleting the add_selection_tag call would leave the method non-functional,
+    as it would accept the selection but not restrict the view to it.
+    """
+
+    def test_show_selected_only_calls_add_selection_tag(self):
+        """Verify show_selected_only calls self.tag_bar.add_selection_tag()."""
+        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
+        with open(main_file) as f:
+            tree = ast.parse(f.read())
+
+        # Find show_selected_only method
+        show_selected_only_method = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "show_selected_only":
+                show_selected_only_method = node
+                break
+
+        assert (
+            show_selected_only_method is not None
+        ), "show_selected_only method not found"
+
+        # Search for call to self.tag_bar.add_selection_tag in the method
+        calls_add_selection_tag = False
+        for node in ast.walk(show_selected_only_method):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    if (
+                        isinstance(node.func.value, ast.Attribute)
+                        and isinstance(node.func.value.value, ast.Name)
+                        and node.func.value.value.id == "self"
+                        and node.func.value.attr == "tag_bar"
+                        and node.func.attr == "add_selection_tag"
+                    ):
+                        calls_add_selection_tag = True
+                        break
+
+        assert calls_add_selection_tag, "show_selected_only must call self.tag_bar.add_selection_tag to filter the view"
