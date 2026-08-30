@@ -29,20 +29,36 @@ def test_photo_item_does_not_grow_when_reshown(qapp):
     """Navigating in the Single view must not resize the window.
 
     Every cursor key press re-runs set_photo, so any size feedback shows up as
-    a window that creeps larger with each press.
+    a window that creeps larger with each press. The real widget hierarchy
+    (QTabWidget between layout and photo) is required to observe the ratchet.
     """
     from qtpy.QtCore import Qt
     from qtpy.QtGui import QPixmap
-    from qtpy.QtWidgets import QHBoxLayout, QMainWindow, QWidget
+    from qtpy.QtWidgets import QHBoxLayout, QMainWindow, QTabWidget, QWidget
 
-    from tagorganizer.widgets.single_item import PhotoItem
+    from tagorganizer.widgets.single_item import SingleItem
+
+    # Mock the main object that SingleItem needs for messaging
+    class MockMessages:
+        def add(self, msg):
+            pass
+
+    class MockMain:
+        def __init__(self):
+            self.messages = MockMessages()
 
     window = QMainWindow()
     central = QWidget()
     window.setCentralWidget(central)
     layout = QHBoxLayout(central)
-    photo = PhotoItem()
-    layout.addWidget(photo)
+    tabs = QTabWidget()
+    layout.addWidget(tabs)
+
+    main = MockMain()
+    single_item = SingleItem(main)
+    tabs.addTab(single_item, "Single")
+
+    photo = single_item.photo
     window.resize(900, 600)
     window.show()
     qapp.processEvents()
@@ -52,6 +68,7 @@ def test_photo_item_does_not_grow_when_reshown(qapp):
     tags = {f"EXIF Tag{i}": f"value-{i}-abcdefghijklmnop" for i in range(30)}
 
     sizes = []
+    min_hint_widths = []
     for _ in range(10):
         photo.setPixmap(
             source.scaled(photo.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -59,8 +76,12 @@ def test_photo_item_does_not_grow_when_reshown(qapp):
         photo.show_exif(tags)
         qapp.processEvents()
         sizes.append((window.width(), window.height()))
+        min_hint_widths.append(window.minimumSizeHint().width())
 
     assert len(set(sizes)) == 1, f"window size drifted across redraws: {sizes}"
+    assert (
+        len(set(min_hint_widths)) == 1
+    ), f"window minimumSizeHint().width() ratcheted: {min_hint_widths}"
 
 
 def test_vlc_is_not_imported_at_module_scope():
