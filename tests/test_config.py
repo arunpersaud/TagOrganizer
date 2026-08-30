@@ -87,7 +87,8 @@ class TestReadConfigRaises:
 
 class TestCreateNewProfile:
     def test_create_default_profile_succeeds(self, tmp_path, monkeypatch):
-        """First-run scenario: creating the 'default' profile should succeed."""
+        """First-run scenario with config=None: read_config must initialize
+        config before calling create_default_config."""
         import tagorganizer.config as config_module
         from tagorganizer.config import ConfigManager
 
@@ -105,23 +106,26 @@ class TestCreateNewProfile:
         monkeypatch.setattr("platformdirs.user_pictures_dir", lambda: str(photo_dir))
         monkeypatch.setattr("platformdirs.user_videos_dir", lambda: str(video_dir))
 
-        # Create manager when config doesn't exist
+        # Simulate real first-run: manager with config=None, calling read_config
         manager = ConfigManager.__new__(ConfigManager)
-        manager.config = configparser.ConfigParser()
+        manager.config = None
         manager.profile = "default"
         manager.config_file = config_file
 
-        # This should succeed
-        manager.create_new_profile("default", data_dir, str(photo_dir), str(video_dir))
+        # This must succeed, not raise TypeError
+        manager.read_config()
 
         # Config file should be written with the default profile
         assert config_file.exists()
         assert "default" in manager.config.sections()
+        # Manager's db, photos, videos should be initialized
+        assert manager.db is not None
+        assert manager.photos is not None
+        assert manager.videos is not None
 
     def test_create_DEFAULT_uppercase_is_rejected(self, tmp_path):
         """The literal [DEFAULT] section is forbidden (configparser's reserved section)."""
         from tagorganizer.config import ConfigManager
-        import configparser
 
         config_file = tmp_path / "config.ini"
         data_dir = tmp_path / "data"

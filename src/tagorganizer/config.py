@@ -98,9 +98,17 @@ class ConfigManager:
         self.read_config()
 
     def read_config(self):
-        config = configparser.ConfigParser()
         if not self.config_file.exists():
+            # First run: there is no existing configuration to protect, and
+            # create_default_config writes through self.config, so it has to
+            # exist. The no-mutation-on-failure guarantee below is about
+            # switching to a bad config file while the application is running,
+            # and that path always has a file already.
+            if self.config is None:
+                self.config = configparser.ConfigParser()
             self.create_default_config()
+
+        config = configparser.ConfigParser()
         config.read(self.config_file)
 
         if self.profile not in config:
