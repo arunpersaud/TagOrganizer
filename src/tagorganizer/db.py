@@ -31,6 +31,39 @@ from .widgets.tag_bar import Filters
 
 logger = logging.getLogger(__name__)
 
+# SQLite caps bound variables at 32766 (measured, sqlite 3.53.1): an IN clause
+# with 40000 parameters raises OperationalError. A range selection across a
+# large library easily exceeds that, so id filters go in as OR'd chunks with
+# headroom for the other filters' parameters.
+ID_FILTER_CHUNK = 30_000
+
+
+def chunk_ids(item_ids: list[int], size: int = ID_FILTER_CHUNK) -> list[list[int]]:
+    """Split ids into groups small enough to bind in one IN clause.
+
+    An empty input yields a single empty chunk, so the caller still builds a
+    clause - one that matches nothing, which is what an empty selection means.
+    """
+    if not item_ids:
+        return [[]]
+    return [item_ids[i : i + size] for i in range(0, len(item_ids), size)]
+
+
+def get_items_by_ids(item_ids: list[int]) -> list[Item]:
+    """Fetch items by id, in whatever order the database returns them.
+
+    Callers hold ids rather than ORM objects now, and objects kept across
+    sessions go stale, so anything needing real Items fetches them here.
+    """
+    if not item_ids:
+        return []
+    with new_session() as session:
+        found = []
+        for chunk in chunk_ids(item_ids):
+            found.extend(session.exec(select(Item).where(Item.id.in_(chunk))).all())
+        return found
+
+
 engine = None
 
 
@@ -353,6 +386,18 @@ def filter_query(query, filter: Filters):
         for directory in filter.directories:
             query = query.where(~Item.uri.startswith(str(directory)))
 
+    # The id filter is handled separately at the calling level via chunk_ids,
+    # because SQLite caps bound variables at 32766, and multiple chunks OR'd
+    # together still accumulate to a single statement with too many parameters.
+    # Only apply to a single chunk if that's what we got.
+    if filter.item_ids is not None:
+        if filter.item_ids:
+            # item_ids is a pre-chunked list (caller passes one chunk at a time)
+            query = query.where(Item.id.in_(filter.item_ids))
+        else:
+            # Empty list means the user made an empty selection that matches nothing
+            query = query.where(False)
+
     return query
 
 
@@ -366,27 +411,88 @@ def _apply_standard_order(query):
 
 
 def get_images(page: int = 0, filters: Filters | None = None) -> list[Item]:
-    with new_session() as session:
-        query = select(Item)
-        if filters:
-            query = filter_query(query, filters)
+    # If there's a chunked id filter, collect items from all chunks, sort them,
+    # then apply pagination. Without chunking, SQLite's parameter limit would fail.
+    if filters and filters.item_ids is not None:
+        all_items = []
+        for chunk in chunk_ids(filters.item_ids):
+            chunk_filters = Filters(
+                tags=filters.tags,
+                start_date=filters.start_date,
+                end_date=filters.end_date,
+                min_longitude=filters.min_longitude,
+                max_longitude=filters.max_longitude,
+                min_latitude=filters.min_latitude,
+                max_latitude=filters.max_latitude,
+                wrong_dir=filters.wrong_dir,
+                no_time=filters.no_time,
+                no_gps=filters.no_gps,
+                directories=filters.directories,
+                item_ids=chunk,
+            )
+            with new_session() as session:
+                query = select(Item)
+                query = filter_query(query, chunk_filters)
+                query = _apply_standard_order(query)
+                all_items.extend(session.exec(query).all())
 
-        # Sort by date in descending order, then by id for determinism
-        query = _apply_standard_order(query)
+        # Sort across all chunks with the standard ordering, then paginate
+        all_items.sort(
+            key=lambda i: (
+                i.date is not None,
+                i.date.timestamp() if i.date else 0,
+                i.id,
+            ),
+            reverse=True,
+        )
+        return all_items[25 * page : 25 * (page + 1)]
+    else:
+        with new_session() as session:
+            query = select(Item)
+            if filters:
+                query = filter_query(query, filters)
 
-        # Pagination
-        query = query.offset(25 * page).limit(25)
+            # Sort by date in descending order, then by id for determinism
+            query = _apply_standard_order(query)
 
-        items = session.exec(query).all()
-        return items
+            # Pagination
+            query = query.offset(25 * page).limit(25)
+
+            items = session.exec(query).all()
+            return items
 
 
 def get_number_of_items(filters: Filters | None = None):
-    with new_session() as session:
-        query = select(func.count(Item.id))
-        if filters:
-            query = filter_query(query, filters)
-        return session.exec(query).one()
+    # If there's a chunked id filter, execute separate queries for each chunk
+    # and sum the results. This avoids SQLite's 32766 parameter limit.
+    if filters and filters.item_ids is not None:
+        total = 0
+        for chunk in chunk_ids(filters.item_ids):
+            chunk_filters = Filters(
+                tags=filters.tags,
+                start_date=filters.start_date,
+                end_date=filters.end_date,
+                min_longitude=filters.min_longitude,
+                max_longitude=filters.max_longitude,
+                min_latitude=filters.min_latitude,
+                max_latitude=filters.max_latitude,
+                wrong_dir=filters.wrong_dir,
+                no_time=filters.no_time,
+                no_gps=filters.no_gps,
+                directories=filters.directories,
+                item_ids=chunk,
+            )
+            with new_session() as session:
+                query = select(func.count(Item.id))
+                query = filter_query(query, chunk_filters)
+                total += session.exec(query).one()
+        return total
+    else:
+        with new_session() as session:
+            query = select(func.count(Item.id))
+            if filters:
+                query = filter_query(query, filters)
+            return session.exec(query).one()
 
 
 def get_times_and_location_from_images(filters: Filters | None = None) -> list:

@@ -62,6 +62,12 @@ class SelectedArea:
 
 
 @dataclass
+class SelectedIds:
+    item_ids: list[int] | None = None
+    widget: QWidget | None = None
+
+
+@dataclass
 class Filters:
     tags: list[str] | None = None
     start_date: datetime | None = None
@@ -74,6 +80,9 @@ class Filters:
     no_time: bool | None = False
     no_gps: bool | None = False
     directories: list[Path] | None = None
+    # None means "no id filter at all"; an empty list means "an empty
+    # selection", which must match nothing rather than everything.
+    item_ids: list[int] | None = None
 
 
 class TagBar(QHBoxLayout):
@@ -87,6 +96,7 @@ class TagBar(QHBoxLayout):
         self.selected_times_min = SelectedTime()
         self.selected_times_max = SelectedTime()
         self.selected_area = SelectedArea()
+        self.selected_ids = SelectedIds()
         self.bool = {
             "Wrong dir": SelectedBool(),
             "No Time": SelectedBool(),
@@ -113,6 +123,7 @@ class TagBar(QHBoxLayout):
         self.remove_tag_button(self.selected_times_min.widget)
         self.remove_tag_button(self.selected_times_max.widget)
         self.remove_tag_button(self.selected_area.widget)
+        self.remove_tag_button(self.selected_ids.widget)
         self.main.update_items()
 
     def get_all_names(self):
@@ -180,6 +191,24 @@ class TagBar(QHBoxLayout):
 
         self.main.update_items()
 
+    def add_selection_tag(self, item_ids: list[int]):
+        """Show the frozen selection as a removable filter button.
+
+        The ids are copied here rather than read live from the selection, so
+        deselecting inside the view does not make photos disappear from it.
+        """
+        self.remove_tag_button(self.selected_ids.widget)
+
+        tag_button = QPushButton(f"Selection ({len(item_ids)})")
+        tag_button.setObjectName("Selection")
+        tag_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+        tag_button.clicked.connect(lambda flag, t=tag_button: self.remove_tag_button(t))
+
+        self.addWidget(tag_button, 0)
+        self.selected_ids = SelectedIds(list(item_ids), tag_button)
+
+        self.main.update_items()
+
     def get_filters(self) -> Filters:
         return Filters(
             tags=[x.name for x in self.selected_tags],
@@ -193,6 +222,7 @@ class TagBar(QHBoxLayout):
             no_time=self.bool["No Time"].value,
             no_gps=self.bool["No GPS"].value,
             directories=[self.main.config.photos, self.main.config.videos],
+            item_ids=self.selected_ids.item_ids,
         )
 
     def remove_tag_button(self, w):
@@ -218,6 +248,10 @@ class TagBar(QHBoxLayout):
             elif w == self.selected_area.widget:
                 w.setParent(None)
                 self.selected_area = SelectedArea()
+                del w
+            elif w == self.selected_ids.widget:
+                w.setParent(None)
+                self.selected_ids = SelectedIds()
                 del w
             else:
                 for key, value in self.bool.items():
