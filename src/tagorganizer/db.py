@@ -371,7 +371,7 @@ def get_all_tag_ids(tag_names: list[str]) -> list[int]:
         return list(tag_ids)
 
 
-def filter_query(query, filter: Filters, session: Session | None = None):
+def filter_query(query, filter: Filters, session: Session):
     # Filter by date range
     if filter.start_date:
         query = query.where(Item.date >= filter.start_date)
@@ -412,15 +412,14 @@ def filter_query(query, filter: Filters, session: Session | None = None):
         for directory in filter.directories:
             query = query.where(~Item.uri.startswith(str(directory)))
 
-    # Filter by id set. If provided, materialise ids in a temp table to avoid
-    # SQLite's per-statement 32766 parameter limit. The temp table keeps ids
-    # out of the statement entirely, so ORDER BY and LIMIT stay in SQL.
+    # Filter by id set. Materialise ids in a temp table to avoid SQLite's
+    # per-statement 32766 parameter limit. The temp table keeps ids out of
+    # the statement entirely, so ORDER BY and LIMIT stay in SQL.
     if filter.item_ids is not None:
-        if session is not None:
-            _materialise_ids(session, filter.item_ids)
-            query = query.where(
-                Item.id.in_(sa.select(sa.column("id")).select_from(sa.table(_ID_TABLE)))
-            )
+        _materialise_ids(session, filter.item_ids)
+        query = query.where(
+            Item.id.in_(sa.select(sa.column("id")).select_from(sa.table(_ID_TABLE)))
+        )
 
     return query
 

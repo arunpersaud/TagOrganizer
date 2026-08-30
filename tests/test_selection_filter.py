@@ -7,6 +7,7 @@ keeps ORDER BY and LIMIT in SQL rather than redoing them in Python.
 
 from datetime import datetime
 
+import pytest
 from sqlmodel import Session
 
 from tagorganizer import db
@@ -145,6 +146,28 @@ class TestOrderingAgreement:
             assert (
                 img.id == rng.id
             ), f"Mismatch at index {i}: get_images has {img.id}, get_image_range has {rng.id}"
+
+
+class TestFilterQueryContractEnforcement:
+    def test_filter_query_requires_session_for_id_filter(self, temp_db):
+        """filter_query must have a session to materialise id filters.
+
+        Calling without session but with item_ids set should raise TypeError,
+        not silently return all rows. This guards against the silent failure
+        mode where a user filtering to 3 items would see their entire library.
+        """
+        with Session(temp_db) as session:
+            for i in range(5):
+                session.add(Item(uri=f"/p/{i}.jpg"))
+            session.commit()
+            ids = [i.id for i in session.exec(db.select(Item)).all()]
+
+        filters = Filters(item_ids=ids[:2])
+        query = db.select(db.func.count(Item.id))
+
+        # Should raise TypeError when session is not provided
+        with pytest.raises(TypeError):
+            db.filter_query(query, filters)  # Missing required session parameter
 
 
 class TestLargeSelections:
