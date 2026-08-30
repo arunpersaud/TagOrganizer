@@ -1,9 +1,11 @@
 """Tag lookup and the queries behind the maintenance tasks."""
 
+from datetime import datetime
 from sqlmodel import Session
 
 from tagorganizer import db
-from tagorganizer.models import Item
+from tagorganizer.models import Item, Tag
+from tagorganizer.widgets.tag_bar import Filters
 
 
 class TestTagLookupIgnoresCase:
@@ -58,3 +60,49 @@ class TestItemsWithoutLocation:
 
         found = {item.uri for item in db.get_items_without_location()}
         assert found == {"/p/no-lat.jpg", "/p/no-lon.jpg", "/p/neither.jpg"}
+
+
+class TestTagFilteringIgnoresCase:
+    def test_tag_filter_finds_items_with_case_variant(self, temp_db):
+        """get_all_tag_ids must ignore case to match get_tag behavior."""
+        with Session(temp_db) as session:
+            tag = Tag(name="iPhone")
+            session.add(tag)
+            session.flush()
+
+            item1 = Item(uri="/p/photo1.jpg", date=datetime(2024, 1, 1))
+            item1.tags.append(tag)
+            session.add(item1)
+
+            item2 = Item(uri="/p/photo2.jpg", date=datetime(2024, 1, 2))
+            session.add(item2)
+
+            session.commit()
+
+        # Query with lowercase tag name should still find the item
+        filters = Filters(tags=["iphone"])
+        results = db.get_images(0, filters)
+        assert len(results) == 1
+        assert results[0].uri == "/p/photo1.jpg"
+
+    def test_tag_filter_finds_items_with_exact_case(self, temp_db):
+        """Filtering with exact case match must still work (regression test)."""
+        with Session(temp_db) as session:
+            tag = Tag(name="iPhone")
+            session.add(tag)
+            session.flush()
+
+            item1 = Item(uri="/p/photo1.jpg", date=datetime(2024, 1, 1))
+            item1.tags.append(tag)
+            session.add(item1)
+
+            item2 = Item(uri="/p/photo2.jpg", date=datetime(2024, 1, 2))
+            session.add(item2)
+
+            session.commit()
+
+        # Query with exact case should find the item
+        filters = Filters(tags=["iPhone"])
+        results = db.get_images(0, filters)
+        assert len(results) == 1
+        assert results[0].uri == "/p/photo1.jpg"

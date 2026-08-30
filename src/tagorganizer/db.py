@@ -290,7 +290,14 @@ def get_all_tag_ids(tag_names: list[str]) -> list[int]:
     """Fetch all tag IDs including children for given tag names."""
     with new_session() as session:
         tag_ids = set()
-        tags = session.exec(select(Tag).where(Tag.name.in_(tag_names))).all()
+        # Names are stored exactly as the user typed them, so any lookup that
+        # compares them literally will miss, and tag filtering fails silently
+        # rather than loudly — the user just sees no photos.
+        tags = session.exec(
+            select(Tag).where(
+                func.lower(Tag.name).in_([n.strip().lower() for n in tag_names])
+            )
+        ).all()
 
         def fetch_child_tags(tag):
             tag_ids.add(tag.id)
