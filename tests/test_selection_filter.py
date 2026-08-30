@@ -1,8 +1,11 @@
 """Tests for filtering by an explicit set of item ids.
 
-The id filter has to survive a selection larger than SQLite's bound-variable
-limit, which is why the ids are chunked rather than passed as one IN clause.
+The id filter uses a temp table to materialise ids out of the statement,
+because SQLite's 32766-variable cap is per prepared statement. This approach
+keeps ORDER BY and LIMIT in SQL rather than redoing them in Python.
 """
+
+from datetime import datetime
 
 from sqlmodel import Session
 
@@ -87,3 +90,100 @@ class TestItemIdFilter:
         # One real id buried in far more ids than SQLite can bind at once.
         padded = [*range(real_id + 1, real_id + 70_000), real_id]
         assert db.get_number_of_items(Filters(item_ids=padded)) == 1
+
+
+class TestOrderingAgreement:
+    def test_get_images_and_get_image_range_agree_on_order_without_filter(
+        self, temp_db
+    ):
+        """get_images and get_image_range must return items in the same order.
+
+        This is critical for grid indexing: an index must mean the same item
+        everywhere. The two orderings disagree if one sorts in Python.
+        """
+        with Session(temp_db) as session:
+            # Create items sharing one date (to test tiebreaker ordering)
+            shared_date = datetime(2020, 1, 1)
+            for i in range(5):
+                session.add(Item(uri=f"/p/{i}.jpg", date=shared_date))
+            session.commit()
+
+        # get_images page 0 should return first 25 items in standard order
+        items_from_get_images = db.get_images(0, None)
+
+        # get_image_range for the same items should match exactly
+        items_from_range = db.get_image_range(0, 25, None)
+
+        assert len(items_from_get_images) == len(items_from_range)
+        for i, (img, rng) in enumerate(
+            zip(items_from_get_images, items_from_range, strict=False)
+        ):
+            assert (
+                img.id == rng.id
+            ), f"Mismatch at index {i}: get_images has {img.id}, get_image_range has {rng.id}"
+
+    def test_get_images_and_get_image_range_agree_on_order_with_id_filter(
+        self, temp_db
+    ):
+        """Ordering agreement must also hold with an id filter applied."""
+        with Session(temp_db) as session:
+            shared_date = datetime(2020, 1, 1)
+            for i in range(10):
+                session.add(Item(uri=f"/p/{i}.jpg", date=shared_date))
+            session.commit()
+            all_ids = [i.id for i in session.exec(db.select(Item)).all()]
+
+        # Filter to first 5 ids
+        filters = Filters(item_ids=all_ids[:5])
+        items_from_get_images = db.get_images(0, filters)
+        items_from_range = db.get_image_range(0, 25, filters)
+
+        assert len(items_from_get_images) == len(items_from_range)
+        for i, (img, rng) in enumerate(
+            zip(items_from_get_images, items_from_range, strict=False)
+        ):
+            assert (
+                img.id == rng.id
+            ), f"Mismatch at index {i}: get_images has {img.id}, get_image_range has {rng.id}"
+
+
+class TestLargeSelections:
+    def test_get_image_range_survives_70000_ids(self, temp_db):
+        """get_image_range must handle selections larger than SQLite's limit."""
+        with Session(temp_db) as session:
+            session.add(Item(uri="/p/real.jpg"))
+            session.commit()
+            real_id = session.exec(db.select(Item)).first().id
+
+        padded = [*range(real_id + 1, real_id + 70_000), real_id]
+        filters = Filters(item_ids=padded)
+
+        # Should return 1 item (the real one), not raise OperationalError
+        result = db.get_image_range(0, 25, filters)
+        assert len(result) == 1
+        assert result[0].id == real_id
+
+    def test_get_times_and_location_from_images_survives_70000_ids(self, temp_db):
+        """get_times_and_location must handle selections larger than SQLite's limit."""
+        with Session(temp_db) as session:
+            test_date = datetime(2020, 6, 15, 12, 0, 0)
+            session.add(
+                Item(
+                    uri="/p/real.jpg",
+                    date=test_date,
+                    latitude=40.7128,
+                    longitude=-74.0060,
+                )
+            )
+            session.commit()
+            real_id = session.exec(db.select(Item)).first().id
+
+        padded = [*range(real_id + 1, real_id + 70_000), real_id]
+        filters = Filters(item_ids=padded)
+
+        # Should return 1 date and 1 coordinate, not raise OperationalError
+        dates, coords = db.get_times_and_location_from_images(filters)
+        assert len(dates) == 1
+        assert dates[0] == test_date
+        assert len(coords) == 1
+        assert coords[0] == (40.7128, -74.0060)
