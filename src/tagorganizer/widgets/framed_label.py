@@ -22,7 +22,7 @@ from pathlib import Path
 
 from qtpy.QtWidgets import QLabel, QSizePolicy
 from qtpy.QtGui import QPainter, QPen, QImage, QPixmap
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, Signal
 
 from .helper import get_thumbnail_loader
 from ..models import Item
@@ -30,6 +30,10 @@ from ..models import Item
 
 class FramedLabel(QLabel):
     """A widget to show an thumbnail that can draw blue and red frames around it."""
+
+    # Emits the tile itself: the grid knows its own widget order, and the item
+    # id alone would not tell it which position was clicked.
+    doubleClicked = Signal(object)
 
     def __init__(self, item: Item, photos_path: Path):
         super().__init__()
@@ -91,6 +95,10 @@ class FramedLabel(QLabel):
     def toggle_selected(self):
         self.selected = not self.selected
         self.update()
+
+    def mouseDoubleClickEvent(self, event):
+        self.doubleClicked.emit(self)
+        super().mouseDoubleClickEvent(event)
 
     def set_highlight(self, selected):
         self.highlight = selected

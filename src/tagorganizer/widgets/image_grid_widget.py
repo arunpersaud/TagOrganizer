@@ -73,6 +73,15 @@ class ImageGridWidget(QWidget):
         return min(n, widget_count - 1)
 
     @staticmethod
+    def highlight_for(page, N, index):
+        """The global highlight position of tile `index` on `page`.
+
+        The inverse of _get_widget_index, which recovers the tile from the
+        global position with highlight % N.
+        """
+        return page * N + index
+
+    @staticmethod
     def change_highlight(func):
         @wraps(func)
         def wrapper(self, *args):
@@ -105,6 +114,7 @@ class ImageGridWidget(QWidget):
             if item in self.selected_items:
                 label.selected = True
             self.widgets.append(label)
+            label.doubleClicked.connect(self.focus_widget)
             self.layout.addWidget(label, row, col)
             col += 1
             if col >= self.columns:
@@ -151,6 +161,23 @@ class ImageGridWidget(QWidget):
             self.main.display_common_tags()
 
             return
+
+    @change_highlight
+    def _move_highlight_to(self, position):
+        self.highlight = position
+
+    def focus_widget(self, widget):
+        """Move the red frame to a tile the user double-clicked.
+
+        Routed through the decorated setter so the old frame is cleared and the
+        single view follows along, exactly as the cursor keys do.
+        """
+        try:
+            index = self.widgets.index(widget)
+        except ValueError:
+            return
+        self._move_highlight_to(self.highlight_for(self.page, self.N, index))
+        self.main.display_common_tags()
 
     @change_highlight
     def move_left(self):

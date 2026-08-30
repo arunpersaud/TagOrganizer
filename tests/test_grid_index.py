@@ -9,6 +9,8 @@ The index calculation is extracted as a pure function to avoid GUI dependencies.
 
 import pytest
 
+from tagorganizer.widgets.image_grid_widget import ImageGridWidget
+
 
 def get_widget_index(highlight, N, widget_count):
     """Calculate the widget index for a given highlight position.
@@ -252,3 +254,23 @@ class TestGridIndexEdgeCases:
         result = get_widget_index(100, N, widget_count)
         # 100 % 25 = 0, min(0, 4) = 0
         assert result == 0
+
+
+class TestHighlightForDoubleClick:
+    """Double-clicking tile `index` on `page` must select that global position."""
+
+    def test_first_tile_on_first_page(self):
+        assert ImageGridWidget.highlight_for(page=0, N=25, index=0) == 0
+
+    def test_last_tile_on_first_page(self):
+        assert ImageGridWidget.highlight_for(page=0, N=25, index=24) == 24
+
+    def test_first_tile_on_third_page(self):
+        assert ImageGridWidget.highlight_for(page=2, N=25, index=0) == 50
+
+    def test_round_trips_through_get_widget_index(self):
+        """The frame must land on the tile that was actually clicked."""
+        for page in range(4):
+            for index in range(25):
+                highlight = ImageGridWidget.highlight_for(page, 25, index)
+                assert ImageGridWidget._get_widget_index(highlight, 25, 25) == index
