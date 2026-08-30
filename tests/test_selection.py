@@ -40,6 +40,12 @@ class TestSelectionBasics:
     def test_can_be_seeded(self):
         assert Selection([3, 1, 2]).ids() == [3, 1, 2]
 
+    def test_can_be_seeded_with_empty_list(self):
+        assert Selection([]).ids() == []
+
+    def test_can_be_seeded_with_generator(self):
+        assert Selection(range(3)).ids() == [0, 1, 2]
+
 
 class TestSelectionMutation:
     def test_discard_removes(self):
@@ -72,3 +78,17 @@ class TestSelectionMutation:
 
     def test_iterates_in_order(self):
         assert list(Selection([4, 2, 8])) == [4, 2, 8]
+
+    def test_ids_returns_snapshot_not_view(self):
+        """ids() must return a snapshot, not a live view.
+
+        The "show only selected" filter snapshots selection.ids() into a static
+        filter, and the whole point is that it stays frozen while the user keeps
+        toggling frames inside it. If ids() returned a view like keys(), later
+        mutations would silently turn the frozen filter live.
+        """
+        s = Selection([1, 2, 3])
+        captured = s.ids()
+        s.add(4)
+        s.discard(1)
+        assert captured == [1, 2, 3]

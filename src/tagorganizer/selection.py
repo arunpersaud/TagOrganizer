@@ -5,7 +5,7 @@ selecting on the map is next - and a selection owned by the widget that happens
 to be showing one page of it is the wrong shape for that.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 
 
 class Selection:
@@ -48,11 +48,11 @@ class Selection:
     def ids(self) -> list[int]:
         return list(self._ids)
 
-    def __contains__(self, item_id) -> bool:
+    def __contains__(self, item_id: int) -> bool:
         return item_id in self._ids
 
     def __len__(self) -> int:
         return len(self._ids)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[int]:
         return iter(self._ids)
