@@ -54,6 +54,8 @@ class MapView(QWebEngineView):
         # any tiles - a permanently blank map.
         self._dirty = True
 
+        self.loadFinished.connect(self._on_load_finished)
+
     def set_location(self, longitude, latitude, zoom):
         if self.map is None:
             return
@@ -94,6 +96,17 @@ class MapView(QWebEngineView):
         if self.map_name:
             self.page().runJavaScript(f"{self.map_name}.invalidateSize()")
 
+    def _on_load_finished(self, ok):
+        """Re-measure once the document is actually live.
+
+        setHtml loads asynchronously, so any invalidate_size() issued between
+        load_map() and this signal names a Leaflet variable that does not exist
+        yet and is silently dropped. This is the one call guaranteed to land
+        after the map object exists.
+        """
+        if ok:
+            self.invalidate_size()
+
     def showEvent(self, event):
         super().showEvent(event)
         self.on_shown()
@@ -103,9 +116,17 @@ class MapView(QWebEngineView):
         self.invalidate_size()
 
     def get_bounds(self):
-        self.page().runJavaScript(f"{self.map_name}.getBounds()", self.bounds_callback)
+        if self.map_name:
+            self.page().runJavaScript(
+                f"{self.map_name}.getBounds()", self.bounds_callback
+            )
 
     def bounds_callback(self, bounds):
+        # A failed bounds query (when map_name is empty or folium format changes)
+        # must not take down the tag bar. Silently ignore.
+        if not bounds:
+            return
+
         NE = bounds["_northEast"]
         SW = bounds["_southWest"]
 
