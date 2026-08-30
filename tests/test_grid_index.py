@@ -274,3 +274,22 @@ class TestHighlightForDoubleClick:
             for index in range(25):
                 highlight = ImageGridWidget.highlight_for(page, 25, index)
                 assert ImageGridWidget._get_widget_index(highlight, 25, 25) == index
+
+
+class TestRangeBounds:
+    """Shift-click selects an inclusive span between the anchor and the click."""
+
+    def test_forward_range(self):
+        assert ImageGridWidget.range_bounds(anchor=3, clicked=7) == (3, 5)
+
+    def test_backward_range(self):
+        """Dragging backwards selects the same span."""
+        assert ImageGridWidget.range_bounds(anchor=7, clicked=3) == (3, 5)
+
+    def test_single_item_range(self):
+        assert ImageGridWidget.range_bounds(anchor=4, clicked=4) == (4, 1)
+
+    def test_spans_pages(self):
+        """The span is in global positions, so it crosses page boundaries."""
+        start, count = ImageGridWidget.range_bounds(anchor=10, clicked=60)
+        assert (start, count) == (10, 51)

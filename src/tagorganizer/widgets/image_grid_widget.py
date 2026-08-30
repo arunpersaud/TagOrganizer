@@ -81,6 +81,16 @@ class ImageGridWidget(QWidget):
         return page * N + index
 
     @staticmethod
+    def range_bounds(anchor, clicked):
+        """The (start, count) span between two global positions, inclusive.
+
+        Order-independent, so shift-clicking above the anchor selects the same
+        span as shift-clicking below it.
+        """
+        start = min(anchor, clicked)
+        return start, abs(clicked - anchor) + 1
+
+    @staticmethod
     def change_highlight(func):
         @wraps(func)
         def wrapper(self, *args):
@@ -114,6 +124,7 @@ class ImageGridWidget(QWidget):
                 label.selected = True
             self.widgets.append(label)
             label.doubleClicked.connect(self.focus_widget)
+            label.shiftClicked.connect(self.extend_selection_to)
             self.layout.addWidget(label, row, col)
             col += 1
             if col >= self.columns:
@@ -155,6 +166,31 @@ class ImageGridWidget(QWidget):
             self.main.display_common_tags()
 
             return
+
+    def extend_selection_to(self, widget):
+        """Add every item between the anchor and this tile to the selection.
+
+        The anchor is the current red frame. The span is fetched from the
+        database rather than read off the screen, which is what lets a range
+        cross pages - the items in between have never been rendered.
+        """
+        try:
+            index = self.widgets.index(widget)
+        except ValueError:
+            return
+
+        clicked = self.highlight_for(self.page, self.N, index)
+        start, count = self.range_bounds(self.highlight, clicked)
+
+        filters = self.main.tag_bar.get_filters()
+        span = db.get_image_range(start, count, filters)
+        self.main.selection.add_many(item.id for item in span)
+
+        # The clicked tile becomes the next anchor, so successive shift-clicks
+        # extend from where the user last acted.
+        self._move_highlight_to(clicked)
+        self.main.update_numbers(selected=len(self.main.selection))
+        self.main.update_items()
 
     @change_highlight
     def _move_highlight_to(self, position):

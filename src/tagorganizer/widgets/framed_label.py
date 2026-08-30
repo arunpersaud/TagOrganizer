@@ -35,6 +35,10 @@ class FramedLabel(QLabel):
     # id alone would not tell it which position was clicked.
     doubleClicked = Signal(object)
 
+    # Shift-click extends the selection to this tile; a plain click is left
+    # alone so it keeps doing nothing.
+    shiftClicked = Signal(object)
+
     def __init__(self, item: Item, photos_path: Path):
         super().__init__()
 
@@ -99,6 +103,12 @@ class FramedLabel(QLabel):
     def mouseDoubleClickEvent(self, event):
         self.doubleClicked.emit(self)
         super().mouseDoubleClickEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.modifiers() & Qt.ShiftModifier:
+            self.shiftClicked.emit(self)
+            return
+        super().mousePressEvent(event)
 
     def set_highlight(self, selected):
         self.highlight = selected
