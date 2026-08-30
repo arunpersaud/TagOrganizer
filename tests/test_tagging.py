@@ -457,3 +457,166 @@ class TestReservedTagsAreCaseInsensitive:
 
         for name in ("Holiday", "Beach", "No", "GPS", "Wrong", "No GPSX"):
             assert not is_reserved_tag(name), name
+
+
+class TestOnTabChangedDispatchesToSingleView:
+    """Regression guard: single view populated on tab change (defect a).
+
+    The single view showed nothing because on_tab_changed never called
+    update_single_item. This test ensures that dispatch is present and
+    connected correctly; deleting it would be caught immediately.
+    """
+
+    def test_on_tab_changed_calls_update_single_item(self):
+        """Verify on_tab_changed dispatches to update_single_item()."""
+        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
+        with open(main_file) as f:
+            tree = ast.parse(f.read())
+
+        # Find on_tab_changed method
+        on_tab_method = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "on_tab_changed":
+                on_tab_method = node
+                break
+
+        assert on_tab_method is not None, "on_tab_changed method not found"
+
+        # Search for call to update_single_item in the method
+        calls_update_single_item = False
+        for node in ast.walk(on_tab_method):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    if node.func.attr == "update_single_item":
+                        calls_update_single_item = True
+                        break
+                elif isinstance(node.func, ast.Name):
+                    if node.func.id == "update_single_item":
+                        calls_update_single_item = True
+                        break
+
+        assert (
+            calls_update_single_item
+        ), "on_tab_changed must call update_single_item to populate the single view"
+
+
+class TestOnTabChangedDispatchesToMapShown:
+    """Regression guard: map refreshes on tab change (defect b).
+
+    The map showed nothing because on_tab_changed never called map.on_shown(),
+    leaving Leaflet thinking it was hidden and never measuring its container.
+    This test ensures that dispatch is present; deleting it would be caught.
+    """
+
+    def test_on_tab_changed_calls_map_on_shown(self):
+        """Verify on_tab_changed dispatches to self.map.on_shown()."""
+        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
+        with open(main_file) as f:
+            tree = ast.parse(f.read())
+
+        # Find on_tab_changed method
+        on_tab_method = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "on_tab_changed":
+                on_tab_method = node
+                break
+
+        assert on_tab_method is not None, "on_tab_changed method not found"
+
+        # Search for call to self.map.on_shown in the method
+        calls_map_on_shown = False
+        for node in ast.walk(on_tab_method):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    if (
+                        isinstance(node.func.value, ast.Attribute)
+                        and isinstance(node.func.value.value, ast.Name)
+                        and node.func.value.value.id == "self"
+                        and node.func.value.attr == "map"
+                        and node.func.attr == "on_shown"
+                    ):
+                        calls_map_on_shown = True
+                        break
+
+        assert (
+            calls_map_on_shown
+        ), "on_tab_changed must call self.map.on_shown() to wake the map"
+
+
+class TestChangeProfileResetsViewState:
+    """Regression guard: stale grid state doesn't survive profile switch.
+
+    Switching profiles leaves the old grid pagination, highlight, and
+    selected_items (which are ids from the old database). This would corrupt
+    operations like delete_items or copy_selection. change_profile must call
+    reset_view_state to clear this state; deleting it would reintroduce the bug.
+    """
+
+    def test_change_profile_calls_reset_view_state(self):
+        """Verify change_profile calls reset_view_state()."""
+        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
+        with open(main_file) as f:
+            tree = ast.parse(f.read())
+
+        # Find change_profile method
+        change_profile_method = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "change_profile":
+                change_profile_method = node
+                break
+
+        assert change_profile_method is not None, "change_profile method not found"
+
+        # Search for call to reset_view_state in the method
+        calls_reset_view_state = False
+        for node in ast.walk(change_profile_method):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    if node.func.attr == "reset_view_state":
+                        calls_reset_view_state = True
+                        break
+                elif isinstance(node.func, ast.Name):
+                    if node.func.id == "reset_view_state":
+                        calls_reset_view_state = True
+                        break
+
+        assert (
+            calls_reset_view_state
+        ), "change_profile must call reset_view_state to clear old database ids"
+
+
+class TestHandleTagsStoresNamesAsTyped:
+    """Regression guard: tag names stored as typed, not title-cased.
+
+    handle_tags was mangling "iPhone" into "Iphone", losing the user's
+    spelling. Removing .title() was necessary. This test ensures nothing
+    title-cases tag names anymore; adding the call back would be caught.
+    """
+
+    def test_handle_tags_does_not_call_title(self):
+        """Verify handle_tags does not call .title() on tag names."""
+        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
+        with open(main_file) as f:
+            tree = ast.parse(f.read())
+
+        # Find handle_tags method
+        handle_tags_method = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "handle_tags":
+                handle_tags_method = node
+                break
+
+        assert handle_tags_method is not None, "handle_tags method not found"
+
+        # Search for call to .title() in the method
+        calls_title = False
+        for node in ast.walk(handle_tags_method):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    if node.func.attr == "title":
+                        calls_title = True
+                        break
+
+        assert (
+            not calls_title
+        ), "handle_tags must not call .title(); tag names must be stored as typed"

@@ -68,10 +68,9 @@ logger = logging.getLogger(__name__)
 def is_reserved_tag(name: str) -> bool:
     """Is this name one of the internal filter buttons?
 
-    Compared case-insensitively: handle_tags runs every entered tag through
-    str.title(), which turns "No GPS" into "No Gps" and "Wrong dir" into
-    "Wrong Dir", so an exact match would let two of the three reserved names
-    through and create a real tag colliding with the filter button.
+    Compared case-insensitively because tag names are stored exactly as the
+    user typed them. An exact-match check would let "no gps" through and
+    create a real tag that collides with the filter button.
     """
     return name.strip().casefold() in {r.casefold() for r in RESERVED_TAGS}
 
