@@ -103,6 +103,10 @@ class TagBar(QHBoxLayout):
             "No GPS": SelectedBool(),
         }
 
+        # Set while a single user gesture is building several buttons, so
+        # the view is redrawn once at the end instead of after each one.
+        self._suppress_refresh = False
+
         self.clear_button = QPushButton("Clear")
         self.clear_button.clicked.connect(self.clear_selected_tags)
         self.clear_button.setSizePolicy(
@@ -124,7 +128,7 @@ class TagBar(QHBoxLayout):
         self.remove_tag_button(self.selected_times_max.widget)
         self.remove_tag_button(self.selected_area.widget)
         self.remove_tag_button(self.selected_ids.widget)
-        self.main.update_items()
+        self.refresh()
 
     def get_all_names(self):
         out = []
@@ -150,7 +154,7 @@ class TagBar(QHBoxLayout):
             self.bool[tag_name].widget = tag_button
         else:
             self.selected_tags.append(SelectedTag(tag_name, tag_button))
-        self.main.update_items()
+        self.refresh()
 
     def add_time_tag(self, date: datetime, min_max: str = "<"):
         # delete button if there is already one
@@ -177,6 +181,41 @@ class TagBar(QHBoxLayout):
 
         self.addWidget(tag_button, 0)
 
+        self.refresh()
+
+    def set_time_range(self, start, end):
+        """Set both ends of the time filter in one go.
+
+        add_time_tag refreshes the view itself, so setting the two bounds with
+        two calls costs two full redraws of the grid, timeline and map - plainly
+        visible on a large library. Dragging a span on the timeline is one
+        gesture and should cost one refresh, so the buttons are built with the
+        refresh suppressed and the view is updated once at the end.
+
+        The bounds are ordered here, because a drag from right to left means the
+        same span as one from left to right.
+        """
+        if start > end:
+            start, end = end, start
+
+        self._suppress_refresh = True
+        try:
+            self.add_time_tag(start, ">")
+            self.add_time_tag(end, "<")
+        finally:
+            self._suppress_refresh = False
+
+        self.main.update_items()
+
+    def clear_time_range(self):
+        """Drop both ends of the time filter, refreshing once."""
+        self._suppress_refresh = True
+        try:
+            self.remove_tag_button(self.selected_times_min.widget)
+            self.remove_tag_button(self.selected_times_max.widget)
+        finally:
+            self._suppress_refresh = False
+
         self.main.update_items()
 
     def add_area_tag(self):
@@ -189,7 +228,7 @@ class TagBar(QHBoxLayout):
         self.addWidget(tag_button, 0)
         self.selected_area.widget = tag_button
 
-        self.main.update_items()
+        self.refresh()
 
     def add_selection_tag(self, item_ids: list[int]):
         """Show the frozen selection as a removable filter button.
@@ -207,6 +246,12 @@ class TagBar(QHBoxLayout):
         self.addWidget(tag_button, 0)
         self.selected_ids = SelectedIds(list(item_ids), tag_button)
 
+        self.refresh()
+
+    def refresh(self):
+        """Redraw the view, unless a multi-button gesture is in progress."""
+        if self._suppress_refresh:
+            return
         self.main.update_items()
 
     def get_filters(self) -> Filters:
@@ -259,4 +304,4 @@ class TagBar(QHBoxLayout):
                         w.setParent(None)
                         self.bool[key].value = False
 
-        self.main.update_items()
+        self.refresh()

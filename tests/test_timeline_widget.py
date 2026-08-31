@@ -1,0 +1,143 @@
+"""Behavioural tests for the timeline widget.
+
+Timeline is a matplotlib FigureCanvas, so it needs a QApplication; guarded the
+same way as the other Qt-touching test modules. The pure histogram-binning
+helpers are tested separately in tests/test_widgets.py without Qt.
+"""
+
+import os
+from datetime import date, datetime, timedelta
+
+import pytest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    widgets = pytest.importorskip("qtpy.QtWidgets")
+    return widgets.QApplication.instance() or widgets.QApplication([])
+
+
+class _RecordingTagBar:
+    def __init__(self):
+        self.ranges = []
+        self.clears = 0
+
+    def set_time_range(self, start, end):
+        self.ranges.append((start, end))
+
+    def clear_time_range(self):
+        self.clears += 1
+
+
+class _DummyMain:
+    """Timeline only stores `main`; it does not call into it while plotting."""
+
+    def __init__(self):
+        self.tag_bar = _RecordingTagBar()
+
+
+def _timeline():
+    from tagorganizer.widgets.timeline import Timeline
+
+    return Timeline(_DummyMain())
+
+
+class _FakeEvent:
+    """Enough of a matplotlib mouse event for on_click."""
+
+    def __init__(self, ax, button, xdata=None):
+        self.inaxes = ax
+        self.button = button
+        self.xdata = xdata
+
+
+class TestLogScale:
+    def test_histogram_uses_a_log_y_axis(self, qapp):
+        """One busy month must not flatten every quiet month to invisibility.
+
+        On a linear axis a month holding 2000 photos leaves a month holding 20
+        indistinguishable from empty, which makes the timeline useless for
+        finding the sparse parts of a library.
+        """
+        timeline = _timeline()
+        base = datetime(2024, 1, 1)
+        dates = [base + timedelta(days=i) for i in range(40)]
+        timeline.plot_histogram(dates)
+
+        assert timeline.ax.get_yscale() == "log"
+
+    def test_empty_history_does_not_raise(self, qapp):
+        """A profile with no dated photos still has to draw something."""
+        timeline = _timeline()
+        timeline.plot_histogram([])
+
+    def test_sparse_and_busy_bins_both_survive_binning(self, qapp):
+        """Binning must not merge a rare month into its busy neighbour.
+
+        Note this guards the binning, not the log axis: patch heights are the
+        raw counts either way, so this assertion passes on a linear scale too.
+        The scale itself is covered by test_histogram_uses_a_log_y_axis.
+        """
+        timeline = _timeline()
+        base = datetime(2024, 1, 1)
+        busy = [base + timedelta(days=1)] * 2000
+        sparse = [base + timedelta(days=300)] * 3
+        timeline.plot_histogram(sorted(busy + sparse, reverse=True))
+
+        heights = [p.get_height() for p in timeline.ax.patches]
+        assert max(heights) == 2000
+        assert 3 in heights
+
+
+class TestDragToSelect:
+    def test_a_span_selector_is_installed(self, qapp):
+        """Dragging is the primary gesture, so the selector must exist."""
+        timeline = _timeline()
+        assert timeline.span_selector is not None
+
+    def test_dragging_sets_both_bounds_in_one_call(self, qapp):
+        """One gesture, one filter change, one redraw.
+
+        The range is handed to the tag bar as a pair rather than as two separate
+        bounds, so the view is refreshed once rather than twice.
+        """
+        import matplotlib.dates as mdates
+
+        timeline = _timeline()
+        lo = mdates.date2num(datetime(2024, 1, 1))
+        hi = mdates.date2num(datetime(2024, 6, 30))
+
+        timeline.on_span_select(lo, hi)
+
+        assert len(timeline.main.tag_bar.ranges) == 1
+        start, end = timeline.main.tag_bar.ranges[0]
+        assert start == date(2024, 1, 1)
+        assert end == date(2024, 6, 30)
+
+    def test_right_click_clears_the_range(self, qapp):
+        from matplotlib.backend_bases import MouseButton
+
+        timeline = _timeline()
+        timeline.on_click(_FakeEvent(timeline.ax, MouseButton.RIGHT, xdata=0.0))
+
+        assert timeline.main.tag_bar.clears == 1
+
+    def test_left_click_no_longer_sets_a_bound_on_its_own(self, qapp):
+        """Dragging replaced click-to-set; a stray click must not filter."""
+        from matplotlib.backend_bases import MouseButton
+
+        timeline = _timeline()
+        timeline.on_click(_FakeEvent(timeline.ax, MouseButton.LEFT, xdata=0.0))
+
+        assert timeline.main.tag_bar.ranges == []
+        assert timeline.main.tag_bar.clears == 0
+
+    def test_clicks_outside_the_axes_are_ignored(self, qapp):
+        from matplotlib.backend_bases import MouseButton
+
+        timeline = _timeline()
+        timeline.on_click(_FakeEvent(None, MouseButton.RIGHT, xdata=0.0))
+
+        assert timeline.main.tag_bar.clears == 0

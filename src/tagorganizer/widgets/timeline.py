@@ -24,6 +24,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.dates as mdates
 from matplotlib.backend_bases import MouseButton
+from matplotlib.widgets import SpanSelector
 import numpy as np
 
 from qtpy.QtWidgets import QSizePolicy
@@ -85,6 +86,21 @@ class Timeline(FigureCanvas):
 
         self.mpl_connect("button_press_event", self.on_click)
 
+        # Dragging across the timeline is the primary way to pick a date range.
+        # Restricted to the left button so right-click stays free for clearing,
+        # and useblit is off because this canvas is redrawn wholesale on every
+        # filter change, which invalidates a blit cache.
+        self.span_selector = SpanSelector(
+            self.ax,
+            self.on_span_select,
+            direction="horizontal",
+            useblit=False,
+            button=MouseButton.LEFT,
+            props={"alpha": 0.3, "facecolor": "tab:blue"},
+            interactive=True,
+            drag_from_anywhere=True,
+        )
+
         self.setStyleSheet("background-color: transparent;")
 
         self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
@@ -110,7 +126,10 @@ class Timeline(FigureCanvas):
         else:
             self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
 
-        self.ax.hist(self.dates_plt, bins=bins)
+        # Log scale on the counts: a month holding a couple of thousand photos
+        # otherwise flattens every quieter month to an invisible sliver, which
+        # makes the timeline useless for finding the sparse parts of a library.
+        self.ax.hist(self.dates_plt, bins=bins, log=True)
 
         self.ax.spines["top"].set_visible(False)
         self.ax.spines["right"].set_visible(False)
@@ -126,10 +145,24 @@ class Timeline(FigureCanvas):
         self.figure.tight_layout()
         self.draw()
 
+    def on_span_select(self, xmin, xmax):
+        """Apply a dragged span as a date range.
+
+        Both bounds go over in one call so the view is redrawn once. The tag bar
+        orders them, so dragging right-to-left means the same span.
+        """
+        self.main.tag_bar.set_time_range(
+            mdates.num2date(xmin).date(), mdates.num2date(xmax).date()
+        )
+
     def on_click(self, event):
-        if event.inaxes == self.ax:
-            clicked_date = mdates.num2date(event.xdata).date()
-            if event.button == MouseButton.LEFT:
-                self.main.tag_bar.add_time_tag(clicked_date, ">")
-            elif event.button == MouseButton.RIGHT:
-                self.main.tag_bar.add_time_tag(clicked_date, "<")
+        """Right-click clears the time filter.
+
+        Left-click no longer sets a bound on its own: dragging replaced that, and
+        leaving both gestures on the same button meant a slightly-moved click
+        silently applied a filter the user never asked for.
+        """
+        if event.inaxes != self.ax:
+            return
+        if event.button == MouseButton.RIGHT:
+            self.main.tag_bar.clear_time_range()
