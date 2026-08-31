@@ -44,6 +44,13 @@ def cluster_points(points, cell_size: float, bounds=None) -> list[Cluster]:
     Cluster order is stable for a given input, because the index of a cluster is
     what gets sent to the page and looked up again when the user hovers it.
     """
+    # Guard against invalid cell_size. The size derives from a zoom level that a
+    # later task will receive from JavaScript over QWebChannel, which is the least
+    # controlled input in this codebase. A bare ZeroDivisionError deep in clustering
+    # would be obscure to diagnose, so we fail early with a clear message.
+    if cell_size <= 0:
+        raise ValueError("cell_size must be positive")
+
     buckets: dict[tuple[int, int], list] = {}
     order: list[tuple[int, int]] = []
 

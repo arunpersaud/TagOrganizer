@@ -62,6 +62,43 @@ class TestClusterPoints:
             c.ids for c in cluster_points(points, 1.0)
         ]
 
+    def test_zero_cell_size_raises_error(self):
+        """Guard against ZeroDivisionError when cell_size comes from untrusted zoom."""
+        with pytest.raises(ValueError, match="cell_size must be positive"):
+            cluster_points([(1, 10.0, 20.0)], cell_size=0.0)
+
+    def test_negative_cell_size_raises_error(self):
+        """Guard against ZeroDivisionError when cell_size comes from untrusted zoom."""
+        with pytest.raises(ValueError, match="cell_size must be positive"):
+            cluster_points([(1, 10.0, 20.0)], cell_size=-1.0)
+
+    def test_southern_hemisphere_coordinates_cluster(self):
+        """Floor division handles negative coordinates correctly."""
+        # Sydney at -33.87, 151.21 and -33.86, 151.22 should cluster together
+        points = [(1, -33.87, 151.21), (2, -33.86, 151.22)]
+        clusters = cluster_points(points, cell_size=1.0)
+        assert len(clusters) == 1
+        assert sorted(clusters[0].ids) == [1, 2]
+
+    def test_western_hemisphere_stays_separate(self):
+        """Points in western hemisphere at different locations stay separate."""
+        # Rio at -22.91, -43.17 and Cape Town at -33.92, 18.42 should be separate
+        points = [(1, -22.91, -43.17), (2, -33.92, 18.42)]
+        clusters = cluster_points(points, cell_size=1.0)
+        assert len(clusters) == 2
+
+    def test_equator_crossing_does_not_merge(self):
+        """Points either side of the equator do not merge."""
+        points = [(1, -0.1, 0.0), (2, 0.1, 0.0)]
+        clusters = cluster_points(points, cell_size=1.0)
+        assert len(clusters) == 2
+
+    def test_inverted_bounds_select_nothing(self):
+        """Inverted bounds (min > max) should select nothing."""
+        points = [(1, 10.0, 20.0), (2, 15.0, 25.0)]
+        clusters = cluster_points(points, cell_size=1.0, bounds=(20.0, 40.0, 0.0, 0.0))
+        assert clusters == []
+
 
 class TestPointInPolygon:
     SQUARE: ClassVar = [(0.0, 0.0), (0.0, 10.0), (10.0, 10.0), (10.0, 0.0)]
