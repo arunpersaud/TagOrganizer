@@ -18,14 +18,17 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+import contextlib
 import logging
 import os
 from pathlib import Path
+from dataclasses import dataclass, field
 
 from sqlalchemy import text, create_engine as sa_create_engine
-from sqlmodel import SQLModel
+from sqlmodel import SQLModel, Session
 
 from .migrations import upgrade_db, stamp_db
+from .db import chunk_ids
 
 logger = logging.getLogger(__name__)
 
@@ -143,3 +146,165 @@ def prepare_target(path: Path) -> None:
             f"Please set the database to rollback-journal mode (journal_mode=delete) before "
             f"attempting the move."
         )
+
+
+@dataclass
+class MoveResult:
+    """Result of moving items to another profile's database.
+
+    Attributes:
+        moved_ids: IDs of items successfully moved.
+        skipped_ids: IDs of items not moved because they already exist in the target.
+        dropped_tags: Names of tags linked to moved items (these links are removed).
+    """
+
+    moved_ids: list[int] = field(default_factory=list)
+    skipped_ids: list[int] = field(default_factory=list)
+    dropped_tags: list[str] = field(default_factory=list)
+
+
+# Columns to move from source to target, excluding id which is reassigned.
+ITEM_COLUMNS = "uri, uri_md5, data_xxhash, camera, date, longitude, latitude"
+
+
+def move_items(session: Session, target_path: Path, item_ids: list[int]) -> MoveResult:
+    """Move items to another profile's database, atomically.
+
+    ATTACHes the target and performs the insert and the delete in one
+    transaction: SQLite commits across attached databases atomically, so the
+    move either fully happens or fully does not. That guarantee holds only in
+    rollback-journal mode, which prepare_target has already checked.
+
+    The ordering below is load-bearing. The natural alternative - insert the
+    rows whose uri is not already in the target, then delete the ones now in
+    the target - LOSES PHOTOS: for a duplicate the uri is in the target because
+    it was already there, so the delete removes the very row the insert
+    skipped. Membership is therefore decided once, up front, and the insert and
+    the delete both act on exactly that set of ids. Delete by id, never by uri.
+    """
+    target_path = Path(target_path)
+    result = MoveResult()
+
+    if not item_ids:
+        return result
+
+    try:
+        # Begin transaction and attach the target database.
+        # All operations below occur in this one transaction; if any step fails,
+        # SQLite rolls back changes to both databases simultaneously.
+        conn = session.connection()
+        conn.exec_driver_sql(f"ATTACH DATABASE '{target_path}' AS tgt")
+
+        # Step 1: Determine which items can be moved (those not already in target by uri).
+        # Membership is decided once; both insert and delete act on exactly this set.
+        # Use a set to track movable ids, then convert to list to preserve order.
+        movable_set = set()
+        raw_conn = conn.connection
+        for chunk in chunk_ids(item_ids):
+            if not chunk:
+                continue
+            placeholders = ",".join("?" * len(chunk))
+            query = f"""
+                SELECT id FROM main.item
+                WHERE id IN ({placeholders})
+                AND uri NOT IN (SELECT uri FROM tgt.item)
+            """
+            cursor = raw_conn.cursor()
+            result_rows = cursor.execute(query, chunk).fetchall()
+            movable_set.update([row[0] for row in result_rows])
+
+        # Preserve order by filtering requested ids, keeping only the movable ones
+        # in the order they were requested (handling duplicates in item_ids).
+        movable = []
+        seen = set()
+        for item_id in item_ids:
+            if item_id in movable_set and item_id not in seen:
+                movable.append(item_id)
+                seen.add(item_id)
+
+        skipped = [item_id for item_id in item_ids if item_id not in movable_set]
+        result.skipped_ids = skipped
+
+        if not movable:
+            # Nothing to move; detach and return
+            conn.exec_driver_sql("DETACH DATABASE tgt")
+            return result
+
+        # Step 2: Collect the distinct tag names linked to movable items, for reporting.
+        # We query for tags linked to these items so we can report which tags lose links.
+        dropped_tag_names = set()
+        for chunk in chunk_ids(movable):
+            if not chunk:
+                continue
+            placeholders = ",".join("?" * len(chunk))
+            query = f"""
+                SELECT DISTINCT tag.name
+                FROM main.itemtaglink
+                JOIN main.tag ON itemtaglink.tag_id = tag.id
+                WHERE itemtaglink.item_id IN ({placeholders})
+            """
+            cursor = raw_conn.cursor()
+            tag_rows = cursor.execute(query, chunk).fetchall()
+            dropped_tag_names.update(row[0] for row in tag_rows)
+
+        result.dropped_tags = sorted(list(dropped_tag_names))
+
+        # Step 3: Insert the movable items into the target.
+        # The target will assign new ids; we don't carry ids across databases.
+        for chunk in chunk_ids(movable):
+            if not chunk:
+                continue
+            placeholders = ",".join("?" * len(chunk))
+            insert_query = f"""
+                INSERT INTO tgt.item ({ITEM_COLUMNS})
+                SELECT {ITEM_COLUMNS} FROM main.item
+                WHERE id IN ({placeholders})
+            """
+            cursor = raw_conn.cursor()
+            cursor.execute(insert_query, chunk)
+
+        # Step 4: Remove tag links for moved items from source.
+        # Tag rows remain in the source; only the links are removed.
+        for chunk in chunk_ids(movable):
+            if not chunk:
+                continue
+            placeholders = ",".join("?" * len(chunk))
+            delete_links_query = f"""
+                DELETE FROM main.itemtaglink
+                WHERE item_id IN ({placeholders})
+            """
+            cursor = raw_conn.cursor()
+            cursor.execute(delete_links_query, chunk)
+
+        # Step 5: Remove the moved items from source.
+        # Delete by id, never by uri, to avoid the data-loss bug.
+        for chunk in chunk_ids(movable):
+            if not chunk:
+                continue
+            placeholders = ",".join("?" * len(chunk))
+            delete_items_query = f"""
+                DELETE FROM main.item
+                WHERE id IN ({placeholders})
+            """
+            cursor = raw_conn.cursor()
+            cursor.execute(delete_items_query, chunk)
+
+        # All operations succeeded; commit the transaction across both databases.
+        session.commit()
+        result.moved_ids = movable
+
+    except Exception:
+        # On any exception: roll back both databases and re-raise.
+        # Never swallow — a silent failure here is indistinguishable from success
+        # and the user would believe photos had moved when they had not.
+        with contextlib.suppress(Exception):
+            session.rollback()
+        raise
+
+    finally:
+        # Detach the target, whether the move succeeded or failed.
+        with contextlib.suppress(Exception):
+            conn = session.connection()
+            conn.exec_driver_sql("DETACH DATABASE tgt")
+
+    return result
