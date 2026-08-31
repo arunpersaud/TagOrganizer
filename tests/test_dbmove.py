@@ -11,16 +11,14 @@ BOTH databases is unchanged by a skip. That is the assertion that catches
 the data-loss bug (delete by uri instead of by id).
 """
 
-import contextlib
 import pytest
 from datetime import datetime
-from pathlib import Path
 from sqlalchemy import create_engine as sa_create_engine
 from sqlmodel import Session, SQLModel, select
 
 from tagorganizer import db
 from tagorganizer.models import Item, ItemTagLink, Tag
-from tagorganizer.dbmove import move_items, MoveResult, prepare_target, ITEM_COLUMNS
+from tagorganizer.dbmove import move_items, prepare_target
 
 
 @pytest.fixture
@@ -352,12 +350,17 @@ class TestMoveItemsSuccessful:
 class TestMoveItemsAtomicity:
     """Test atomic transaction behavior."""
 
-    def test_forced_mid_transaction_failure_changes_nothing(self, source_and_target):
+    def test_forced_mid_transaction_failure_changes_nothing(
+        self, source_and_target, monkeypatch
+    ):
         """Inject failure after insert, before commit: both databases unchanged.
 
-        This is the test that proves atomicity. It MUST fail if transaction
-        handling is removed. After the forced failure, both databases must hold
-        exactly the rows they started with.
+        This test exercises the REAL move_items function by monkeypatching
+        chunk_ids to fail on the 4th call (in DELETE FROM itemtaglink, after
+        INSERT). It verifies the exception propagates and both databases are
+        rolled back unchanged.
+
+        The test MUST FAIL if session.rollback() is removed from move_items.
         """
         source_path = source_and_target["source_path"]
         target_path = source_and_target["target_path"]
@@ -380,123 +383,29 @@ class TestMoveItemsAtomicity:
             ).all()
             move_ids = [item.id for item in items_to_move]
 
-        # Create a custom move_items that fails mid-transaction
-        def move_items_with_failure(session, target_path, item_ids):
-            """Copy of move_items that raises after insert but before commit."""
-            from tagorganizer.db import chunk_ids
+        # Patch chunk_ids to fail on the 4th call. chunk_ids is called in this
+        # order inside move_items:
+        # 1. SELECT movable ids
+        # 2. SELECT tag names for dropped_tags
+        # 3. INSERT into tgt.item
+        # 4. DELETE FROM main.itemtaglink <- FAIL HERE
+        # 5. DELETE FROM main.item
+        # Failing on call 4 means the INSERT has executed but no DELETEs yet.
+        from tagorganizer.db import chunk_ids as real_chunk_ids
 
-            target_path = Path(target_path)
-            result = MoveResult()
+        call_count = [0]
 
-            if not item_ids:
-                return result
+        def chunk_ids_with_failure(item_ids, size=30000):
+            call_count[0] += 1
+            if call_count[0] == 4:
+                raise RuntimeError("Injected mid-transaction failure after INSERT")
+            return real_chunk_ids(item_ids, size)
 
-            try:
-                conn = session.connection()
-                conn.exec_driver_sql(f"ATTACH DATABASE '{target_path}' AS tgt")
+        monkeypatch.setattr("tagorganizer.dbmove.chunk_ids", chunk_ids_with_failure)
 
-                # Determine movable items
-                movable_set = set()
-                raw_conn = conn.connection
-                for chunk in chunk_ids(item_ids):
-                    if not chunk:
-                        continue
-                    placeholders = ",".join("?" * len(chunk))
-                    query = f"""
-                        SELECT id FROM main.item
-                        WHERE id IN ({placeholders})
-                        AND uri NOT IN (SELECT uri FROM tgt.item)
-                    """
-                    cursor = raw_conn.cursor()
-                    result_rows = cursor.execute(query, chunk).fetchall()
-                    movable_set.update([row[0] for row in result_rows])
-
-                movable = []
-                seen = set()
-                for item_id in item_ids:
-                    if item_id in movable_set and item_id not in seen:
-                        movable.append(item_id)
-                        seen.add(item_id)
-
-                if not movable:
-                    conn.exec_driver_sql("DETACH DATABASE tgt")
-                    return result
-
-                # Collect tag names
-                dropped_tag_names = set()
-                for chunk in chunk_ids(movable):
-                    if not chunk:
-                        continue
-                    placeholders = ",".join("?" * len(chunk))
-                    query = f"""
-                        SELECT DISTINCT tag.name
-                        FROM main.itemtaglink
-                        JOIN main.tag ON itemtaglink.tag_id = tag.id
-                        WHERE itemtaglink.item_id IN ({placeholders})
-                    """
-                    cursor = raw_conn.cursor()
-                    tag_rows = cursor.execute(query, chunk).fetchall()
-                    dropped_tag_names.update(row[0] for row in tag_rows)
-
-                result.dropped_tags = sorted(list(dropped_tag_names))
-
-                # Insert items into target
-                for chunk in chunk_ids(movable):
-                    if not chunk:
-                        continue
-                    placeholders = ",".join("?" * len(chunk))
-                    insert_query = f"""
-                        INSERT INTO tgt.item ({ITEM_COLUMNS})
-                        SELECT {ITEM_COLUMNS} FROM main.item
-                        WHERE id IN ({placeholders})
-                    """
-                    cursor = raw_conn.cursor()
-                    cursor.execute(insert_query, chunk)
-
-                # INJECT FAILURE HERE - before deletes, after insert
-                raise RuntimeError("Injected mid-transaction failure")
-
-                # These won't execute due to the raised exception
-                for chunk in chunk_ids(movable):
-                    if not chunk:
-                        continue
-                    placeholders = ",".join("?" * len(chunk))
-                    delete_links_query = f"""
-                        DELETE FROM main.itemtaglink
-                        WHERE item_id IN ({placeholders})
-                    """
-                    cursor = raw_conn.cursor()
-                    cursor.execute(delete_links_query, chunk)
-
-                for chunk in chunk_ids(movable):
-                    if not chunk:
-                        continue
-                    placeholders = ",".join("?" * len(chunk))
-                    delete_items_query = f"""
-                        DELETE FROM main.item
-                        WHERE id IN ({placeholders})
-                    """
-                    cursor = raw_conn.cursor()
-                    cursor.execute(delete_items_query, chunk)
-
-                session.commit()
-                result.moved_ids = movable
-
-            except Exception:
-                with contextlib.suppress(Exception):
-                    session.rollback()
-                raise
-
-            finally:
-                with contextlib.suppress(Exception):
-                    conn = session.connection()
-                    conn.exec_driver_sql("DETACH DATABASE tgt")
-
-            return result
-
-        # Execute the move with failure injection
+        # Execute the REAL move_items function with failure injection
         with pytest.raises(RuntimeError, match="Injected mid-transaction failure"):
-            move_items_with_failure(
+            move_items(
                 Session(sa_create_engine(f"sqlite:///{source_path}")),
                 target_path,
                 move_ids,
