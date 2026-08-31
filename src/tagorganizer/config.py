@@ -200,6 +200,15 @@ class ConfigManager:
     def get_profiles(self):
         return self.config.sections()
 
+    def get_profile_database(self, name: str) -> Path:
+        """Return the configured database path for a profile.
+
+        Raises ProfileNotFoundError if the profile is not defined.
+        """
+        if name not in self.config:
+            raise ProfileNotFoundError(name, self.config_file)
+        return Path(self.config[name]["database"])
+
     def set_config_file(self, config_file: Path):
         self.config_file = config_file
         self.profile = "default"
