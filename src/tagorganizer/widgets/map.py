@@ -2,12 +2,17 @@ import io
 import json
 import logging
 import folium
+from folium.plugins import Draw
 from qtpy.QtWebEngineWidgets import QWebEngineView
 from qtpy.QtWebChannel import QWebChannel
-from qtpy.QtWidgets import QWidget, QVBoxLayout, QPushButton
+from qtpy.QtWidgets import QWidget, QVBoxLayout, QPushButton, QHBoxLayout
 from qtpy.QtCore import QObject, QTimer, QFile, Slot
 from qtpy.QtGui import QPixmap, QCursor
-from tagorganizer.map_cluster import cell_size_for_zoom, cluster_points
+from tagorganizer.map_cluster import (
+    cell_size_for_zoom,
+    cluster_points,
+    point_in_polygon,
+)
 from tagorganizer.widgets.map_overlay import MosaicOverlay, compose_mosaic
 
 logger = logging.getLogger(__name__)
@@ -46,8 +51,69 @@ class MapBridge(QObject):
 
     @Slot(str)
     def shape_drawn(self, geojson):
-        """Handle lasso selection (future task)."""
-        pass
+        """Handle shape selection: add photos in the drawn shape to the selection.
+
+        Parses the GeoJSON geometry from the Draw plugin. For rectangles, filters
+        the cached locations by bounding box. For polygons, filters by bounding
+        box first and then applies point_in_polygon to exclude concave notches.
+        """
+        try:
+            geometry = json.loads(geojson)
+        except (json.JSONDecodeError, ValueError):
+            self.map_view.main.messages.add(
+                "[ERROR] Could not parse drawn shape geometry"
+            )
+            return
+
+        # Extract the coordinates from the geometry
+        if "coordinates" not in geometry:
+            self.map_view.main.messages.add("[ERROR] Drawn shape has no coordinates")
+            return
+
+        coords = geometry["coordinates"]
+
+        # A rectangle in Leaflet Draw comes as a closed polygon with 5 points
+        # (4 corners + closing point). A lasso is an open polygon.
+        # Both are sent as type: "Polygon" with coordinates in [lon, lat] format.
+
+        if not coords or len(coords) == 0:
+            return
+
+        # coords is nested: coords[0] is the outer ring for a Polygon
+        ring = coords[0] if coords else []
+        if not ring:
+            return
+
+        # Extract bounding box from the coordinates (which are [lon, lat])
+        lons = [c[0] for c in ring]
+        lats = [c[1] for c in ring]
+        min_lon, max_lon = min(lons), max(lons)
+        min_lat, max_lat = min(lats), max(lats)
+
+        # Filter locations by bounding box
+        box_filtered = [
+            (id_, lat, lon)
+            for id_, lat, lon in self.map_view._locations
+            if min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
+        ]
+
+        # For a polygon (including lasso), apply point_in_polygon to survivors
+        # to exclude concave notches. Convert ring to [lat, lon] format for the test.
+        selected_ids = []
+        polygon_ring = [(lat, lon) for lon, lat in ring]
+
+        for id_, lat, lon in box_filtered:
+            if point_in_polygon(lat, lon, polygon_ring):
+                selected_ids.append(id_)
+
+        if not selected_ids:
+            self.map_view.main.messages.add("No photos in the selected area")
+            return
+
+        # Add to the selection
+        self.map_view.main.selection.add_many(selected_ids)
+        self.map_view.main.update_items()
+        self.map_view.main.messages.add(f"Selected {len(selected_ids)} photos")
 
     @Slot()
     def channel_ready(self):
@@ -155,6 +221,22 @@ class MapView(QWebEngineView):
         # the map's options when it is built, so assigning zoom_start afterwards
         # does nothing at all.
         self.map = folium.Map(location=location, zoom_start=zoom)
+
+        # Add the Draw control for rectangle and polygon selection. Only enable
+        # rectangle and polygon modes; disable polyline, circle, marker, and
+        # circlemarker.
+        draw_options = {
+            "rectangle": True,
+            "polygon": True,
+            "polyline": False,
+            "circle": False,
+            "marker": False,
+            "circlemarker": False,
+        }
+        Draw(export=False, position="topleft", draw_options=draw_options).add_to(
+            self.map
+        )
+
         self.load_map()
         self._dirty = False
         self._channel_ready = False
@@ -352,6 +434,51 @@ class MapView(QWebEngineView):
         )
         self.main.tag_bar.add_area_tag()
 
+    def select_visible(self):
+        """Select all photos currently visible in the viewport.
+
+        Queries the map's current bounds and adds all locations within those
+        bounds to the selection (without creating an area filter).
+        """
+        if self.map_name:
+            self.page().runJavaScript(
+                f"{self.map_name}.getBounds()", self._select_visible_callback
+            )
+
+    def _select_visible_callback(self, bounds):
+        """Add all visible photos to the selection.
+
+        Filters the cached locations by the current viewport bounds and adds
+        them to the selection.
+        """
+        if not bounds:
+            self.main.messages.add("[ERROR] Could not query map bounds")
+            return
+
+        NE = bounds["_northEast"]
+        SW = bounds["_southWest"]
+
+        min_lat = SW["lat"]
+        max_lat = NE["lat"]
+        min_lon = SW["lng"]
+        max_lon = NE["lng"]
+
+        # Filter locations within the current viewport
+        visible_ids = [
+            id_
+            for id_, lat, lon in self._locations
+            if min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
+        ]
+
+        if not visible_ids:
+            self.main.messages.add("No photos visible in the current viewport")
+            return
+
+        # Add to the selection
+        self.main.selection.add_many(visible_ids)
+        self.main.update_items()
+        self.main.messages.add(f"Selected {len(visible_ids)} photos")
+
     def load_map(self):
         data = io.BytesIO()
         self.map.save(data, close_file=False)
@@ -392,7 +519,7 @@ class MapView(QWebEngineView):
         """Build the JavaScript injection for map interaction.
 
         Inlines qwebchannel.js, sets up the layer group and update function,
-        and wires viewport change handlers.
+        wires viewport change handlers, and handles drawn shape events.
         """
         # Map name is extracted from the folium HTML, e.g., "map_abc123"
         map_var = self.map_name
@@ -438,6 +565,15 @@ new QWebChannel(qt.webChannelTransport, function(channel) {{
     var zoom = {map_var}.getZoom();
     window.bridge.viewport_changed(zoom, bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast());
 }});
+
+// Handle drawn shapes from the Leaflet Draw plugin
+{map_var}.on('draw:created', function(e) {{
+    if (!window.bridge) return;
+    var layer = e.layer;
+    var geometry = layer.toGeoJSON().geometry;
+    // Send the geometry as a JSON string to Python
+    window.bridge.shape_drawn(JSON.stringify(geometry));
+}});
 """
 
 
@@ -448,14 +584,22 @@ class MapWidget(QWidget):
 
         layout = QVBoxLayout()
 
-        # Create two QLabel widgets
+        # Create the map view
         self.view = MapView(main)
-        self.button = QPushButton("Select area")
-        self.button.clicked.connect(self.select_area)
 
-        # Add the QLabel widgets to the layout
+        # Create buttons for area filter and visible selection
+        buttons_layout = QHBoxLayout()
+        self.select_area_button = QPushButton("Select area")
+        self.select_area_button.clicked.connect(self.select_area)
+        self.select_visible_button = QPushButton("Select visible")
+        self.select_visible_button.clicked.connect(self.select_visible)
+
+        buttons_layout.addWidget(self.select_area_button)
+        buttons_layout.addWidget(self.select_visible_button)
+
+        # Add the map and buttons to the layout
         layout.addWidget(self.view)
-        layout.addWidget(self.button)
+        layout.addLayout(buttons_layout)
 
         # Set the layout for the QWidget
         self.setLayout(layout)
@@ -469,3 +613,6 @@ class MapWidget(QWidget):
 
     def select_area(self):
         self.view.get_bounds()
+
+    def select_visible(self):
+        self.view.select_visible()

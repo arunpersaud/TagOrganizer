@@ -248,3 +248,104 @@ class TestMapViewWebChannelIntegration:
                                 f"(line {sethtml_line}). Viewport changes must update "
                                 "markers in place, not reload the document."
                             )
+
+
+class TestShapeSelection:
+    def test_shape_drawn_calls_point_in_polygon(self):
+        """MapBridge.shape_drawn must call point_in_polygon for lasso selection.
+
+        A rectangle-only implementation would silently over-select every lasso,
+        and the user would have no way to tell that concave shapes don't work.
+        Point-in-polygon test must be applied to all shapes.
+        """
+        source = inspect.getsource(MapBridge.shape_drawn)
+        source = textwrap.dedent(source)
+        tree = ast.parse(source)
+
+        # Check that point_in_polygon is called
+        point_in_polygon_found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                # Check for direct function call
+                if (
+                    isinstance(node.func, ast.Name)
+                    and node.func.id == "point_in_polygon"
+                ):
+                    point_in_polygon_found = True
+                    break
+                # Also check for module.function call pattern
+                if (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "point_in_polygon"
+                ):
+                    point_in_polygon_found = True
+                    break
+
+        assert (
+            point_in_polygon_found
+        ), "shape_drawn must call point_in_polygon to handle concave shapes correctly"
+
+    def test_shape_drawn_calls_selection_add_many(self):
+        """MapBridge.shape_drawn must call selection.add_many to add selected photos.
+
+        The selection route must add to the selection directly, not touch the tag
+        bar or create filters.
+        """
+        source = inspect.getsource(MapBridge.shape_drawn)
+        source = textwrap.dedent(source)
+        tree = ast.parse(source)
+
+        # Check that self.map_view.main.selection.add_many is called
+        add_many_found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    # Look for .add_many(...) calls
+                    if node.func.attr == "add_many":
+                        # Check that it's on selection
+                        current = node.func.value
+                        # Navigate through the attribute chain
+                        attrs = []
+                        while isinstance(current, ast.Attribute):
+                            attrs.insert(0, current.attr)
+                            current = current.value
+                        if isinstance(current, ast.Name) and current.id == "self":
+                            if "selection" in attrs:
+                                add_many_found = True
+                                break
+
+        assert (
+            add_many_found
+        ), "shape_drawn must call selection.add_many to add selected photos"
+
+    def test_select_visible_calls_selection_add_many(self):
+        """MapView.select_visible must call selection.add_many to add visible photos.
+
+        The visible selection route must add to the selection directly, not touch
+        the tag bar or create filters.
+        """
+        # Check that self.main.selection.add_many is called in the callback
+        callback_source = inspect.getsource(MapView._select_visible_callback)
+        callback_source = textwrap.dedent(callback_source)
+        callback_tree = ast.parse(callback_source)
+
+        # Check for add_many call in the callback
+        add_many_found = False
+        for node in ast.walk(callback_tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    if node.func.attr == "add_many":
+                        # Check that it's on selection
+                        current = node.func.value
+                        attrs = []
+                        while isinstance(current, ast.Attribute):
+                            attrs.insert(0, current.attr)
+                            current = current.value
+                        if isinstance(current, ast.Name) and current.id == "self":
+                            if "selection" in attrs:
+                                add_many_found = True
+                                break
+
+        assert (
+            add_many_found
+        ), "_select_visible_callback must call selection.add_many to add visible photos"
