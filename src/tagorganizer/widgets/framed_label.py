@@ -81,7 +81,19 @@ class FramedLabel(QLabel):
         # QPixmap may only be built on the GUI thread, which is where this
         # slot runs. load_qimage has already written the disk cache entry.
         self.pixmap = QPixmap.fromImage(qimage)
-        self.show_pixmap(self.pixmap)
+        # Scale to the tile before showing it. load_qimage scales to a target
+        # *width*, so a portrait photo comes back taller than a square tile, and
+        # QLabel silently clips a pixmap larger than itself - the user would see
+        # a band from the middle of the photo instead of the whole photo.
+        self.show_pixmap(self.fit_to_tile(self.pixmap))
+
+    def fit_to_tile(self, pixmap):
+        """Scale a pixmap down to this tile, keeping its proportions.
+
+        The single place that decides how a thumbnail is sized for display, so
+        the freshly-decoded path and the resize path cannot drift apart.
+        """
+        return pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
     def show_pixmap(self, pixmap):
         """Show a thumbnail, or the file name when there is no thumbnail.
@@ -146,21 +158,12 @@ class FramedLabel(QLabel):
             # Request new thumbnail at larger size asynchronously
             loader = get_thumbnail_loader()
             loader.load(self.item, self.pixmap_width, self.photos_path)
-            # Keep showing current pixmap or placeholder while loading
-            if self.pixmap is not None:
-                self.show_pixmap(
-                    self.pixmap.scaled(
-                        self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-                    )
-                )
+
+        # Either way, show what we already have, fitted to the new size. A
+        # higher-resolution decode, if one was requested, replaces this when it
+        # arrives.
+        if self.pixmap is None:
+            self.show_pixmap(None)
         else:
-            # No reload needed, just scale current pixmap
-            if self.pixmap is None:
-                self.show_pixmap(None)
-            else:
-                self.show_pixmap(
-                    self.pixmap.scaled(
-                        self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-                    )
-                )
+            self.show_pixmap(self.fit_to_tile(self.pixmap))
         super().resizeEvent(event)
