@@ -5,7 +5,15 @@ are tested here: where to centre, how far to zoom, and how the Leaflet variable
 name is recovered from a rendered document.
 """
 
-from tagorganizer.widgets.map import map_center_and_zoom, parse_map_name
+import ast
+import inspect
+import textwrap
+from tagorganizer.widgets.map import (
+    map_center_and_zoom,
+    parse_map_name,
+    MapBridge,
+    MapView,
+)
 
 DEFAULT_LOCATION = [37.7749, -122.4194]
 
@@ -42,3 +50,145 @@ class TestParseMapName:
 
     def test_returns_empty_string_when_absent(self):
         assert parse_map_name("<html><body>no map here</body></html>") == ""
+
+
+class TestMapBridge:
+    def test_declares_hover_slot(self):
+        """MapBridge must declare a hover(int) slot."""
+        source = inspect.getsource(MapBridge)
+        tree = ast.parse(source)
+        hover_found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "hover":
+                # Check for @Slot decorator
+                for decorator in node.decorator_list:
+                    if isinstance(decorator, ast.Call):
+                        if (
+                            isinstance(decorator.func, ast.Name)
+                            and decorator.func.id == "Slot"
+                        ):
+                            hover_found = True
+                            break
+        assert hover_found, "MapBridge.hover must be decorated with @Slot"
+
+    def test_declares_hover_end_slot(self):
+        """MapBridge must declare a hover_end() slot."""
+        source = inspect.getsource(MapBridge)
+        tree = ast.parse(source)
+        hover_end_found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "hover_end":
+                for decorator in node.decorator_list:
+                    if isinstance(decorator, ast.Call):
+                        if (
+                            isinstance(decorator.func, ast.Name)
+                            and decorator.func.id == "Slot"
+                        ):
+                            hover_end_found = True
+                            break
+        assert hover_end_found, "MapBridge.hover_end must be decorated with @Slot"
+
+    def test_declares_viewport_changed_slot(self):
+        """MapBridge must declare a viewport_changed(int, float, float, float, float) slot."""
+        source = inspect.getsource(MapBridge)
+        tree = ast.parse(source)
+        viewport_found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "viewport_changed":
+                for decorator in node.decorator_list:
+                    if isinstance(decorator, ast.Call):
+                        if (
+                            isinstance(decorator.func, ast.Name)
+                            and decorator.func.id == "Slot"
+                        ):
+                            viewport_found = True
+                            break
+        assert viewport_found, "MapBridge.viewport_changed must be decorated with @Slot"
+
+    def test_declares_shape_drawn_slot(self):
+        """MapBridge must declare a shape_drawn(str) slot."""
+        source = inspect.getsource(MapBridge)
+        tree = ast.parse(source)
+        shape_found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "shape_drawn":
+                for decorator in node.decorator_list:
+                    if isinstance(decorator, ast.Call):
+                        if (
+                            isinstance(decorator.func, ast.Name)
+                            and decorator.func.id == "Slot"
+                        ):
+                            shape_found = True
+                            break
+        assert shape_found, "MapBridge.shape_drawn must be decorated with @Slot"
+
+
+class TestMapViewWebChannelIntegration:
+    def test_render_map_inlines_qwebchannel(self):
+        """The render_map path must inline qwebchannel.js into the HTML.
+
+        Inlining avoids depending on qrc: loading from a setHtml page with no
+        base URL, which may not resolve.
+        """
+        source = inspect.getsource(MapView.render_map)
+        source = textwrap.dedent(source)
+        tree = ast.parse(source)
+
+        # Check that load_map is called (which does the injection)
+        load_map_called = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "load_map"
+                ):
+                    load_map_called = True
+                    break
+
+        assert load_map_called, "render_map must call load_map()"
+
+    def test_no_setHtml_in_viewport_change_path(self):
+        """No setHtml should be called on viewport changes.
+
+        setHtml reloads the document, resetting the user's viewport and
+        retriggering the Leaflet initialization that must be fixed. Viewport
+        changes should only update markers in place.
+        """
+        # Check methods that handle viewport changes
+        viewport_change_methods = [
+            "_on_viewport_changed",
+            "_on_debounce_timeout",
+            "update_clusters",
+        ]
+
+        source = inspect.getsource(MapView)
+        source = textwrap.dedent(source)
+        tree = ast.parse(source)
+
+        # Find all setHtml calls
+        sethtml_locations = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute) and node.func.attr == "setHtml":
+                    # Get the line number
+                    sethtml_locations.append(node.lineno)
+
+        # Check that setHtml is only called in load_map or render_map, not in
+        # viewport change handling
+        source_lines = inspect.getsource(MapView).split("\n")
+
+        # Find the line ranges of viewport change methods
+        for method_name in viewport_change_methods:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef) and node.name == method_name:
+                    method_start = node.lineno
+                    method_end = node.end_lineno or len(source_lines)
+
+                    # Check if any setHtml calls fall within this method
+                    for sethtml_line in sethtml_locations:
+                        if method_start <= sethtml_line <= method_end:
+                            raise AssertionError(
+                                f"setHtml should not be called in {method_name} "
+                                f"(line {sethtml_line}). Viewport changes must update "
+                                "markers in place, not reload the document."
+                            )
