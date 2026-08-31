@@ -190,6 +190,14 @@ class MapView(QWebEngineView):
         self._viewport_zoom = 0
         self._viewport_bounds = None
 
+        # Watchdog timer for QWebChannel handshake. If the handshake does not
+        # complete within 5 seconds of the document loading, log an error so the
+        # failure is visible to the user.
+        self._channel_watchdog = QTimer()
+        self._channel_watchdog.setSingleShot(True)
+        self._channel_watchdog.setInterval(5000)
+        self._channel_watchdog.timeout.connect(self._on_channel_watchdog_timeout)
+
         self.loadFinished.connect(self._on_load_finished)
 
     def set_location(self, longitude, latitude, zoom):
@@ -198,19 +206,15 @@ class MapView(QWebEngineView):
         self.map.location = [latitude, longitude]
         self.load_map()
 
-    def set_markers(self, coords):
-        """Remember the points to plot, and redraw if we are on screen."""
-        self.coords = list(coords)
-        self._dirty = True
-        if self.isVisible():
-            self.render_map()
-
     def set_locations(self, rows):
         """Accept (id, lat, lon) tuples and trigger re-render if needed.
 
-        This replaces the coordinate-based rendering and prepares for clustering.
+        Stores locations for clustering and selection, and derives centering
+        coordinates from the location data.
         """
         self._locations = list(rows)
+        # Extract (lat, lon) pairs for centering the map
+        self.coords = [(lat, lon) for _, lat, lon in self._locations]
         self._dirty = True
         if self.isVisible():
             self.render_map()
@@ -268,9 +272,14 @@ class MapView(QWebEngineView):
         load_map() and this signal names a Leaflet variable that does not exist
         yet and is silently dropped. This is the one call guaranteed to land
         after the map object exists.
+
+        Start the channel handshake watchdog: if the handshake does not complete
+        within 5 seconds, it is undiagnosable unless we log it explicitly.
         """
         if ok:
             self.invalidate_size()
+            # Start the watchdog timer to detect hangs in QWebChannel handshake
+            self._channel_watchdog.start()
 
     def _on_channel_ready(self):
         """Called when the QWebChannel handshake completes on the page.
@@ -278,11 +287,27 @@ class MapView(QWebEngineView):
         The JavaScript side signals this after the bridge object is published,
         so we can now send updates to the page.
         """
+        # Stop the watchdog timer; the handshake has completed successfully
+        self._channel_watchdog.stop()
         self._channel_ready = True
         # Flush any updates that were queued while waiting for handshake
         if self._pending_update:
             self._pending_update = False
             self.update_clusters()
+
+    def _on_channel_watchdog_timeout(self):
+        """Called if the QWebChannel handshake does not complete within 5 seconds.
+
+        This diagnostic makes a silent failure visible so the issue can be debugged.
+        """
+        if not self._channel_ready:
+            logger.error(
+                "QWebChannel handshake did not complete within 5 seconds; "
+                "map interaction (clustering, selection, hover) is unavailable"
+            )
+            self.main.messages.add(
+                "[ERROR] Map interaction unavailable: QWebChannel handshake timeout"
+            )
 
     def update_clusters(self):
         """Cluster the current locations and push markers to the map.
@@ -504,11 +529,14 @@ class MapView(QWebEngineView):
         """
         qf = QFile(":/qtwebchannel/qwebchannel.js")
         if not qf.open(QFile.ReadOnly):
-            # Log the failure so it can be diagnosed. The page will still render
+            # Log the failure and notify the user. The page will still render
             # the basemap, but map interaction will be unavailable.
             logger.error(
                 "Cannot load qwebchannel.js resource: map clustering, hover "
                 "previews, and viewport-based re-clustering will be unavailable"
+            )
+            self.main.messages.add(
+                "[ERROR] Map interaction unavailable: qwebchannel.js could not be loaded"
             )
             return ""
         content = qf.readAll().data().decode()
@@ -604,8 +632,8 @@ class MapWidget(QWidget):
         # Set the layout for the QWidget
         self.setLayout(layout)
 
-    def set_markers(self, coords):
-        self.view.set_markers(coords)
+    def set_locations(self, rows):
+        self.view.set_locations(rows)
 
     def on_shown(self):
         """Tell the view it is visible, so it can render or re-measure."""

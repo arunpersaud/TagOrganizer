@@ -15,6 +15,8 @@ from tagorganizer.widgets.map import (
     MapView,
 )
 
+# Import here to avoid circular imports when checking update_items
+
 DEFAULT_LOCATION = [37.7749, -122.4194]
 
 
@@ -248,6 +250,42 @@ class TestMapViewWebChannelIntegration:
                                 f"(line {sethtml_line}). Viewport changes must update "
                                 "markers in place, not reload the document."
                             )
+
+
+class TestMainUpdateItemsWiring:
+    def test_update_items_calls_set_locations_on_map(self):
+        """MainWindow.update_items must call map.set_locations to populate _locations.
+
+        Without this, _locations stays empty, and the map shows no markers, hover
+        finds no clusters, and selection operations select nothing. This is the
+        wiring that makes the entire map feature functional.
+        """
+        # Avoid circular import by importing MainWindow only in the test
+        from tagorganizer.main import MainWindow
+
+        source = inspect.getsource(MainWindow.update_items)
+        source = textwrap.dedent(source)
+        tree = ast.parse(source)
+
+        # Check that set_locations is called on self.map
+        set_locations_found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    if node.func.attr == "set_locations":
+                        # Check that it's on self.map
+                        if isinstance(node.func.value, ast.Attribute):
+                            if (
+                                isinstance(node.func.value.value, ast.Name)
+                                and node.func.value.value.id == "self"
+                                and node.func.value.attr == "map"
+                            ):
+                                set_locations_found = True
+                                break
+
+        assert (
+            set_locations_found
+        ), "update_items must call self.map.set_locations to populate map data"
 
 
 class TestShapeSelection:

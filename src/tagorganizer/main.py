@@ -317,7 +317,7 @@ class MainWindow(QMainWindow):
             dates, coords = db.get_times_and_location_from_images(filters)
 
             self.timeline.plot_histogram(dates)
-            self.map.set_markers(coords)
+            self.map.set_locations(db.get_locations_for_filter(filters))
             self.filters = filters
 
     def create_profile_menu(self):
