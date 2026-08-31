@@ -8,3 +8,4 @@ from .tag_bar import TagBar, RESERVED_TAGS  # noqa: F401
 from .delete_confirmation_dialog import DeleteConfirmationDialog  # noqa: F401
 from .tag_view import TagView  # noqa: F401
 from .messages import Messages  # noqa: F401
+from .move_dialog import MoveToProfileDialog  # noqa: F401
