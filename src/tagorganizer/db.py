@@ -481,6 +481,25 @@ def get_times_and_location_from_images(filters: Filters | None = None) -> list:
         return dates, coords
 
 
+def get_locations_for_filter(
+    filters: Filters | None = None,
+) -> list[tuple[int, float, float]]:
+    """Every located item's id and position, for the map's clustering.
+
+    Ids are what distinguishes this from get_times_and_location_from_images: the
+    map clusters in Python and has to be able to resolve a hovered cluster back
+    to the photos in it. Items missing either coordinate cannot be placed and are
+    dropped here rather than by the caller.
+    """
+    with new_session() as session:
+        query = select(Item.id, Item.latitude, Item.longitude)
+        if filters:
+            query = filter_query(query, filters, session)
+        query = query.where(Item.latitude != sa.null())
+        query = query.where(Item.longitude != sa.null())
+        return [(i, lat, lon) for i, lat, lon in session.exec(query).all()]
+
+
 def get_current_image(number, filters: Filters | None = None):
     items = get_image_range(number, 1, filters)
     return items[0] if items else None
