@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import folium
 from qtpy.QtWebEngineWidgets import QWebEngineView
 from qtpy.QtWebChannel import QWebChannel
@@ -8,6 +9,8 @@ from qtpy.QtCore import QObject, QTimer, QFile, Slot
 from qtpy.QtGui import QPixmap, QCursor
 from tagorganizer.map_cluster import cell_size_for_zoom, cluster_points
 from tagorganizer.widgets.map_overlay import MosaicOverlay, compose_mosaic
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_LOCATION = [37.7749, -122.4194]
@@ -45,6 +48,15 @@ class MapBridge(QObject):
     def shape_drawn(self, geojson):
         """Handle lasso selection (future task)."""
         pass
+
+    @Slot()
+    def channel_ready(self):
+        """Called when the QWebChannel handshake completes on the page.
+
+        The JavaScript side signals this after registering the bridge object,
+        so we can start sending updates.
+        """
+        self.map_view._on_channel_ready()
 
 
 def map_center_and_zoom(coords):
@@ -174,27 +186,21 @@ class MapView(QWebEngineView):
         load_map() and this signal names a Leaflet variable that does not exist
         yet and is silently dropped. This is the one call guaranteed to land
         after the map object exists.
-
-        Also check if the channel is ready and push any pending updates.
         """
         if ok:
             self.invalidate_size()
-            # Check if the channel handshake completed
-            self.page().runJavaScript(
-                "window.bridgeReady || false",
-                lambda result: self._on_channel_ready_check(result),
-            )
 
-    def _on_channel_ready_check(self, ready):
-        """Called when we check if the channel is ready.
+    def _on_channel_ready(self):
+        """Called when the QWebChannel handshake completes on the page.
 
-        If ready and we have pending updates, push them now.
+        The JavaScript side signals this after the bridge object is published,
+        so we can now send updates to the page.
         """
-        if ready:
-            self._channel_ready = True
-            if self._pending_update and self._locations:
-                self._pending_update = False
-                self.update_clusters()
+        self._channel_ready = True
+        # Flush any updates that were queued while waiting for handshake
+        if self._pending_update:
+            self._pending_update = False
+            self.update_clusters()
 
     def update_clusters(self):
         """Cluster the current locations and push markers to the map.
@@ -224,8 +230,9 @@ class MapView(QWebEngineView):
             [{"lat": c.lat, "lon": c.lon} for c in self._clusters]
         )
 
-        # Push to the page using runJavaScript
-        self.page().runJavaScript(f"updateClusters('{clusters_json}')")
+        # Push to the page using runJavaScript. Pass JSON directly, not as a
+        # quoted string, so the page receives the parsed array.
+        self.page().runJavaScript(f"updateClusters({clusters_json})")
 
     def _on_viewport_changed(self, zoom, min_lat, min_lon, max_lat, max_lon):
         """Handle viewport changes from the map.
@@ -370,8 +377,12 @@ class MapView(QWebEngineView):
         """
         qf = QFile(":/qtwebchannel/qwebchannel.js")
         if not qf.open(QFile.ReadOnly):
-            # Fallback: return empty string so the page still works
-            # (but without the channel handshake)
+            # Log the failure so it can be diagnosed. The page will still render
+            # the basemap, but map interaction will be unavailable.
+            logger.error(
+                "Cannot load qwebchannel.js resource: map clustering, hover "
+                "previews, and viewport-based re-clustering will be unavailable"
+            )
             return ""
         content = qf.readAll().data().decode()
         qf.close()
@@ -392,9 +403,8 @@ class MapView(QWebEngineView):
 var clustersLayer = L.layerGroup();
 clustersLayer.addTo({map_var});
 
-function updateClusters(json) {{
+function updateClusters(clusters) {{
     clustersLayer.clearLayers();
-    var clusters = JSON.parse(json);
     clusters.forEach(function(cluster, index) {{
         var marker = L.marker([cluster.lat, cluster.lon]);
         marker.on('mouseover', function() {{
@@ -410,8 +420,8 @@ function updateClusters(json) {{
 // Set up the QWebChannel handshake
 new QWebChannel(qt.webChannelTransport, function(channel) {{
     window.bridge = channel.objects.bridge;
-    // Signal that the channel is ready for updates
-    window.bridgeReady = true;
+    // Signal Python that the channel is ready for updates
+    window.bridge.channel_ready();
 }});
 
 // Wire viewport changes

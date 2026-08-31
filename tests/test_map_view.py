@@ -122,6 +122,62 @@ class TestMapBridge:
                             break
         assert shape_found, "MapBridge.shape_drawn must be decorated with @Slot"
 
+    def test_declares_channel_ready_slot(self):
+        """MapBridge must declare a channel_ready() slot.
+
+        This slot is called by JavaScript when the QWebChannel handshake
+        completes, signaling that Python can now send updates to the page.
+        """
+        source = inspect.getsource(MapBridge)
+        tree = ast.parse(source)
+        channel_ready_found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "channel_ready":
+                for decorator in node.decorator_list:
+                    if isinstance(decorator, ast.Call):
+                        if (
+                            isinstance(decorator.func, ast.Name)
+                            and decorator.func.id == "Slot"
+                        ):
+                            channel_ready_found = True
+                            break
+        assert (
+            channel_ready_found
+        ), "MapBridge.channel_ready must be decorated with @Slot"
+
+
+class TestChannelReadinessFlushing:
+    def test_on_channel_ready_assigns_channel_ready_flag(self):
+        """MapView._on_channel_ready must set _channel_ready = True.
+
+        This is called when the JavaScript side signals the handshake is
+        complete, so we know it is safe to send updates to the page.
+        """
+        source = inspect.getsource(MapView._on_channel_ready)
+        source = textwrap.dedent(source)
+        tree = ast.parse(source)
+
+        # Look for self._channel_ready = True
+        assignment_found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Attribute):
+                        if (
+                            isinstance(target.value, ast.Name)
+                            and target.value.id == "self"
+                            and target.attr == "_channel_ready"
+                        ):
+                            if (
+                                isinstance(node.value, ast.Constant)
+                                and node.value.value is True
+                            ):
+                                assignment_found = True
+                                break
+        assert (
+            assignment_found
+        ), "_on_channel_ready must assign True to self._channel_ready"
+
 
 class TestMapViewWebChannelIntegration:
     def test_render_map_inlines_qwebchannel(self):
