@@ -30,9 +30,20 @@ from more_itertools import chunked
 
 from . import db
 from . import config
-from .widgets.helper import load_exif, calculate_md5, calculate_xxhash, forget_thumbnail
+from .widgets.helper import (
+    build_video_preview,
+    calculate_md5,
+    calculate_xxhash,
+    forget_thumbnail,
+    load_exif,
+    preview_file,
+)
 
 logger = logging.getLogger(__name__)
+
+# Previews are built at the grid's default tile width; a hover shows them
+# scaled to whatever the tile currently is.
+PREVIEW_WIDTH = 150
 
 
 class TaskManager:
@@ -106,6 +117,63 @@ class TaskManager:
         self.main.messages.add("Task: Updating hashes")
         self.register_generator(self.task_update_hashes())
         self.start()
+
+    def build_video_previews(self):
+        """Fill in missing animated previews for videos.
+
+        Hashes are queued first. A preview's cache key is item.uri_md5, which is
+        empty until task_update_hashes has run, so a preview built ahead of it
+        would be written under the wrong name and never found again - the task
+        would appear to succeed while nothing ever animated. TaskManager drains
+        its generators in order, so registering both here is all the sequencing
+        that is needed.
+        """
+        self.main.messages.add("Task: Building video previews")
+        self.register_generator(self.task_update_hashes())
+        self.register_generator(self.task_build_video_previews())
+        self.start()
+
+    def task_build_video_previews(self):
+        """Extract a sprite sheet for every video that has not got one.
+
+        Incremental: an existing sheet is left alone, so interrupting the task
+        loses nothing and re-running it is cheap.
+        """
+        photos_path = self.main.config.photos
+        items = [
+            item
+            for item in db.get_all_items()
+            if Path(item.uri).suffix.lower() in config.VIDEO_SUFFIX
+        ]
+
+        total = len(items)
+        current = 0
+        N = 5
+
+        built = 0
+        skipped = 0
+        for chunk in chunked(items, N):
+            for item in chunk:
+                if (
+                    item.uri_md5
+                    and preview_file(item.uri_md5, PREVIEW_WIDTH, photos_path).is_file()
+                ):
+                    skipped += 1
+                    continue
+                if build_video_preview(item, PREVIEW_WIDTH, photos_path):
+                    built += 1
+                else:
+                    skipped += 1
+            current += len(chunk)
+            yield total, current
+
+        # Always yield once, so a library with no videos still drives the
+        # progress bar to completion instead of appearing to hang.
+        if total == 0:
+            yield 0, 0
+
+        self.main.messages.add(f"videos needing a preview: {total}")
+        self.main.messages.add(f"built {built}, skipped {skipped}")
 
     def move_files(self):
         self.main.messages.add("Task: moving files")

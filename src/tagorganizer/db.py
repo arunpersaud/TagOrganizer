@@ -307,6 +307,17 @@ def get_all_items_with_location():
         return results.all()
 
 
+def get_all_items() -> list[Item]:
+    """Every item in the database.
+
+    Used by maintenance tasks that have to consider the whole library and then
+    filter in Python - matching a file suffix is clumsy in SQL and the other
+    tasks already load their candidate set this way.
+    """
+    with new_session() as session:
+        return session.exec(select(Item)).all()
+
+
 def get_items_without_hashes() -> list[Item]:
     with new_session() as session:
         query = select(Item)

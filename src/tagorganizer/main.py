@@ -123,6 +123,7 @@ class MainWindow(QMainWindow):
                 ],
                 ["Move Files with new date set", self.tasks.fix_no_date_files],
                 ["Move Files to Default Dirs", self.tasks.move_files],
+                ["Build Video Previews", self.tasks.build_video_previews],
             ],
             "Profiles": [],
             "Help": [["About", "Ctrl+H", self.show_about_dialog]],
@@ -706,6 +707,11 @@ class MainWindow(QMainWindow):
             db.add_images(files)
             self.update_items()
             self.messages.add(f"finished adding {directory}")
+
+            # Build previews for anything new straight away, so an imported
+            # batch of videos animates without having to be asked for. The task
+            # is incremental, so this costs nothing for the files already done.
+            self.tasks.build_video_previews()
 
     def add_tag(self):
         dialog = AddTagDialog(self)
