@@ -668,3 +668,113 @@ class TestQtMessageHandler:
             qt_message_handler(QtMsgType.QtWarningMsg, None, "something real broke")
         assert len(caplog.records) == 1
         assert "something real broke" in caplog.records[0].getMessage()
+
+
+class TestMoveSelectionToProfile:
+    """Regression guards for move_selection_to_profile implementation.
+
+    The move operation must validate everything before the transaction opens,
+    so refusals leave the database untouched. Order matters: prepare_target
+    must run before move_items.
+    """
+
+    def test_move_selection_calls_prepare_target_before_move_items(self):
+        """Verify prepare_target is called before move_items in move_selection_to_profile.
+
+        This ordering is load-bearing: prepare_target checks everything before
+        any transaction opens, so a refusal leaves the source database intact.
+        """
+        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
+        with open(main_file) as f:
+            tree = ast.parse(f.read())
+
+        # Find move_selection_to_profile method
+        move_method = None
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name == "move_selection_to_profile"
+            ):
+                move_method = node
+                break
+
+        assert move_method is not None, "move_selection_to_profile method not found"
+
+        # Find the lines where prepare_target and move_items are called
+        prepare_target_line = None
+        move_items_line = None
+
+        for node in ast.walk(move_method):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    # Check for dbmove.prepare_target
+                    if (
+                        isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "dbmove"
+                        and node.func.attr == "prepare_target"
+                    ):
+                        if prepare_target_line is None:
+                            prepare_target_line = node.lineno
+                    # Check for dbmove.move_items
+                    if (
+                        isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "dbmove"
+                        and node.func.attr == "move_items"
+                    ):
+                        if move_items_line is None:
+                            move_items_line = node.lineno
+
+        assert (
+            prepare_target_line is not None
+        ), "dbmove.prepare_target() call not found in move_selection_to_profile"
+        assert (
+            move_items_line is not None
+        ), "dbmove.move_items() call not found in move_selection_to_profile"
+
+        assert (
+            prepare_target_line < move_items_line
+        ), "FAIL: prepare_target must be called before move_items; "
+        "the ordering is what makes a refusal safe"
+
+    def test_move_selection_clears_selection_after_move(self):
+        """Verify selection is cleared after successful move in move_selection_to_profile.
+
+        Clearing the selection is essential: the ids belonged to rows that no
+        longer exist in this database. Acting on ids from another database is
+        a bug this project has already shipped once.
+        """
+        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
+        with open(main_file) as f:
+            tree = ast.parse(f.read())
+
+        # Find move_selection_to_profile method
+        move_method = None
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name == "move_selection_to_profile"
+            ):
+                move_method = node
+                break
+
+        assert move_method is not None, "move_selection_to_profile method not found"
+
+        # Look for self.selection.clear() call in the method
+        calls_selection_clear = False
+        for node in ast.walk(move_method):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    if (
+                        isinstance(node.func.value, ast.Attribute)
+                        and isinstance(node.func.value.value, ast.Name)
+                        and node.func.value.value.id == "self"
+                        and node.func.value.attr == "selection"
+                        and node.func.attr == "clear"
+                    ):
+                        calls_selection_clear = True
+                        break
+
+        assert (
+            calls_selection_clear
+        ), "move_selection_to_profile must call self.selection.clear() after the move; "
+        "the ids belonged to rows that no longer exist in this database"

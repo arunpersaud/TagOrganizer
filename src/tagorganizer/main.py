@@ -46,6 +46,7 @@ from docopt import docopt
 from . import db
 from . import config
 from . import DBimport
+from . import dbmove
 from . import tasks
 from .selection import Selection
 from .widgets import (
@@ -54,6 +55,7 @@ from .widgets import (
     ImageGridWidget,
     MapWidget,
     Messages,
+    MoveToProfileDialog,
     ProfileDialog,
     SingleItem,
     TagBar,
@@ -106,6 +108,7 @@ class MainWindow(QMainWindow):
                 ["Copy Selection to dir", self.copy_selection],
                 ["Clear Selection", "Ctrl+E", self.clear_selection],
                 ["Show Selected Only", "Ctrl+Shift+S", self.show_selected_only],
+                ["Move Selection to Profile...", self.move_selection_to_profile],
                 "---",
                 ["Quit", "Ctrl+Q", self.close],
             ],
@@ -609,6 +612,82 @@ class MainWindow(QMainWindow):
 
             self.selection.clear()
             self.update_items()  # Assuming update_items refreshes the displayed items
+
+    def move_selection_to_profile(self):
+        """Move the selected photos into another profile's database.
+
+        Everything that can fail is checked before the transaction opens, so a
+        refusal leaves the current database exactly as it was. Afterwards the
+        selection is cleared: its ids belonged to rows that no longer exist
+        here, and acting on ids from another database is a bug this project has
+        already shipped once.
+        """
+        # Refuse if nothing is selected
+        if not len(self.selection):
+            self.messages.add("Nothing is selected.")
+            return
+
+        # Get list of selectable profiles (all except current)
+        all_profiles = self.config.get_profiles()
+        selectable = [p for p in all_profiles if p != self.config.profile]
+
+        # Refuse if no other profiles are available
+        if not selectable:
+            self.messages.add("No other profiles available to move to.")
+            return
+
+        # Open the dialog for the user to choose a target profile and confirm
+        # the dialog shows count, target, and warnings about tags and files
+        dialog = MoveToProfileDialog(selectable, len(self.selection))
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        target_profile = dialog.selected_profile()
+        if not target_profile:
+            return
+
+        # Resolve the target path via config
+        try:
+            target_path = self.config.get_profile_database(target_profile)
+        except config.ProfileNotFoundError:
+            self.messages.add(f"[ERROR] Profile {target_profile!r} not found in config")
+            return
+
+        # Validate and prepare the target database before the transaction.
+        # Everything that can fail is checked here, before the transaction opens.
+        try:
+            dbmove.prepare_target(target_path)
+        except dbmove.TargetUnusable as error:
+            QMessageBox.critical(
+                self, "Cannot Move to Target", f"Target database unusable:\n\n{error}"
+            )
+            return
+
+        # Perform the move inside a session
+        try:
+            with db.new_session() as session:
+                result = dbmove.move_items(session, target_path, self.selection.ids())
+
+            # Report results through messages
+            self.messages.add(
+                f"Moved {len(result.moved_ids)} photos to {target_profile}"
+            )
+            if result.skipped_ids:
+                self.messages.add(f"Skipped {len(result.skipped_ids)} duplicate photos")
+            if result.dropped_tags:
+                tags_str = ", ".join(result.dropped_tags)
+                self.messages.add(f"Dropped tags: {tags_str}")
+
+            # Clear the selection and update UI
+            self.selection.clear()
+            self.update_numbers(selected=0)
+            self.update_items()
+
+        except Exception as error:
+            QMessageBox.critical(
+                self, "Move Failed", f"An error occurred during the move:\n\n{error}"
+            )
+            self.messages.add(f"[ERROR] Move failed: {error}")
 
     def add_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
