@@ -181,6 +181,46 @@ class TestChannelReadinessFlushing:
         ), "_on_channel_ready must assign True to self._channel_ready"
 
 
+class TestMapInjectionPoint:
+    def test_load_map_injects_at_html_not_body(self):
+        """MapView.load_map must inject the script at </html>, not </body>.
+
+        folium emits the map creation (var map_xxx = L.map(...)) and the Draw
+        control in a trailing <script> block that comes AFTER </body>. If we
+        inject at </body>, our script runs before the Leaflet map variable
+        exists, throwing a ReferenceError that aborts before the QWebChannel
+        handshake. Injecting at </html> ensures our script runs after folium's.
+
+        This is the third silent-empty-map bug in this project and this guard
+        prevents it from regressing.
+        """
+        source = inspect.getsource(MapView.load_map)
+        source = textwrap.dedent(source)
+
+        # The source must contain </html> as a replacement target
+        # and must NOT contain </body> as a replacement target.
+        # Note: the strings may be split across lines due to formatting.
+
+        # Check that the source mentions injecting at </html>
+        has_html_comment = "at </html>" in source or '("</html>"' in source
+
+        # Check that </body> replacement is not used
+        # We look for the pattern where </body> is the first arg to replace()
+        has_body_replacement = (
+            'replace(\n            "</body>"' in source
+            or "replace(\n            '</body>'" in source
+        )
+
+        assert has_html_comment, (
+            "load_map must inject at </html> "
+            "so the script runs after folium's map creation"
+        )
+        assert not has_body_replacement, (
+            "load_map must NOT inject at </body>, as folium's map creation "
+            "and Draw plugin come AFTER </body> in a trailing script"
+        )
+
+
 class TestMapViewWebChannelIntegration:
     def test_render_map_inlines_qwebchannel(self):
         """The render_map path must inline qwebchannel.js into the HTML.

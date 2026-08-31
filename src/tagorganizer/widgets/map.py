@@ -514,10 +514,22 @@ class MapView(QWebEngineView):
         qwebchannel_js = self._load_qwebchannel()
         injection = self._make_injection_script(qwebchannel_js)
 
-        # Insert the injection before </body>
-        html_content = html_content.replace(
-            "</body>", f"<script>{injection}</script>\n</body>", 1
-        )
+        # Inject the script at </html>, not </body>. folium emits the map
+        # creation (var map_xxx = L.map(...)) and the Draw control in a
+        # trailing <script> block that comes AFTER </body>. Injecting at
+        # </body> would run our script before the Leaflet map variable exists,
+        # causing a ReferenceError that aborts before the QWebChannel handshake
+        # and leaves the map with no markers and interaction disabled. Injecting
+        # at </html> ensures our script runs after folium's map creation script.
+        if "</html>" in html_content:
+            html_content = html_content.replace(
+                "</html>", f"<script>{injection}</script>\n</html>", 1
+            )
+        else:
+            # Fallback if the document has no </html> tag: append to the end.
+            # This silently producing an injection-free document would be a
+            # failure mode as silent as the </body> bug.
+            html_content = html_content + f"<script>{injection}</script>"
 
         self.setHtml(html_content)
 
