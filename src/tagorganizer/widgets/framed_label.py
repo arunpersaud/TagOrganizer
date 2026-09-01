@@ -22,9 +22,16 @@ from pathlib import Path
 
 from qtpy.QtWidgets import QLabel, QSizePolicy
 from qtpy.QtGui import QPainter, QPen, QImage, QPixmap
-from qtpy.QtCore import Qt, Signal
+from qtpy.QtCore import Qt, Signal, QTimer
 
-from .helper import get_thumbnail_loader
+from .. import config
+from .helper import (
+    SPRITE_COLUMNS,
+    SPRITE_FRAMES,
+    get_thumbnail_loader,
+    preview_file,
+    sprite_frame_rect,
+)
 from ..models import Item
 
 
@@ -48,8 +55,17 @@ class FramedLabel(QLabel):
 
         self.pixmap = None
 
-        # Show placeholder immediately (filename)
-        self.show_pixmap(None)
+        # A cached sprite sheet and where we are in it while hovering. Loaded
+        # lazily on the first hover so a grid page costs nothing extra.
+        self._sheet = None
+        self._frame = 0
+        self._animation = QTimer(self)
+        self._animation.setInterval(50)
+        self._animation.timeout.connect(self._advance_frame)
+
+        # A tile with no result yet is *pending*, not broken. Saying so stops a
+        # freshly imported library looking like a wall of missing files.
+        self.show_pending()
         self.setAlignment(Qt.AlignCenter)
         self.selected = False
         self.highlight = False
@@ -94,6 +110,65 @@ class FramedLabel(QLabel):
         the freshly-decoded path and the resize path cannot drift apart.
         """
         return pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+    def show_pending(self):
+        """Say the thumbnail is still being made.
+
+        Distinct from show_pixmap(None), which means a decode actually failed -
+        a missing or unreadable file. Rendering both the same way hid real
+        errors among tiles that were merely still working.
+        """
+        self.setText(f"generating preview...\n{Path(self.item.uri).name}")
+
+    def is_animating(self) -> bool:
+        return self._animation.isActive()
+
+    def enterEvent(self, event):
+        """Play the cached preview while the cursor rests on a video tile.
+
+        Only the hovered tile animates, so exactly one timer ever runs. A video
+        whose preview the background task has not reached yet simply stays
+        still rather than stalling the grid to build one here.
+        """
+        if self._load_sheet() is not None:
+            self._frame = 0
+            self._animation.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._animation.stop()
+        if self.pixmap is not None:
+            self.show_pixmap(self.fit_to_tile(self.pixmap))
+        super().leaveEvent(event)
+
+    def _load_sheet(self):
+        """The sprite sheet for this item, or None if there is not one."""
+        if self._sheet is not None:
+            return self._sheet
+        if Path(self.item.uri).suffix.lower() not in config.VIDEO_SUFFIX:
+            return None
+        if not self.item.uri_md5:
+            return None
+
+        path = preview_file(self.item.uri_md5, self.pixmap_width, self.photos_path)
+        if not path.is_file():
+            return None
+
+        sheet = QPixmap(str(path))
+        if sheet.isNull():
+            return None
+        self._sheet = sheet
+        return self._sheet
+
+    def _advance_frame(self):
+        """Show the next frame, wrapping back to the start."""
+        if self._sheet is None:
+            return
+        frame_width = self._sheet.width() // SPRITE_COLUMNS
+        frame_height = self._sheet.height() // (SPRITE_FRAMES // SPRITE_COLUMNS)
+        x, y, w, h = sprite_frame_rect(self._frame, frame_width, frame_height)
+        self.show_pixmap(self.fit_to_tile(self._sheet.copy(x, y, w, h)))
+        self._frame = (self._frame + 1) % SPRITE_FRAMES
 
     def show_pixmap(self, pixmap):
         """Show a thumbnail, or the file name when there is no thumbnail.

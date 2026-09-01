@@ -77,3 +77,106 @@ def test_scaling_preserves_aspect_ratio(qapp, tmp_path):
 
     shown = QLabel.pixmap(label)
     assert shown.width() / shown.height() == pytest.approx(100 / 400, rel=0.05)
+
+
+def _video_item(tmp_path, md5="e" * 32):
+    from tagorganizer.models import Item
+
+    return Item(id=99, uri=str(tmp_path / "clip.mp4"), uri_md5=md5)
+
+
+def _write_sheet(tmp_path, md5, frame_w=150, frame_h=84):
+    """A sprite sheet shaped like a real one, without needing a video."""
+    from qtpy.QtGui import QImage
+
+    from tagorganizer.widgets.helper import (
+        SPRITE_COLUMNS,
+        SPRITE_ROWS,
+        preview_file,
+    )
+
+    sheet = QImage(SPRITE_COLUMNS * frame_w, SPRITE_ROWS * frame_h, QImage.Format_RGB32)
+    sheet.fill(0x226644)
+    path = preview_file(md5, 150, tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(str(path), "PNG")
+    return path
+
+
+class TestPlaceholders:
+    def test_a_tile_awaiting_its_thumbnail_says_so(self, qapp, tmp_path):
+        """Pending and failed must not look identical.
+
+        Today both render as the bare file name, so a tile whose photo is fine
+        and a tile whose photo has vanished are indistinguishable.
+        """
+        from tagorganizer.models import Item
+        from tagorganizer.widgets.framed_label import FramedLabel
+
+        item = Item(id=1, uri=str(tmp_path / "waiting.jpg"), uri_md5="f" * 32)
+        label = FramedLabel(item, tmp_path)
+
+        assert "generating" in label.text().lower()
+
+    def test_a_failed_decode_shows_the_file_name(self, qapp, tmp_path):
+        """A missing file is an error the user needs to see."""
+        from tagorganizer.models import Item
+        from tagorganizer.widgets.framed_label import FramedLabel
+        from tagorganizer.widgets.helper import get_thumbnail_loader
+
+        item = Item(id=2, uri=str(tmp_path / "gone.jpg"), uri_md5="0" * 32)
+        label = FramedLabel(item, tmp_path)
+        label._on_thumbnail_ready(get_thumbnail_loader().key_for(item, 150), None)
+
+        assert "gone.jpg" in label.text()
+        assert "generating" not in label.text().lower()
+
+
+class TestHoverPreview:
+    def test_hovering_a_video_with_a_sheet_animates(self, qapp, tmp_path):
+        from tagorganizer.widgets.framed_label import FramedLabel
+
+        md5 = "e" * 32
+        _write_sheet(tmp_path, md5)
+        label = FramedLabel(_video_item(tmp_path, md5), tmp_path)
+        label.resize(150, 150)
+
+        label.enterEvent(None)
+        assert label.is_animating() is True
+
+        label.leaveEvent(None)
+        assert label.is_animating() is False
+
+    def test_hovering_a_photo_does_nothing(self, qapp, tmp_path):
+        from tagorganizer.models import Item
+        from tagorganizer.widgets.framed_label import FramedLabel
+
+        item = Item(id=3, uri=str(tmp_path / "photo.jpg"), uri_md5="1" * 32)
+        label = FramedLabel(item, tmp_path)
+        label.enterEvent(None)
+
+        assert label.is_animating() is False
+
+    def test_a_video_without_a_sheet_does_not_animate_or_raise(self, qapp, tmp_path):
+        """Previews are built by a background task; until it runs there is none."""
+        from tagorganizer.widgets.framed_label import FramedLabel
+
+        label = FramedLabel(_video_item(tmp_path, "2" * 32), tmp_path)
+        label.enterEvent(None)
+
+        assert label.is_animating() is False
+
+    def test_frames_wrap_round_rather_than_running_off_the_sheet(self, qapp, tmp_path):
+        from tagorganizer.widgets.framed_label import FramedLabel
+        from tagorganizer.widgets.helper import SPRITE_FRAMES
+
+        md5 = "e" * 32
+        _write_sheet(tmp_path, md5)
+        label = FramedLabel(_video_item(tmp_path, md5), tmp_path)
+        label.resize(150, 150)
+        label.enterEvent(None)
+
+        for _ in range(SPRITE_FRAMES + 3):
+            label._advance_frame()
+
+        assert 0 <= label._frame < SPRITE_FRAMES
