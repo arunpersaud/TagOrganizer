@@ -20,7 +20,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 from pathlib import Path
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from qtpy.QtWidgets import QHBoxLayout, QPushButton, QSizePolicy, QWidget
@@ -68,6 +68,20 @@ class SelectedIds:
 
 
 @dataclass
+class Condition:
+    """One filter chip, expressed as data the query layer can compose.
+
+    Chips used to be applied straight into the query as where-clauses, which
+    made them impossible to OR together - a clause that has already been applied
+    cannot be combined with anything. Representing a chip as a value first is
+    what lets a group of them become a disjunction.
+    """
+
+    kind: str
+    value: object = None
+
+
+@dataclass
 class Filters:
     tags: list[str] | None = None
     start_date: datetime | None = None
@@ -83,6 +97,10 @@ class Filters:
     # None means "no id filter at all"; an empty list means "an empty
     # selection", which must match nothing rather than everything.
     item_ids: list[int] | None = None
+    # Each inner list is OR'd together; each group is one more conjunct beside
+    # the flat fields above. Filters therefore still describes a conjunction -
+    # a group is simply a conjunct that happens to be a disjunction.
+    groups: list[list[Condition]] = field(default_factory=list)
 
 
 class TagBar(QHBoxLayout):

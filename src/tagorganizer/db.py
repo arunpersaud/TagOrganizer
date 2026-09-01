@@ -27,7 +27,7 @@ import sqlalchemy as sa
 from sqlalchemy import or_
 
 from .models import Tag, Item, ItemTagLink
-from .widgets.tag_bar import Filters
+from .widgets.tag_bar import Condition, Filters
 
 logger = logging.getLogger(__name__)
 
@@ -382,6 +382,51 @@ def get_all_tag_ids(tag_names: list[str]) -> list[int]:
         return list(tag_ids)
 
 
+def condition_expression(condition: Condition, session: Session):
+    """The boolean expression for a single filter chip.
+
+    The same logic the flat branches of filter_query use, pulled out so chips
+    can be composed with or_() instead of only applied one after another.
+    """
+    kind, value = condition.kind, condition.value
+
+    if kind == "tag":
+        tag_ids = get_all_tag_ids([value])
+        subquery = (
+            select(ItemTagLink.item_id)
+            .where(ItemTagLink.tag_id.in_(tag_ids))
+            .subquery()
+        )
+        return Item.id.in_(select(subquery.c.item_id))
+
+    if kind == "start_date":
+        return Item.date >= value
+    if kind == "end_date":
+        return Item.date <= value
+
+    if kind == "area":
+        return sa.and_(
+            Item.longitude >= value["min_longitude"],
+            Item.longitude <= value["max_longitude"],
+            Item.latitude >= value["min_latitude"],
+            Item.latitude <= value["max_latitude"],
+        )
+
+    if kind == "no_time":
+        return Item.date == sa.null()
+    if kind == "no_gps":
+        return Item.latitude == sa.null()
+
+    if kind == "wrong_dir":
+        return sa.and_(*[~Item.uri.startswith(str(d)) for d in value])
+
+    if kind == "item_ids":
+        _materialise_ids(session, value)
+        return Item.id.in_(sa.select(sa.column("id")).select_from(sa.table(_ID_TABLE)))
+
+    raise ValueError(f"unknown filter condition kind: {kind!r}")
+
+
 def filter_query(query, filter: Filters, session: Session):
     # Filter by date range
     if filter.start_date:
@@ -431,6 +476,23 @@ def filter_query(query, filter: Filters, session: Session):
         query = query.where(
             Item.id.in_(sa.select(sa.column("id")).select_from(sa.table(_ID_TABLE)))
         )
+
+    # Groups: each is OR'd internally, then AND'd like any other conjunct.
+    id_conditions = sum(
+        1 for group in filter.groups for c in group if c.kind == "item_ids"
+    )
+    if id_conditions > 1:
+        # Every id condition materialises the same temporary table, so a second
+        # one silently overwrites the first and the query then answers about the
+        # wrong set of photos. Refuse rather than return a confident lie.
+        raise ValueError("only one item_ids condition is supported per query")
+
+    for group in filter.groups:
+        expressions = [condition_expression(c, session) for c in group]
+        if expressions:
+            query = query.where(
+                or_(*expressions) if len(expressions) > 1 else expressions[0]
+            )
 
     return query
 
