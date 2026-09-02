@@ -26,6 +26,7 @@ import sys
 
 from qtpy.QtWidgets import (
     QAction,
+    QInputDialog,
     QApplication,
     QDialog,
     QFileDialog,
@@ -58,6 +59,7 @@ from .widgets import (
     MoveToProfileDialog,
     ProfileDialog,
     SingleItem,
+    TagEditorDialog,
     TagBar,
     TagView,
     Timeline,
@@ -101,6 +103,7 @@ class MainWindow(QMainWindow):
         menu = {
             "Edit": [
                 ["Add New Tag", "Ctrl+N", self.add_tag],
+                ["Edit Tags...", self.edit_tags],
                 ["Add Images", "Ctrl+I", self.add_directory],
                 "---",
                 ["Delete", "Ctrl+D", self.delete_items],
@@ -496,6 +499,114 @@ class MainWindow(QMainWindow):
         # A tag created just now has to be completable straight away, and the
         # counts and any active tag filter are stale until the view is redrawn.
         self.setup_autocomplete()
+        self.update_items()
+
+    def edit_tags(self):
+        """Open the tag editor: rename a tag, or merge two into one."""
+        dialog = TagEditorDialog(db.get_all_tags(), self)
+        dialog.rename_button.clicked.connect(lambda: self._rename_tag(dialog))
+        dialog.merge_button.clicked.connect(lambda: self._merge_tags(dialog))
+        dialog.exec()
+
+        # The vocabulary may have changed underneath everything.
+        self.tag_view.update_tags()
+        self.setup_autocomplete()
+        self.update_items()
+
+    def _rename_tag(self, dialog):
+        chosen = dialog.selected_tag_ids()
+        if len(chosen) != 1:
+            return
+
+        tag = db.get_tag_by_id(chosen[0])
+        new_name, accepted = QInputDialog.getText(
+            dialog, "Rename Tag", "New name:", text=tag.name
+        )
+        if not accepted:
+            return
+
+        try:
+            db.rename_tag(tag.id, new_name)
+        except ValueError as error:
+            QMessageBox.warning(dialog, "Cannot rename", str(error))
+            return
+
+        self._reload_tag_editor(dialog)
+
+    def _merge_tags(self, dialog):
+        """Fold one tag into another, naming the casualty before doing it.
+
+        Merging is directional and cannot be undone, so the confirmation says
+        which tag disappears rather than only asking whether to merge.
+        """
+        chosen = dialog.selected_tag_ids()
+        if len(chosen) != 2:
+            return
+
+        source, target = db.get_tag_by_id(chosen[0]), db.get_tag_by_id(chosen[1])
+        answer = QMessageBox.question(
+            dialog,
+            "Merge Tags",
+            f"Merge {source.name!r} into {target.name!r}?\n\n"
+            f"{source.name!r} will be deleted. Its photos and any child tags "
+            f"move to {target.name!r}. This cannot be undone.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            moved, dropped = db.merge_tags(source.id, target.id)
+        except ValueError as error:
+            QMessageBox.warning(dialog, "Cannot merge", str(error))
+            return
+
+        self.messages.add(
+            f"Merged {source.name!r} into {target.name!r}: "
+            f"{moved} photo(s) moved, {dropped} already had it"
+        )
+        self._reload_tag_editor(dialog)
+
+    @staticmethod
+    def _reload_tag_editor(dialog):
+        """Rebuild the dialog's list after the vocabulary changed."""
+        from .widgets.tag_editor import tag_paths
+
+        dialog.tag_list.clear()
+        dialog._ids = []
+        for tag_id, path in tag_paths(db.get_all_tags()):
+            dialog.tag_list.addItem(path)
+            dialog._ids.append(tag_id)
+        dialog._selection_changed()
+
+    def remove_tag_from_selection(self, tag_id):
+        """Take one tag off the selected photos, or the current one.
+
+        Targets are chosen the same way tagging chooses them, so applying and
+        removing a tag are symmetric. The tag itself survives: this is for
+        fixing a mistagged photo, which until now meant deleting the tag from
+        the whole library.
+        """
+        tag = db.get_tag_by_id(tag_id)
+        if tag is None:
+            return
+
+        if len(self.selection):
+            items = db.get_items_by_ids(self.selection.ids())
+        else:
+            current = self.grid.current_item()
+            if current is None:
+                return
+            items = [current.item]
+
+        removed = db.remove_tags(items, [tag])
+        if removed:
+            self.messages.add(f"Removed {tag.name!r} from {removed} photo(s)")
+        else:
+            # Otherwise "it did nothing" and "none of them had that tag" look
+            # exactly alike.
+            self.messages.add(f"None of the selected photos had {tag.name!r}")
+
+        self.display_common_tags()
         self.update_items()
 
     def display_common_tags(self):

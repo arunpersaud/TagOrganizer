@@ -69,6 +69,11 @@ class TagView(QTreeView):
         tag_id = self.tag_model.itemFromIndex(index).data()
         self.tag_menu = QMenu()
 
+        remove_action = self.tag_menu.addAction("Remove from selected photos")
+        remove_action.triggered.connect(
+            lambda: self.main.remove_tag_from_selection(tag_id)
+        )
+
         delete_action = self.tag_menu.addAction("Delete Tag")
         delete_action.triggered.connect(lambda: self.delete_tag(tag_id))
 
