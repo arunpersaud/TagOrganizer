@@ -160,6 +160,143 @@ def add_tag(name):
         return new_tag.id
 
 
+def _descendant_tag_ids(session, tag_id: int) -> set[int]:
+    """Every tag beneath this one, at any depth."""
+    found, stack = set(), [tag_id]
+    while stack:
+        current = stack.pop()
+        for child in session.exec(select(Tag).where(Tag.parent_id == current)).all():
+            found.add(child.id)
+            stack.append(child.id)
+    return found
+
+
+def rename_tag(tag_id: int, new_name: str) -> None:
+    """Give a tag a different name.
+
+    Refuses a name another tag already holds, compared case-insensitively:
+    get_tag folds case, so two tags differing only in capitalisation could not
+    be told apart afterwards. That situation is a merge, and saying so is more
+    useful than silently making one.
+    """
+    new_name = new_name.strip()
+    if not new_name:
+        raise ValueError("a tag needs a name")
+
+    with new_session() as session:
+        tag = session.get(Tag, tag_id)
+        if tag is None:
+            raise ValueError(f"no tag with id {tag_id}")
+
+        clash = session.exec(
+            select(Tag).where(
+                func.lower(Tag.name) == new_name.lower(), Tag.id != tag_id
+            )
+        ).first()
+        if clash is not None:
+            raise ValueError(
+                f"a tag named {clash.name!r} already exists; merge them instead"
+            )
+
+        tag.name = new_name
+        session.add(tag)
+        session.commit()
+
+
+def merge_tags(source_id: int, target_id: int) -> tuple[int, int]:
+    """Fold one tag into another, returning (links moved, links dropped).
+
+    The source disappears. Its photos gain the target, its children are
+    reparented onto the target, and it is deleted.
+
+    Two cases would otherwise corrupt data. A photo already carrying both tags
+    cannot simply have its link repointed - ItemTagLink has a composite primary
+    key, so that link is redundant and is dropped instead. And merging a tag
+    into one of its own descendants would, once the children are reparented,
+    make a tag its own ancestor; that is refused rather than left to loop.
+    """
+    if source_id == target_id:
+        raise ValueError("cannot merge a tag into itself")
+
+    with new_session() as session:
+        source = session.get(Tag, source_id)
+        target = session.get(Tag, target_id)
+        if source is None or target is None:
+            raise ValueError("both tags must exist to merge them")
+
+        if target_id in _descendant_tag_ids(session, source_id):
+            raise ValueError(
+                f"cannot merge {source.name!r} into its own descendant {target.name!r}"
+            )
+
+        already = set(
+            session.exec(
+                select(ItemTagLink.item_id).where(ItemTagLink.tag_id == target_id)
+            ).all()
+        )
+        links = session.exec(
+            select(ItemTagLink).where(ItemTagLink.tag_id == source_id)
+        ).all()
+
+        moved = dropped = 0
+        for link in links:
+            item_id = link.item_id
+            session.exec(
+                delete(ItemTagLink).where(
+                    ItemTagLink.item_id == item_id, ItemTagLink.tag_id == source_id
+                )
+            )
+            if item_id in already:
+                dropped += 1
+            else:
+                session.add(ItemTagLink(item_id=item_id, tag_id=target_id))
+                moved += 1
+
+        for child in session.exec(select(Tag).where(Tag.parent_id == source_id)).all():
+            child.parent_id = target_id
+            session.add(child)
+
+        # Push the reparenting to the database before removing the source.
+        # Deleting a Tag makes SQLAlchemy resolve its `children` relationship to
+        # process the cascade, and it would do that against the rows as they
+        # still stand - undoing the reassignment above and orphaning the
+        # children. Flushing first means the source genuinely has no children
+        # left by the time it is deleted.
+        session.flush()
+
+        session.delete(session.get(Tag, source_id))
+        session.commit()
+        return moved, dropped
+
+
+def remove_tags(items: list[Item], tags: list[Tag]) -> int:
+    """Take tags off photos, returning how many links went.
+
+    The tags themselves survive - this is for fixing a mistagged photo, which
+    until now could only be done by deleting the tag from the whole library.
+    A link that was not there is not an error.
+    """
+    item_ids = [item.id for item in items if item.id is not None]
+    tag_ids = [tag.id for tag in tags if tag.id is not None]
+    if not item_ids or not tag_ids:
+        return 0
+
+    with new_session() as session:
+        existing = session.exec(
+            select(ItemTagLink).where(
+                ItemTagLink.item_id.in_(item_ids), ItemTagLink.tag_id.in_(tag_ids)
+            )
+        ).all()
+        removed = len(existing)
+        session.exec(
+            delete(ItemTagLink).where(
+                ItemTagLink.item_id.in_(item_ids), ItemTagLink.tag_id.in_(tag_ids)
+            )
+        )
+        session.commit()
+        return removed
+
+
 def delete_tag(id: int):
     with new_session() as session:
         tag = session.get(Tag, id)
