@@ -126,6 +126,13 @@ class TagBar(QHBoxLayout):
         # being rebuilt, and so "what is selected" has one owner.
         self._selected_chips: list[QWidget] = []
 
+        # Chips that have been pulled out of the flat fields and into an OR
+        # group. A chip is in exactly one place: a plain conjunct, or a member
+        # of one group. Being in both would AND it as well as OR it, narrowing
+        # the result to the opposite of what grouping is for.
+        self._groups: list[list[Condition]] = []
+        self._group_widgets: list[QWidget] = []
+
         # Set while a single user gesture is building several buttons, so
         # the view is redrawn once at the end instead of after each one.
         self._suppress_refresh = False
@@ -135,7 +142,24 @@ class TagBar(QHBoxLayout):
         self.clear_button.setSizePolicy(
             QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum
         )
+        self.group_button = QPushButton("Group with OR")
+        self.group_button.setToolTip(
+            "Click chips to select them, then group them so they match with OR"
+        )
+        self.group_button.clicked.connect(self.group_selected)
+        self.group_button.setSizePolicy(
+            QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum
+        )
+
+        self.ungroup_button = QPushButton("Ungroup")
+        self.ungroup_button.clicked.connect(self.ungroup_selected)
+        self.ungroup_button.setSizePolicy(
+            QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum
+        )
+
         self.addWidget(self.clear_button, 0)
+        self.addWidget(self.group_button, 0)
+        self.addWidget(self.ungroup_button, 0)
         self.addStretch(1)
 
     def clear_selected_tags(self):
@@ -151,6 +175,10 @@ class TagBar(QHBoxLayout):
         self.remove_tag_button(self.selected_times_max.widget)
         self.remove_tag_button(self.selected_area.widget)
         self.remove_tag_button(self.selected_ids.widget)
+        for widget in self._group_widgets:
+            widget.setParent(None)
+        self._group_widgets = []
+        self._groups = []
         self.refresh()
 
     def get_all_names(self):
@@ -271,6 +299,127 @@ class TagBar(QHBoxLayout):
 
         self.refresh()
 
+    def _condition_for(self, widget):
+        """The Condition a chip stands for, or None if it is not one."""
+        for entry in self.selected_tags:
+            if entry.widget is widget:
+                return Condition("tag", entry.name)
+        if widget is self.selected_area.widget:
+            return Condition(
+                "area",
+                {
+                    "min_longitude": self.selected_area.min_longitude,
+                    "max_longitude": self.selected_area.max_longitude,
+                    "min_latitude": self.selected_area.min_latitude,
+                    "max_latitude": self.selected_area.max_latitude,
+                },
+            )
+        if widget is self.selected_times_min.widget:
+            return Condition("start_date", self.selected_times_min.timestamp)
+        if widget is self.selected_times_max.widget:
+            return Condition("end_date", self.selected_times_max.timestamp)
+        if widget is self.selected_ids.widget:
+            return Condition("item_ids", self.selected_ids.item_ids)
+        for name, value in self.bool.items():
+            if widget is value.widget:
+                return Condition(
+                    {
+                        "No Time": "no_time",
+                        "No GPS": "no_gps",
+                        "Wrong dir": "wrong_dir",
+                    }[name],
+                    True,
+                )
+        return None
+
+    def group_selected(self):
+        """Combine the selected chips into one OR group.
+
+        Fewer than two chips is not a disjunction, so it is left alone rather
+        than creating a group that means nothing.
+        """
+        chips = list(self._selected_chips)
+        if len(chips) < 2:
+            return
+
+        conditions = [c for c in (self._condition_for(w) for w in chips) if c]
+        if len(conditions) < 2:
+            return
+
+        self._suppress_refresh = True
+        try:
+            for widget in chips:
+                self.remove_tag_button(widget)
+        finally:
+            self._suppress_refresh = False
+
+        self._groups.append(conditions)
+        self._add_group_button(conditions)
+        self.main.update_items()
+
+    def ungroup_selected(self):
+        """Break every group back into ordinary chips."""
+        if not self._groups:
+            return
+
+        groups, self._groups = self._groups, []
+        for widget in self._group_widgets:
+            self.toggle_chip(widget) if self.is_chip_selected(widget) else None
+            widget.setParent(None)
+        self._group_widgets = []
+
+        self._suppress_refresh = True
+        try:
+            for group in groups:
+                for condition in group:
+                    self._restore_condition(condition)
+        finally:
+            self._suppress_refresh = False
+        self.main.update_items()
+
+    def _add_group_button(self, conditions):
+        """Show a group as one chip reading "(a or b)".
+
+        Without this the members simply disappear from the bar when grouped and
+        the filter becomes invisible - the user would see photos vanish with
+        nothing on screen explaining why.
+        """
+        label = " or ".join(self._condition_label(c) for c in conditions)
+        button = QPushButton(f"({label})")
+        button.setObjectName("Group")
+        button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+        button.clicked.connect(lambda flag, b=button: self.toggle_chip(b))
+        self.addWidget(button, 0)
+        self._group_widgets.append(button)
+
+    @staticmethod
+    def _condition_label(condition) -> str:
+        if condition.kind == "tag":
+            return str(condition.value)
+        return {
+            "area": "Area",
+            "start_date": "after",
+            "end_date": "before",
+            "no_time": "No Time",
+            "no_gps": "No GPS",
+            "wrong_dir": "Wrong dir",
+            "item_ids": "Selection",
+        }.get(condition.kind, condition.kind)
+
+    def _restore_condition(self, condition):
+        """Put a condition back as an ordinary chip."""
+        if condition.kind == "tag":
+            self.add_tag(condition.value)
+        elif condition.kind == "area":
+            self.selected_area.set_values(**condition.value)
+            self.add_area_tag()
+        elif condition.kind == "start_date":
+            self.add_time_tag(condition.value, ">")
+        elif condition.kind == "end_date":
+            self.add_time_tag(condition.value, "<")
+        elif condition.kind == "item_ids":
+            self.add_selection_tag(condition.value)
+
     SELECTED_STYLE = "QPushButton { border: 2px solid palette(highlight); }"
 
     def toggle_chip(self, widget):
@@ -334,6 +483,7 @@ class TagBar(QHBoxLayout):
             no_gps=self.bool["No GPS"].value,
             directories=[self.main.config.photos, self.main.config.videos],
             item_ids=self.selected_ids.item_ids,
+            groups=[list(g) for g in self._groups],
         )
 
     def remove_tag_button(self, w):

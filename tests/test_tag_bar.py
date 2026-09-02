@@ -228,3 +228,139 @@ class TestClickWiring:
 
         assert bar.is_chip_selected(chip) is True
         assert bar.get_filters().tags == ["Holiday"], "clicking must not remove it"
+
+
+class TestGrouping:
+    def test_grouping_two_chips_produces_one_or_group(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("Beach")
+        bar.add_tag("Mountain")
+        for entry in list(bar.selected_tags):
+            bar.toggle_chip(entry.widget)
+
+        bar.group_selected()
+
+        filters = bar.get_filters()
+        assert len(filters.groups) == 1
+        assert {c.value for c in filters.groups[0]} == {"Beach", "Mountain"}
+
+    def test_grouped_chips_leave_the_flat_fields(self, qapp):
+        """A chip is either a plain conjunct or a member of a group, not both.
+
+        Leaving it in both would AND it as well as OR it, quietly narrowing the
+        result to the opposite of what grouping is for.
+        """
+        bar = _tag_bar()
+        bar.add_tag("Beach")
+        bar.add_tag("Mountain")
+        bar.add_tag("2024")
+        for entry in list(bar.selected_tags)[:2]:
+            bar.toggle_chip(entry.widget)
+
+        bar.group_selected()
+
+        assert bar.get_filters().tags == ["2024"]
+
+    def test_grouping_fewer_than_two_chips_does_nothing(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("Beach")
+        bar.toggle_chip(bar.selected_tags[0].widget)
+
+        bar.group_selected()
+
+        assert bar.get_filters().groups == []
+        assert bar.get_filters().tags == ["Beach"]
+
+    def test_ungrouping_returns_chips_to_the_flat_fields(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("Beach")
+        bar.add_tag("Mountain")
+        for entry in list(bar.selected_tags):
+            bar.toggle_chip(entry.widget)
+        bar.group_selected()
+
+        bar.ungroup_selected()
+
+        filters = bar.get_filters()
+        assert filters.groups == []
+        assert sorted(filters.tags) == ["Beach", "Mountain"]
+
+    def test_a_mixed_group_survives_the_round_trip(self, qapp):
+        """A tag and a map area in one group is the point of the feature."""
+        from datetime import date
+
+        bar = _tag_bar()
+        bar.add_tag("Beach")
+        bar.selected_area.set_values(
+            min_longitude=0.0, max_longitude=1.0, min_latitude=2.0, max_latitude=3.0
+        )
+        bar.add_area_tag()
+        bar.toggle_chip(bar.selected_tags[0].widget)
+        bar.toggle_chip(bar.selected_area.widget)
+
+        bar.group_selected()
+
+        filters = bar.get_filters()
+        assert len(filters.groups) == 1
+        assert {c.kind for c in filters.groups[0]} == {"tag", "area"}
+        assert filters.min_latitude is None, "the area moved into the group"
+        del date
+
+
+class TestGroupIsVisible:
+    def test_grouping_leaves_a_chip_on_the_bar(self, qapp):
+        """A group must be visible, or filters appear to vanish.
+
+        Grouping removes the member chips from the bar; without a chip standing
+        for the group the user would see photos disappear with nothing on
+        screen explaining why.
+        """
+        bar = _tag_bar()
+        bar.add_tag("Beach")
+        bar.add_tag("Mountain")
+        for entry in list(bar.selected_tags):
+            bar.toggle_chip(entry.widget)
+
+        bar.group_selected()
+
+        assert len(bar._group_widgets) == 1
+        assert bar._group_widgets[0].text() == "(Beach or Mountain)"
+
+    def test_ungrouping_removes_the_group_chip(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("Beach")
+        bar.add_tag("Mountain")
+        for entry in list(bar.selected_tags):
+            bar.toggle_chip(entry.widget)
+        bar.group_selected()
+
+        bar.ungroup_selected()
+
+        assert bar._group_widgets == []
+
+    def test_clear_removes_groups_too(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("Beach")
+        bar.add_tag("Mountain")
+        for entry in list(bar.selected_tags):
+            bar.toggle_chip(entry.widget)
+        bar.group_selected()
+
+        bar.clear_selected_tags()
+
+        assert bar.get_filters().groups == []
+        assert bar._group_widgets == []
+
+    def test_a_mixed_group_is_labelled_by_kind(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("Beach")
+        bar.selected_area.set_values(
+            min_longitude=0.0, max_longitude=1.0, min_latitude=2.0, max_latitude=3.0
+        )
+        bar.add_area_tag()
+        bar.toggle_chip(bar.selected_tags[0].widget)
+        bar.toggle_chip(bar.selected_area.widget)
+
+        bar.group_selected()
+
+        assert bar._group_widgets[0].text() == "(Beach or Area)"
