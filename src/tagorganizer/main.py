@@ -103,13 +103,15 @@ def lineage_targets(
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, app):
+    def __init__(self, app, config_file=None, profile=None):
         super().__init__()
 
         self.app = app
         self.filters = None
 
-        self.config = config.ConfigManager()
+        # Passed straight through: the config has to be chosen before any
+        # database is opened, not swapped afterwards.
+        self.config = config.ConfigManager(config_file=config_file, profile=profile)
         self.setWindowTitle(f"Tag Organizer -- Profile {self.config.profile}")
 
         self.tasks = tasks.TaskManager(self)
@@ -968,30 +970,28 @@ def main():
 
     configure_logging(verbose=commands["--verbose"])
 
-    app = QApplication(sys.argv)
-    try:
-        window = MainWindow(app)
-    except config.ProfileNotFoundError as error:
-        logger.error("%s", error)
-        sys.exit(3)
-
+    # Validate before the window exists: constructing it opens a database, so
+    # a bad path must be caught while nothing has been opened yet.
+    configfile = None
     if commands["--config"]:
         configfile = Path(commands["--config"]).expanduser()
         if not configfile.is_file():
             logger.error("config file %s cannot be opened... exiting", configfile)
             sys.exit(1)
-        try:
-            window.config.set_config_file(configfile)
-        except config.ProfileNotFoundError as error:
-            logger.error("%s", error)
-            sys.exit(3)
+
+    app = QApplication(sys.argv)
+    try:
+        window = MainWindow(app, config_file=configfile, profile=commands["--profile"])
+    except config.ProfileNotFoundError as error:
+        logger.error("%s", error)
+        sys.exit(3)
+
+    if configfile:
         window.create_profile_menu()
         logger.info("Starting with config file: %s", configfile)
 
     if commands["--profile"]:
-        profile = commands["--profile"]
-        window.change_profile(profile)
-        logger.info("Starting with profile: %s", profile)
+        logger.info("Starting with profile: %s", commands["--profile"])
 
     if commands["--import-from-f-spot"]:
         old_db = Path(commands["--import-from-f-spot"]).expanduser()

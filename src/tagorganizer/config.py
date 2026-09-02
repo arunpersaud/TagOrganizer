@@ -84,11 +84,14 @@ def next_database_name(profile: str, exists, limit: int = 100_000) -> str | None
 
 
 class ConfigManager:
-    def __init__(self):
+    def __init__(self, config_file: Path | None = None, profile: str | None = None):
         self.config = None
 
-        self.profile = "default"
-        self.config_file = default_config_file_path
+        # Both are chosen before read_config runs. Opening the default library
+        # first and switching afterwards would create and migrate a database
+        # the user never asked for - which is exactly what --config used to do.
+        self.profile = profile or "default"
+        self.config_file = config_file or default_config_file_path
 
         # locations needed in app
         self.db = None

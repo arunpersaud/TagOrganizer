@@ -206,3 +206,54 @@ class TestOpeningAnExistingLibrary:
         manager.read_config()
 
         db.engine.dispose()
+
+
+class TestConfigIsChosenBeforeAnyDatabaseOpens:
+    """--config must not open the default library on the way to the named one.
+
+    This is not hypothetical: a scratch script reached the real library this
+    way during the lineage work, because --config was applied only after
+    MainWindow had already been constructed.
+    """
+
+    def _write_config(self, tmp_path, db_file):
+        config_file = tmp_path / "chosen.ini"
+        config_file.write_text(
+            f"[DEFAULT]\nprofile = main\n\n[main]\ndatabase = {db_file}\n"
+            f"photo_path = {tmp_path}\nvideo_path = {tmp_path}\n"
+        )
+        return config_file
+
+    def test_the_named_config_is_used(self, tmp_path):
+        from tagorganizer import db
+        from tagorganizer.config import ConfigManager
+
+        db_file = tmp_path / "chosen.db"
+        manager = ConfigManager(
+            config_file=self._write_config(tmp_path, db_file), profile="main"
+        )
+        try:
+            assert str(manager.db) == str(db_file)
+            assert db_file.exists()
+        finally:
+            db.engine.dispose()
+
+    def test_no_other_database_is_opened_on_the_way(self, tmp_path, monkeypatch):
+        import tagorganizer.config as config_module
+
+        opened = []
+        real = config_module.db.set_engine
+        monkeypatch.setattr(
+            config_module.db,
+            "set_engine",
+            lambda path: (opened.append(str(path)), real(path))[1],
+        )
+
+        db_file = tmp_path / "chosen.db"
+        config_module.ConfigManager(
+            config_file=self._write_config(tmp_path, db_file), profile="main"
+        )
+        try:
+            assert opened == [str(db_file)]
+        finally:
+            config_module.db.engine.dispose()
