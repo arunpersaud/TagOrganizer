@@ -213,6 +213,10 @@ class MainWindow(QMainWindow):
                 Qt.Key_Return: self.show_current_item,
                 Qt.Key_Enter: self.show_current_item,
                 Qt.Key_Space: self.grid.toggle_selection,
+                # Removes selected FILTER CHIPS, not photos. TagBar.remove_selected
+                # is a no-op when no chip is selected, so a stray Delete cannot
+                # touch the library; deleting photos is still Ctrl+D.
+                Qt.Key_Delete: self.tag_bar.remove_selected,
                 (Qt.Key_Up, Qt.ShiftModifier): self.grid.shift_move_up,
                 (Qt.Key_Down, Qt.ShiftModifier): self.grid.shift_move_down,
             },

@@ -121,6 +121,11 @@ class TagBar(QHBoxLayout):
             "No GPS": SelectedBool(),
         }
 
+        # Chips the user has picked out, for grouping or removal. Held here
+        # rather than as a flag on each button so the set survives the buttons
+        # being rebuilt, and so "what is selected" has one owner.
+        self._selected_chips: list[QWidget] = []
+
         # Set while a single user gesture is building several buttons, so
         # the view is redrawn once at the end instead of after each one.
         self._suppress_refresh = False
@@ -165,7 +170,7 @@ class TagBar(QHBoxLayout):
         # if not, add new button
         tag_button = QPushButton(tag_name)
         tag_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
-        tag_button.clicked.connect(lambda flag, t=tag_button: self.remove_tag_button(t))
+        tag_button.clicked.connect(lambda flag, t=tag_button: self.toggle_chip(t))
         self.addWidget(tag_button, 0)
         if tag_name in RESERVED_TAGS:
             self.bool[tag_name].value = True
@@ -191,7 +196,7 @@ class TagBar(QHBoxLayout):
         tag_button = QPushButton(tag_name)
         tag_button.setObjectName("Time")
         tag_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
-        tag_button.clicked.connect(lambda flag, t=tag_button: self.remove_tag_button(t))
+        tag_button.clicked.connect(lambda flag, t=tag_button: self.toggle_chip(t))
         if min_max == ">":
             self.selected_times_min = SelectedTime(date, tag_button)
         elif min_max == "<":
@@ -241,7 +246,7 @@ class TagBar(QHBoxLayout):
         tag_button = QPushButton(tag_name)
         tag_button.setObjectName("Area")
         tag_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
-        tag_button.clicked.connect(lambda flag, t=tag_button: self.remove_tag_button(t))
+        tag_button.clicked.connect(lambda flag, t=tag_button: self.toggle_chip(t))
 
         self.addWidget(tag_button, 0)
         self.selected_area.widget = tag_button
@@ -259,12 +264,55 @@ class TagBar(QHBoxLayout):
         tag_button = QPushButton(f"Selection ({len(item_ids)})")
         tag_button.setObjectName("Selection")
         tag_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
-        tag_button.clicked.connect(lambda flag, t=tag_button: self.remove_tag_button(t))
+        tag_button.clicked.connect(lambda flag, t=tag_button: self.toggle_chip(t))
 
         self.addWidget(tag_button, 0)
         self.selected_ids = SelectedIds(list(item_ids), tag_button)
 
         self.refresh()
+
+    SELECTED_STYLE = "QPushButton { border: 2px solid palette(highlight); }"
+
+    def toggle_chip(self, widget):
+        """Pick a chip out, or put it back.
+
+        Clicking a chip used to remove it outright. It now selects, because
+        grouping chips into an OR needs a way to name several of them; removal
+        moved to the Delete key.
+        """
+        if widget is None:
+            return
+        if widget in self._selected_chips:
+            self._selected_chips.remove(widget)
+            widget.setStyleSheet("")
+        else:
+            self._selected_chips.append(widget)
+            widget.setStyleSheet(self.SELECTED_STYLE)
+
+    def is_chip_selected(self, widget) -> bool:
+        return widget in self._selected_chips
+
+    def selected_chips(self) -> list:
+        return list(self._selected_chips)
+
+    def remove_selected(self):
+        """Delete every selected chip, refreshing once.
+
+        A no-op when nothing is selected: Delete has to be inert then, or a
+        stray keypress would silently drop the user's filters.
+        """
+        if not self._selected_chips:
+            return
+
+        chips = list(self._selected_chips)
+        self._suppress_refresh = True
+        try:
+            for widget in chips:
+                self.remove_tag_button(widget)
+        finally:
+            self._suppress_refresh = False
+
+        self.main.update_items()
 
     def refresh(self):
         """Redraw the view, unless a multi-button gesture is in progress."""
@@ -292,6 +340,11 @@ class TagBar(QHBoxLayout):
         # so that we can also pass empty time selections in here
         if w is None:
             return
+
+        # Drop it from the selection too, or the set accumulates widgets that
+        # no longer exist and Delete appears to do nothing.
+        if w in self._selected_chips:
+            self._selected_chips.remove(w)
 
         index = next(
             (i for i, tmp in enumerate(self.selected_tags) if w == tmp.widget), None
