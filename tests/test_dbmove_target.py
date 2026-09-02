@@ -7,6 +7,8 @@ so a failure leaves both source and target untouched.
 
 import os
 import pytest
+
+from conftest import alembic_head
 from sqlalchemy import text, inspect, create_engine as sa_create_engine
 
 from tagorganizer import db
@@ -75,7 +77,7 @@ class TestPrepareTarget:
             ).fetchone()
             assert result is not None
             # Latest migration ID
-            assert result[0] == "9e42c23d5f4a"
+            assert result[0] == alembic_head()
 
         engine.dispose()
 
@@ -224,7 +226,7 @@ class TestPrepareTarget:
             result = conn.execute(
                 text("SELECT version_num FROM alembic_version")
             ).fetchone()
-            assert result[0] == "9e42c23d5f4a"
+            assert result[0] == alembic_head()
         engine.dispose()
 
 

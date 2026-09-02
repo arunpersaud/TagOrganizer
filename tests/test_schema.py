@@ -12,6 +12,8 @@ from tagorganizer import db
 from tagorganizer.models import Item
 from tagorganizer.migrations import upgrade_db, stamp_db
 
+from conftest import alembic_head
+
 
 class TestDatabaseCreationF1:
     """Tests for F1: Creating a new database from scratch.
@@ -65,7 +67,7 @@ class TestDatabaseCreationF1:
             ).fetchone()
             # Should be at the latest migration
             assert result is not None
-            assert result[0] == "9e42c23d5f4a"  # The latest migration ID
+            assert result[0] == alembic_head()
 
     def test_upgrade_old_database_without_geolocation(self, db_path):
         """An older database that lacks longitude/latitude still upgrades cleanly.
@@ -151,7 +153,7 @@ class TestDatabaseCreationF1:
             result = session.execute(
                 text("SELECT version_num FROM alembic_version")
             ).fetchone()
-            assert result[0] == "9e42c23d5f4a"
+            assert result[0] == alembic_head()
 
 
 class TestItemHashF16:

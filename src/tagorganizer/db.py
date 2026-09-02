@@ -26,7 +26,7 @@ from sqlalchemy.orm import selectinload
 import sqlalchemy as sa
 from sqlalchemy import or_
 
-from .models import Tag, Item, ItemTagLink
+from .models import Tag, Item, ItemTagLink, ItemParentLink
 from .widgets.tag_bar import Condition, Filters
 
 logger = logging.getLogger(__name__)
@@ -316,8 +316,94 @@ def delete_item(id: int):
         item = session.get(Item, id)
         if item:
             session.exec(delete(ItemTagLink).where(ItemTagLink.item_id == id))
+            # Lineage links point at items from both ends, so a deleted photo
+            # would otherwise leave links behind and the derived-from indicator
+            # would claim a parent that no longer exists.
+            session.exec(delete(ItemParentLink).where(ItemParentLink.child_id == id))
+            session.exec(delete(ItemParentLink).where(ItemParentLink.parent_id == id))
             session.delete(item)
             session.commit()
+
+
+def get_parent_ids(child_id: int) -> list[int]:
+    """The items this one was derived from."""
+    with new_session() as session:
+        return list(
+            session.exec(
+                select(ItemParentLink.parent_id).where(
+                    ItemParentLink.child_id == child_id
+                )
+            ).all()
+        )
+
+
+def get_child_ids(parent_id: int) -> list[int]:
+    """The items derived from this one."""
+    with new_session() as session:
+        return list(
+            session.exec(
+                select(ItemParentLink.child_id).where(
+                    ItemParentLink.parent_id == parent_id
+                )
+            ).all()
+        )
+
+
+def _ancestor_ids(session, item_id: int) -> set[int]:
+    """Every item this one descends from, at any depth."""
+    found, stack = set(), [item_id]
+    while stack:
+        current = stack.pop()
+        for parent_id in session.exec(
+            select(ItemParentLink.parent_id).where(ItemParentLink.child_id == current)
+        ).all():
+            if parent_id not in found:
+                found.add(parent_id)
+                stack.append(parent_id)
+    return found
+
+
+def set_parents(child_id: int, parent_ids: list[int]) -> None:
+    """Record what an item was derived from, replacing any previous lineage.
+
+    Refuses to make an item its own ancestor. Lineage exists to lead back to an
+    original, so a loop would make "where did this come from" unanswerable and
+    would hang any walk up the chain.
+    """
+    wanted = list(dict.fromkeys(parent_ids))
+
+    if child_id in wanted:
+        raise ValueError("an item cannot be derived from itself")
+
+    with new_session() as session:
+        for parent_id in wanted:
+            if child_id == parent_id or child_id in _ancestor_ids(session, parent_id):
+                raise ValueError(
+                    "cannot record that lineage: it would make an item its own ancestor"
+                )
+
+        session.exec(delete(ItemParentLink).where(ItemParentLink.child_id == child_id))
+        for parent_id in wanted:
+            session.add(ItemParentLink(child_id=child_id, parent_id=parent_id))
+        session.commit()
+
+
+def get_items_with_parents(item_ids: list[int]) -> set[int]:
+    """Which of these items were derived from something.
+
+    Asked once per grid page rather than once per tile: the indicator needs it
+    for every visible photo and a query each would be 25 round trips a page.
+    """
+    if not item_ids:
+        return set()
+    with new_session() as session:
+        return set(
+            session.exec(
+                select(ItemParentLink.child_id).where(
+                    ItemParentLink.child_id.in_(item_ids)
+                )
+            ).all()
+        )
 
 
 def check_item_in_db(uri: str):

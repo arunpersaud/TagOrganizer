@@ -40,6 +40,19 @@ class ItemTagLink(SQLModel, table=True):
     tag_id: int | None = Field(default=None, foreign_key="tag.id", primary_key=True)
 
 
+class ItemParentLink(SQLModel, table=True):
+    """Records that one item was derived from another.
+
+    A panorama has several parents, an edit has one, and a derived photo can
+    itself be the source of another - so this is a link table rather than a
+    column. Both ends are item ids; the pair is the primary key, which makes
+    recording the same parent twice a no-op rather than a duplicate row.
+    """
+
+    child_id: int | None = Field(default=None, foreign_key="item.id", primary_key=True)
+    parent_id: int | None = Field(default=None, foreign_key="item.id", primary_key=True)
+
+
 class Tag(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str

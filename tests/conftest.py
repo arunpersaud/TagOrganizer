@@ -6,6 +6,7 @@ database and restoring it afterwards. Nothing in this file needs a display, so
 the whole pure-logic layer stays testable without Qt.
 """
 
+import pathlib
 from datetime import datetime
 
 import pytest
@@ -85,3 +86,21 @@ def seeded_db(temp_db):
             "parent": Tag(id=parent.id, name=parent.name),
             "child": Tag(id=child.id, name=child.name, parent_id=child.parent_id),
         }
+
+
+def alembic_head() -> str:
+    """The head revision of the migration chain, read from the scripts.
+
+    Asserting against this rather than a hard-coded revision string means these
+    tests keep testing what they mean - "the database is stamped at the latest
+    migration" - instead of breaking every time a migration is added.
+    """
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    from tagorganizer import migrations
+
+    root = pathlib.Path(migrations.__file__).parent
+    config = Config(str(root.parent / "alembic.ini"))
+    config.set_main_option("script_location", str(root))
+    return ScriptDirectory.from_config(config).get_current_head()

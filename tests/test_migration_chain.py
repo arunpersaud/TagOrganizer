@@ -15,6 +15,8 @@ from tagorganizer import db
 from tagorganizer.models import Item, Tag, ItemTagLink
 from tagorganizer.migrations import upgrade_db, downgrade_db
 
+from conftest import alembic_head
+
 
 class TestMigrationChainIntegrity:
     """Tests that verify the migration chain matches the models."""
@@ -305,7 +307,7 @@ class TestMigrationChainIntegrity:
             result = conn.execute(
                 text("SELECT version_num FROM alembic_version")
             ).fetchone()
-            assert result[0] == "9e42c23d5f4a"
+            assert result[0] == alembic_head()
 
         print("✓ Alembic version tracking is correct")
 
