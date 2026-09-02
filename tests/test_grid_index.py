@@ -7,6 +7,8 @@ page and item count combinations.
 The index calculation is extracted as a pure function to avoid GUI dependencies.
 """
 
+import textwrap
+
 import pytest
 
 from tagorganizer.widgets.image_grid_widget import ImageGridWidget
@@ -293,3 +295,48 @@ class TestRangeBounds:
         """The span is in global positions, so it crosses page boundaries."""
         start, count = ImageGridWidget.range_bounds(anchor=10, clicked=60)
         assert (start, count) == (10, 51)
+
+
+class TestLineageWiring:
+    """show_images must feed the indicator, once per page rather than per tile."""
+
+    def _show_images_source(self):
+        import ast
+        import inspect
+
+        from tagorganizer.widgets import image_grid_widget
+
+        source = inspect.getsource(image_grid_widget.ImageGridWidget.show_images)
+        return ast.parse(textwrap.dedent(source))
+
+    def _calls(self, tree, name):
+        import ast
+
+        return [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == name
+        ]
+
+    def test_asks_the_database_which_photos_are_derived(self):
+        assert self._calls(self._show_images_source(), "get_parent_summary")
+
+    def test_asks_once_per_page_not_once_per_tile(self):
+        """A query per tile would be 25 round trips a page."""
+        import ast
+
+        tree = self._show_images_source()
+        loops = [n for n in ast.walk(tree) if isinstance(n, ast.For)]
+        in_loop = [
+            call
+            for loop in loops
+            for call in self._calls(
+                ast.Module(body=loop.body, type_ignores=[]), "get_parent_summary"
+            )
+        ]
+        assert in_loop == []
+
+    def test_passes_the_source_names_to_each_tile(self):
+        assert self._calls(self._show_images_source(), "set_parent_names")

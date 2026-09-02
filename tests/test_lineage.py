@@ -111,3 +111,50 @@ class TestDeletingAPhoto:
         db.set_parents(photos[0], [photos[1]])
         db.delete_item(photos[1])
         assert db.get_parent_ids(photos[0]) == []
+
+
+class TestParentSummary:
+    def test_maps_each_derived_photo_to_its_source_names(self, photos):
+        """The grid needs names for the tooltip, in one query per page."""
+        db.set_parents(photos[0], [photos[1], photos[2]])
+
+        summary = db.get_parent_summary(photos)
+
+        assert sorted(summary[photos[0]]) == ["/p/1.jpg", "/p/2.jpg"]
+
+    def test_photos_without_sources_are_absent(self, photos):
+        db.set_parents(photos[0], [photos[1]])
+        summary = db.get_parent_summary(photos)
+        assert photos[3] not in summary
+
+    def test_empty_input(self, photos):
+        assert db.get_parent_summary([]) == {}
+
+
+class TestChoosingTheSources:
+    """Deciding what a 'mark as derived' action should do, without Qt."""
+
+    def check(self, current, selected):
+        from tagorganizer.main import lineage_targets
+
+        return lineage_targets(current, selected)
+
+    def test_the_selection_becomes_the_sources(self):
+        assert self.check(1, [2, 3]) == ([2, 3], None)
+
+    def test_the_current_photo_is_not_its_own_source(self):
+        """Selecting everything including the result should still work."""
+        assert self.check(1, [1, 2, 3]) == ([2, 3], None)
+
+    def test_refuses_with_no_current_photo(self):
+        parents, error = self.check(None, [2, 3])
+        assert parents == [] and "photo" in error.lower()
+
+    def test_refuses_with_an_empty_selection(self):
+        parents, error = self.check(1, [])
+        assert parents == [] and "select" in error.lower()
+
+    def test_refuses_when_only_the_current_photo_is_selected(self):
+        """Dropping it leaves nothing, so say so rather than silently clearing."""
+        parents, error = self.check(1, [1])
+        assert parents == [] and error is not None

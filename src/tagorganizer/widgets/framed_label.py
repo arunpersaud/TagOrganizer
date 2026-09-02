@@ -21,7 +21,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 from pathlib import Path
 
 from qtpy.QtWidgets import QLabel, QSizePolicy
-from qtpy.QtGui import QPainter, QPen, QImage, QPixmap
+from qtpy.QtGui import QColor, QPainter, QPen, QImage, QPixmap
 from qtpy.QtCore import Qt, Signal, QTimer
 
 from .. import config
@@ -33,6 +33,13 @@ from .helper import (
     sprite_frame_rect,
 )
 from ..models import Item
+
+
+# A photo derived from others is marked with a dot. Amber rather than the
+# blue or red used by the selection frames, so the three never read as the
+# same signal.
+LINEAGE_DOT_COLOUR = QColor(255, 170, 0)
+LINEAGE_DOT_SIZE = 12
 
 
 class FramedLabel(QLabel):
@@ -69,6 +76,10 @@ class FramedLabel(QLabel):
         self.setAlignment(Qt.AlignCenter)
         self.selected = False
         self.highlight = False
+
+        # Photos this one was derived from, for the indicator dot and its
+        # tooltip. The grid fills this in from one query per page.
+        self._parent_names = []
 
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
 
@@ -203,6 +214,19 @@ class FramedLabel(QLabel):
             return
         super().mousePressEvent(event)
 
+    def set_parent_names(self, names):
+        """Name the photos this one was derived from, or pass [] for none."""
+        self._parent_names = list(names)
+        if self._parent_names:
+            shown = [Path(name).name for name in self._parent_names]
+            self.setToolTip("Derived from: " + ", ".join(sorted(shown)))
+        else:
+            self.setToolTip("")
+        self.update()
+
+    def has_parents(self) -> bool:
+        return bool(self._parent_names)
+
     def set_highlight(self, selected):
         self.highlight = selected
         self.update()
@@ -218,6 +242,12 @@ class FramedLabel(QLabel):
             pen = QPen(Qt.red, 5)
             painter.setPen(pen)
             painter.drawRect(self.rect())
+        if self._parent_names:
+            # Inset past the selection frames, which are drawn on the border
+            # itself and would otherwise cover the dot.
+            painter.setPen(QPen(Qt.white, 1))
+            painter.setBrush(LINEAGE_DOT_COLOUR)
+            painter.drawEllipse(10, 10, LINEAGE_DOT_SIZE, LINEAGE_DOT_SIZE)
 
     def resizeEvent(self, event):
         # reload pixmap if needed to get reasonable resolution

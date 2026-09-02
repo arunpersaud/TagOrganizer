@@ -180,3 +180,44 @@ class TestHoverPreview:
             label._advance_frame()
 
         assert 0 <= label._frame < SPRITE_FRAMES
+
+
+class TestLineageIndicator:
+    def _tile(self, tmp_path, parents=None):
+        from tagorganizer.models import Item
+        from tagorganizer.widgets.framed_label import FramedLabel
+
+        item = Item(id=5, uri=str(tmp_path / "derived.jpg"), uri_md5="9" * 32)
+        label = FramedLabel(item, tmp_path)
+        label.resize(150, 150)
+        if parents is not None:
+            label.set_parent_names(parents)
+        return label
+
+    def _rendered(self, qapp, label):
+        from qtpy.QtGui import QPixmap
+
+        pixmap = QPixmap(label.size())
+        label.render(pixmap)
+        return pixmap.toImage()
+
+    def test_a_derived_photo_is_marked(self, qapp, tmp_path):
+        """A dot has to actually appear, so render the tile and look for it."""
+        plain = self._rendered(qapp, self._tile(tmp_path))
+        marked = self._rendered(qapp, self._tile(tmp_path, ["/p/a.jpg", "/p/b.jpg"]))
+
+        assert plain != marked, "the tile looks identical with and without sources"
+
+    def test_an_ordinary_photo_is_not_marked(self, qapp, tmp_path):
+        label = self._tile(tmp_path, [])
+        assert label.has_parents() is False
+
+    def test_the_tooltip_names_the_sources(self, qapp, tmp_path):
+        """Hovering should say what it came from, not merely that it did."""
+        label = self._tile(tmp_path, ["/p/a.jpg", "/p/b.jpg"])
+
+        tooltip = label.toolTip()
+        assert "a.jpg" in tooltip and "b.jpg" in tooltip
+
+    def test_no_tooltip_without_sources(self, qapp, tmp_path):
+        assert self._tile(tmp_path, []).toolTip() == ""

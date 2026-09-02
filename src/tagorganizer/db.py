@@ -406,6 +406,28 @@ def get_items_with_parents(item_ids: list[int]) -> set[int]:
         )
 
 
+def get_parent_summary(item_ids: list[int]) -> dict[int, list[str]]:
+    """The source photos' uris for each of these items that has any.
+
+    One query per grid page, joined rather than looked up per tile, so the
+    tooltip can name what a photo came from instead of only saying that it
+    came from something. Items without sources are absent rather than mapped
+    to an empty list, so the caller can test membership directly.
+    """
+    if not item_ids:
+        return {}
+    with new_session() as session:
+        rows = session.exec(
+            select(ItemParentLink.child_id, Item.uri)
+            .join(Item, Item.id == ItemParentLink.parent_id)
+            .where(ItemParentLink.child_id.in_(item_ids))
+        ).all()
+    summary: dict[int, list[str]] = {}
+    for child_id, uri in rows:
+        summary.setdefault(child_id, []).append(uri)
+    return summary
+
+
 def check_item_in_db(uri: str):
     with new_session() as session:
         query = select(Item).where(Item.uri == uri)

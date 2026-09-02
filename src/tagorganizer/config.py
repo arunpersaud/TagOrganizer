@@ -131,15 +131,18 @@ class ConfigManager:
         db_path = Path(self.db)
         db_is_new = not db_path.exists()
 
-        # ensure we are using the latest version
-        db.create_db()
-
-        # For new databases, stamp at head instead of running upgrade
-        # (since create_all just created the full schema).
-        # For existing databases, run upgrade to apply any pending migrations.
+        # Building the schema and stamping it are only ever correct together:
+        # create_all writes the *current* models, so the migrations that would
+        # have built them must be marked done rather than run.
         if db_is_new:
+            db.create_db()
             stamp_db("head")
         else:
+            # An existing database belongs to the migrations. Calling
+            # create_all here would create any table a pending migration is
+            # about to add, and that migration would then fail on the table it
+            # found already there - leaving the application unable to open a
+            # library it opened fine yesterday.
             upgrade_db()
 
     def find_new_database_name(self, dir, profile=None):

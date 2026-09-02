@@ -80,6 +80,28 @@ def is_reserved_tag(name: str) -> bool:
     return name.strip().casefold() in {r.casefold() for r in RESERVED_TAGS}
 
 
+def lineage_targets(
+    current_id: int | None, selected_ids: list[int]
+) -> tuple[list[int], str | None]:
+    """Which photos the current one should be recorded as derived from.
+
+    Returns the sources and an error, exactly one of which is meaningful. The
+    current photo is dropped from its own source list rather than refused: a
+    user who selected the whole burst and then picked the panorama out of it
+    means the other four, not an error. But if dropping leaves nothing there
+    is no link to make, so that says so instead of silently clearing lineage
+    the user never asked to clear.
+    """
+    if current_id is None:
+        return [], "No current photo to mark."
+    parents = [item_id for item_id in selected_ids if item_id != current_id]
+    if not parents:
+        if selected_ids:
+            return [], "The current photo cannot be its own source."
+        return [], "Select the source photos first."
+    return parents, None
+
+
 class MainWindow(QMainWindow):
     def __init__(self, app):
         super().__init__()
@@ -112,6 +134,9 @@ class MainWindow(QMainWindow):
                 ["Clear Selection", "Ctrl+E", self.clear_selection],
                 ["Show Selected Only", "Ctrl+Shift+S", self.show_selected_only],
                 ["Move Selection to Profile...", self.move_selection_to_profile],
+                "---",
+                ["Mark as Derived from Selection", self.mark_as_derived],
+                ["Clear Sources of Current Photo", self.clear_lineage],
                 "---",
                 ["Quit", "Ctrl+Q", self.close],
             ],
@@ -732,6 +757,45 @@ class MainWindow(QMainWindow):
 
             self.selection.clear()
             self.update_items()  # Assuming update_items refreshes the displayed items
+
+    def mark_as_derived(self):
+        """Record the current photo as made from the selected ones.
+
+        A panorama from its frames, or an edit from its original. The current
+        photo - the one under the red frame - is the result; the selection is
+        what it was made from.
+        """
+        current = self.grid.current_item()
+        parents, error = lineage_targets(
+            current.id if current else None, self.selection.ids()
+        )
+        if error:
+            self.messages.add(error)
+            return
+
+        try:
+            db.set_parents(current.id, parents)
+        except ValueError as exception:
+            # A cycle: the current photo is already an ancestor of one of the
+            # sources, so this link would make lineage circular.
+            self.messages.add(str(exception))
+            return
+
+        self.messages.add(f"Marked as derived from {len(parents)} photo(s).")
+        self.update_items()
+
+    def clear_lineage(self):
+        """Forget what the current photo was derived from."""
+        current = self.grid.current_item()
+        if current is None:
+            self.messages.add("No current photo to clear.")
+            return
+        if not db.get_parent_ids(current.id):
+            self.messages.add("This photo has no recorded sources.")
+            return
+        db.set_parents(current.id, [])
+        self.messages.add("Cleared the recorded sources.")
+        self.update_items()
 
     def move_selection_to_profile(self):
         """Move the selected photos into another profile's database.

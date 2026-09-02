@@ -118,8 +118,13 @@ class ImageGridWidget(QWidget):
 
         self.clear()
 
+        # One query for the whole page: the lineage dot needs an answer for
+        # every visible tile, and asking per tile would be a round trip each.
+        lineage = db.get_parent_summary([item.id for item in items])
+
         for item in items:
             label = FramedLabel(item, self.main.config.photos)
+            label.set_parent_names(lineage.get(item.id, []))
             if item.id in self.main.selection:
                 label.selected = True
             self.widgets.append(label)
