@@ -142,6 +142,13 @@ class TagBar(QHBoxLayout):
         self.clear_button.setSizePolicy(
             QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum
         )
+        self.delete_button = QPushButton("Delete tag")
+        self.delete_button.setToolTip("Remove the selected filters (or press Delete)")
+        self.delete_button.clicked.connect(self.remove_selected)
+        self.delete_button.setSizePolicy(
+            QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum
+        )
+
         self.group_button = QPushButton("Group with OR")
         self.group_button.setToolTip(
             "Click chips to select them, then group them so they match with OR"
@@ -158,6 +165,7 @@ class TagBar(QHBoxLayout):
         )
 
         self.addWidget(self.clear_button, 0)
+        self.addWidget(self.delete_button, 0)
         self.addWidget(self.group_button, 0)
         self.addWidget(self.ungroup_button, 0)
         self.addStretch(1)
@@ -358,19 +366,27 @@ class TagBar(QHBoxLayout):
         self.main.update_items()
 
     def ungroup_selected(self):
-        """Break every group back into ordinary chips."""
-        if not self._groups:
-            return
+        """Break the selected groups back into ordinary chips.
 
-        groups, self._groups = self._groups, []
-        for widget in self._group_widgets:
-            self.toggle_chip(widget) if self.is_chip_selected(widget) else None
-            widget.setParent(None)
-        self._group_widgets = []
+        Only the selected ones: ungrouping everything at once would undo
+        grouping the user deliberately kept, and there is no undo.
+        """
+        chosen = [
+            (group, widget)
+            for group, widget in zip(self._groups, self._group_widgets, strict=False)
+            if self.is_chip_selected(widget)
+        ]
+        if not chosen:
+            return
 
         self._suppress_refresh = True
         try:
-            for group in groups:
+            for group, widget in chosen:
+                self._groups.remove(group)
+                self._group_widgets.remove(widget)
+                if self.is_chip_selected(widget):
+                    self.toggle_chip(widget)
+                widget.setParent(None)
                 for condition in group:
                     self._restore_condition(condition)
         finally:

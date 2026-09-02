@@ -217,6 +217,10 @@ class MainWindow(QMainWindow):
                 # is a no-op when no chip is selected, so a stray Delete cannot
                 # touch the library; deleting photos is still Ctrl+D.
                 Qt.Key_Delete: self.tag_bar.remove_selected,
+                # On macOS the key labelled "delete" sends Backspace; Key_Delete
+                # is the forward-delete, reachable only with fn held. Binding
+                # both makes the key the user actually presses work.
+                Qt.Key_Backspace: self.tag_bar.remove_selected,
                 (Qt.Key_Up, Qt.ShiftModifier): self.grid.shift_move_up,
                 (Qt.Key_Down, Qt.ShiftModifier): self.grid.shift_move_down,
             },

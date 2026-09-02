@@ -279,6 +279,8 @@ class TestGrouping:
             bar.toggle_chip(entry.widget)
         bar.group_selected()
 
+        # Ungrouping acts on the selected groups, so pick the group chip first.
+        bar.toggle_chip(bar._group_widgets[0])
         bar.ungroup_selected()
 
         filters = bar.get_filters()
@@ -334,6 +336,7 @@ class TestGroupIsVisible:
             bar.toggle_chip(entry.widget)
         bar.group_selected()
 
+        bar.toggle_chip(bar._group_widgets[0])
         bar.ungroup_selected()
 
         assert bar._group_widgets == []
@@ -364,3 +367,85 @@ class TestGroupIsVisible:
         bar.group_selected()
 
         assert bar._group_widgets[0].text() == "(Beach or Area)"
+
+
+class TestDeleteKeyOnMac:
+    def test_backspace_also_removes_chips(self):
+        """On macOS the key labelled 'delete' sends Backspace.
+
+        Key_Delete is the forward-delete, which a Mac keyboard only produces
+        with fn held. Binding Backspace as well is what makes the key the user
+        actually presses work.
+        """
+        import ast
+        from pathlib import Path as P
+
+        tree = ast.parse(
+            (P(__file__).parent.parent / "src" / "tagorganizer" / "main.py").read_text()
+        )
+        init = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == "__init__"
+        )
+        bound = {
+            ast.unparse(k): ast.unparse(v)
+            for n in ast.walk(init)
+            if isinstance(n, ast.Dict)
+            for k, v in zip(n.keys, n.values, strict=False)
+            if k is not None
+        }
+        backspace = [v for k, v in bound.items() if "Key_Backspace" in k]
+        assert backspace, "Backspace is not bound; the Mac delete key does nothing"
+        assert "remove_selected" in backspace[0]
+
+
+class TestDeleteButton:
+    def test_there_is_a_button_for_removing_selected_chips(self, qapp):
+        """Not everything should require knowing a keyboard shortcut."""
+        bar = _tag_bar()
+        assert bar.delete_button.text() == "Delete tag"
+
+    def test_the_button_removes_the_selected_chips(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("Holiday")
+        bar.add_tag("Beach")
+        bar.toggle_chip(bar.selected_tags[0].widget)
+
+        bar.delete_button.click()
+
+        assert bar.get_filters().tags == ["Beach"]
+
+
+class TestUngroupOnlySelected:
+    def _two_groups(self, bar):
+        for name in ("A", "B", "C", "D"):
+            bar.add_tag(name)
+        chips = [entry.widget for entry in bar.selected_tags]
+        bar.toggle_chip(chips[0])
+        bar.toggle_chip(chips[1])
+        bar.group_selected()
+        remaining = [entry.widget for entry in bar.selected_tags]
+        bar.toggle_chip(remaining[0])
+        bar.toggle_chip(remaining[1])
+        bar.group_selected()
+
+    def test_ungroups_only_the_selected_group(self, qapp):
+        """Ungrouping everything at once would undo work the user kept."""
+        bar = _tag_bar()
+        self._two_groups(bar)
+        assert len(bar.get_filters().groups) == 2
+
+        bar.toggle_chip(bar._group_widgets[0])
+        bar.ungroup_selected()
+
+        assert len(bar.get_filters().groups) == 1
+        assert len(bar._group_widgets) == 1
+
+    def test_ungroup_with_nothing_selected_does_nothing(self, qapp):
+        bar = _tag_bar()
+        self._two_groups(bar)
+
+        bar.ungroup_selected()
+
+        assert len(bar.get_filters().groups) == 2
