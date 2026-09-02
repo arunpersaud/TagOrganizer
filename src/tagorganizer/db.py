@@ -27,6 +27,7 @@ import sqlalchemy as sa
 from sqlalchemy import or_
 
 from .models import Tag, Item, ItemTagLink, ItemParentLink
+from .scope import Scope
 from .widgets.tag_bar import Condition, Filters
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,19 @@ def _materialise_ids(session, item_ids: list[int]) -> None:
             f"INSERT INTO {_ID_TABLE} (id) VALUES (?)",
             [(i,) for i in item_ids],
         )
+
+
+def _restrict(query, session, scope: Scope):
+    """Narrow a query to a scope's items.
+
+    The ids go into a temp table rather than an IN clause: SQLite's
+    32766-variable cap is per prepared statement, so a large selection cannot
+    be split into OR'd IN clauses to get under it.
+    """
+    if not scope.is_selection:
+        return query
+    _materialise_ids(session, list(scope.item_ids))
+    return query.where(Item.id.in_(sa.text(f"SELECT id FROM {_ID_TABLE}")))
 
 
 def get_items_by_ids(item_ids: list[int]) -> list[Item]:
@@ -507,25 +521,25 @@ def add_image(filename):
         return tmp.id
 
 
-def get_items_without_date() -> list[Item]:
+def get_items_without_date(scope: Scope = None) -> list[Item]:
     with new_session() as session:
-        statement = select(Item).where(Item.date == sa.null())
-        results = session.exec(statement)
-        return results.all()
+        query = select(Item).where(Item.date == sa.null())
+        query = _restrict(query, session, scope or Scope.LIBRARY)
+        return session.exec(query).all()
 
 
-def get_items_without_location() -> list[Item]:
+def get_items_without_location(scope: Scope = None) -> list[Item]:
     """Items missing either coordinate.
 
     An item with only one coordinate cannot be placed on the map, and
     filter_query's no_gps filter tests latitude, so both halves have to count.
     """
     with new_session() as session:
-        statement = select(Item).where(
+        query = select(Item).where(
             or_(Item.longitude == sa.null(), Item.latitude == sa.null())
         )
-        results = session.exec(statement)
-        return results.all()
+        query = _restrict(query, session, scope or Scope.LIBRARY)
+        return session.exec(query).all()
 
 
 def get_items_under_no_date() -> list[Item]:
@@ -552,7 +566,7 @@ def get_all_items_with_location():
         return results.all()
 
 
-def get_all_items() -> list[Item]:
+def get_all_items(scope: Scope = None) -> list[Item]:
     """Every item in the database.
 
     Used by maintenance tasks that have to consider the whole library and then
@@ -560,10 +574,11 @@ def get_all_items() -> list[Item]:
     tasks already load their candidate set this way.
     """
     with new_session() as session:
-        return session.exec(select(Item)).all()
+        query = _restrict(select(Item), session, scope or Scope.LIBRARY)
+        return session.exec(query).all()
 
 
-def get_items_without_hashes() -> list[Item]:
+def get_items_without_hashes(scope: Scope = None) -> list[Item]:
     with new_session() as session:
         query = select(Item)
         conditions = [
@@ -571,8 +586,8 @@ def get_items_without_hashes() -> list[Item]:
             Item.data_xxhash == "",
         ]
         query = query.where(or_(*conditions))
-        results = session.exec(query)
-        return results.all()
+        query = _restrict(query, session, scope or Scope.LIBRARY)
+        return session.exec(query).all()
 
 
 def get_all_items_not_in_dir(directories: list[Path], suffix: list[str]):
