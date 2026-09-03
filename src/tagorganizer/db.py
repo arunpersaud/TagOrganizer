@@ -118,7 +118,13 @@ def set_engine(db_dir: str):
     global engine
     if engine is not None:
         engine.dispose()
-    engine = create_engine(f"sqlite:///{db_dir}")
+    engine = create_engine(
+        f"sqlite:///{db_dir}",
+        # Tasks run on a single dedicated worker thread, and the pool may hand
+        # that thread a connection first opened on the GUI thread. Safe ONLY
+        # because exactly one worker exists - revisit if a pool is introduced.
+        connect_args={"check_same_thread": False},
+    )
 
 
 def new_session() -> Session:

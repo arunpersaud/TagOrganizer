@@ -324,6 +324,15 @@ class MainWindow(QMainWindow):
         elif widget == self.map:
             self.map.on_shown()
 
+    def closeEvent(self, event):
+        """Stop the task worker before the window goes away.
+
+        A QThread still running when its owner is destroyed aborts the
+        process, which would turn a clean quit into a crash report.
+        """
+        self.tasks.shutdown()
+        super().closeEvent(event)
+
     def create_menu(self, menu: dict):
         for key, submenu in menu.items():
             tmp = self.menu_bar.addMenu(key)

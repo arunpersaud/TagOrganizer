@@ -39,32 +39,50 @@ class _Main:
         self.config = _Config(photos)
 
 
-def _manager(tmp_path):
-    from tagorganizer.tasks import TaskManager
+@pytest.fixture
+def manager_for(qapp):
+    """Build TaskManagers and shut their worker threads down afterwards.
 
-    return TaskManager(_Main(tmp_path))
+    A QThread still running when its owner is destroyed aborts the process.
+    """
+    made = []
+
+    def build(tmp_path):
+        from tagorganizer.tasks import TaskManager
+
+        manager = TaskManager(_Main(tmp_path))
+        made.append(manager)
+        return manager
+
+    yield build
+    for manager in made:
+        manager.shutdown()
 
 
 class TestTaskOrdering:
-    def test_hashes_are_computed_before_previews(self, qapp, tmp_path):
+    def test_hashes_are_computed_before_previews(self, manager_for, tmp_path):
         """Previews are keyed on uri_md5, which is empty until hashing runs.
 
         A preview built first would be written under an empty key and never
         found again, so the task would appear to succeed while nothing ever
         animates.
+
+        The order is asserted where it is decided - as the generators are
+        handed to the worker - because once queued they start running and the
+        queue empties underneath any assertion about it.
         """
-        manager = _manager(tmp_path)
+        manager = manager_for(tmp_path)
+        queued = []
+        manager.runner.enqueue = lambda gen: queued.append(gen.__name__)
+
         manager.build_video_previews()
 
-        assert len(manager.generators) == 2
-        names = [gen.__name__ for gen in manager.generators]
-        assert names[0] == "task_update_hashes"
-        assert names[1] == "task_build_video_previews"
+        assert queued == ["task_update_hashes", "task_build_video_previews"]
 
 
 class TestPreviewGenerator:
     def test_yields_total_and_current_for_the_progress_bar(
-        self, qapp, tmp_path, temp_db
+        self, manager_for, tmp_path, temp_db
     ):
         from sqlmodel import Session
 
@@ -76,7 +94,7 @@ class TestPreviewGenerator:
                 session.add(Item(uri=f"/v/{i}.mp4", uri_md5=f"{i:032x}"))
             session.commit()
 
-        manager = _manager(tmp_path)
+        manager = manager_for(tmp_path)
         progress = list(manager.task_build_video_previews())
 
         assert progress, "the generator must yield progress at least once"
@@ -84,7 +102,7 @@ class TestPreviewGenerator:
         total = progress[0][0]
         assert total == 3
 
-    def test_ignores_photos(self, qapp, tmp_path, temp_db):
+    def test_ignores_photos(self, manager_for, tmp_path, temp_db):
         """Stills already cover photos; only videos get a sprite sheet."""
         from sqlmodel import Session
 
@@ -96,12 +114,14 @@ class TestPreviewGenerator:
             session.add(Item(uri="/p/b.png", uri_md5="b" * 32))
             session.commit()
 
-        manager = _manager(tmp_path)
+        manager = manager_for(tmp_path)
         progress = list(manager.task_build_video_previews())
 
         assert progress[0][0] == 0
 
-    def test_skips_videos_that_already_have_a_sheet(self, qapp, tmp_path, temp_db):
+    def test_skips_videos_that_already_have_a_sheet(
+        self, manager_for, tmp_path, temp_db
+    ):
         """Re-running the task must not re-extract everything."""
         from sqlmodel import Session
 
@@ -118,7 +138,7 @@ class TestPreviewGenerator:
         existing.parent.mkdir(parents=True, exist_ok=True)
         existing.write_bytes(b"already here")
 
-        manager = _manager(tmp_path)
+        manager = manager_for(tmp_path)
         list(manager.task_build_video_previews())
 
         assert existing.read_bytes() == b"already here"
