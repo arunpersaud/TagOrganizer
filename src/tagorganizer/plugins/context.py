@@ -1,0 +1,88 @@
+"""What a plugin is allowed to touch.
+
+This class is the whole public API. Plugins never import ``db``, so the
+database layer stays free to change as long as these methods keep their
+meaning. Anything a plugin needs that is not here is a gap in the API rather
+than a reason to reach past it.
+
+Copyright 2024 Arun Persaud.
+
+This file is part of TagOrganizer.
+
+TagOrganizer is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at
+your option) any later version.
+
+TagOrganizer is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
+"""
+
+from pathlib import Path
+
+from .. import db
+from ..models import ItemTagLink
+from ..scope import Scope
+
+
+class TaskContext:
+    """Handed to a plugin's ``run``; the only thing it should need."""
+
+    def __init__(self, scope: Scope, photos: Path, videos: Path, message_sink):
+        self.scope = scope
+        self.photos = photos
+        self.videos = videos
+        self._message_sink = message_sink
+        self._cancelled = False
+
+    def items(self):
+        """Every item in scope.
+
+        The whole set is loaded rather than streamed: the tasks this replaces
+        already worked that way, and a plugin that filters in Python needs the
+        list anyway.
+        """
+        return iter(db.get_all_items(self.scope))
+
+    def count(self) -> int:
+        """How many items are in scope, for a progress total."""
+        return len(db.get_all_items(self.scope))
+
+    def add_tag(self, item, name: str) -> None:
+        """Tag an item, creating the tag if it is new.
+
+        Goes through db.add_tag, so hierarchy and case-insensitive lookup
+        behave exactly as they do when the user tags by hand - a plugin must
+        not be able to create a second "alice" beside an existing "Alice".
+
+        Linking is skipped when the link already exists: ItemTagLink has a
+        composite primary key, so re-running a plugin over the same photos
+        would otherwise raise instead of being a no-op.
+        """
+        tag_id = db.add_tag(name)
+        with db.new_session() as session:
+            if session.get(ItemTagLink, (item.id, tag_id)) is None:
+                session.add(ItemTagLink(item_id=item.id, tag_id=tag_id))
+                session.commit()
+
+    def update(self, items) -> None:
+        """Persist items the plugin has changed."""
+        if items:
+            db.update_items_in_db(items)
+
+    def message(self, text: str) -> None:
+        """Say something in the status bar."""
+        self._message_sink(text)
+
+    @property
+    def cancelled(self) -> bool:
+        """True once the user has stopped the task; check it between yields."""
+        return self._cancelled
+
+    def cancel(self) -> None:
+        self._cancelled = True

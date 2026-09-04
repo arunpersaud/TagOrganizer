@@ -616,7 +616,15 @@ def get_all_items_not_in_dir(directories: list[Path], suffix: list[str]):
 
 
 def update_items_in_db(items: list[Item]) -> None:
-    with new_session() as session:
+    """Persist changes to items the caller already holds.
+
+    expire_on_commit=False so the caller's objects stay usable afterwards. The
+    default expires every attribute on commit, and the next attribute access
+    then tries to reload through a session that has already closed - which
+    raises DetachedInstanceError. The existing tasks never happened to touch an
+    item again after saving it, but a plugin reasonably would.
+    """
+    with Session(engine, expire_on_commit=False) as session:
         for i in items:
             session.add(i)
         session.commit()
