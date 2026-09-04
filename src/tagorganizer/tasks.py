@@ -40,6 +40,8 @@ from more_itertools import chunked
 
 from . import db
 from . import config
+from .plugins import Registry
+from .plugins.context import TaskContext
 from .widgets.helper import (
     build_video_preview,
     calculate_md5,
@@ -153,6 +155,9 @@ class TaskManager:
     def __init__(self, main):
         self.main = main
 
+        self.registry = Registry()
+        self.broken = []
+
         self.runner = TaskRunner()
         self.runner.progress.connect(self._on_progress)
         # Resolved at emit time, not now: the manager is built before the
@@ -201,6 +206,37 @@ class TaskManager:
         if was_running:
             self.main.messages.add("Task done")
 
+    def load_plugins(self, directories=None):
+        """Find the plugins and report any that could not be loaded.
+
+        A broken plugin is named in the status bar rather than silently
+        missing: "my plugin does not appear" has to be answerable.
+        """
+        from .plugins.discovery import load_plugins, plugin_paths
+
+        self.registry, self.broken = load_plugins(
+            plugin_paths() if directories is None else directories
+        )
+        for broken in self.broken:
+            self.main.messages.add(
+                f"Plugin {broken.path.name} failed to load: {broken.error}"
+            )
+
+    def run_plugin(self, plugin, scope):
+        """Build the context, start the plugin, and name the scope it got."""
+        ctx = TaskContext(
+            scope=scope,
+            photos=self.main.config.photos,
+            videos=self.main.config.videos,
+            message_sink=self.main.messages.add,
+        )
+        self.main.messages.add(f"{plugin.name}: running on {scope.describe()}")
+        # A plugin whose run() raises immediately produces a generator that
+        # raises on first next(), which the worker catches like any other
+        # failure - so there is no separate error path here.
+        self.register_generator(plugin.run(ctx))
+        self.start()
+
     def shutdown(self):
         """Stop the worker thread.
 
@@ -211,12 +247,26 @@ class TaskManager:
         self.runner.shutdown()
 
     def wait_for_idle(self, timeout_ms=10_000) -> bool:
-        """Spin the event loop until the worker has finished."""
+        """Spin the event loop until the worker has finished.
+
+        Events are pumped before the idleness check, and once more after it:
+        progress and messages are queued signals, so the worker can already be
+        idle while its last message is still in flight. Returning early left
+        callers looking at a status bar that had not caught up yet.
+
+        The trailing pump covers the interleaving where the worker emits its
+        last message and goes idle *between* the pump and the check above. No
+        test forces that window - it cannot be scheduled deterministically -
+        so treat this line as load-bearing even though nothing goes red if it
+        is removed.
+        """
         for _ in range(timeout_ms // 10):
-            if self.runner.is_idle():
-                return True
             QCoreApplication.processEvents()
+            if self.runner.is_idle():
+                QCoreApplication.processEvents()
+                return True
             QThread.msleep(10)
+        QCoreApplication.processEvents()
         return self.runner.is_idle()
 
     def _set_progress_visible(self, visible):
