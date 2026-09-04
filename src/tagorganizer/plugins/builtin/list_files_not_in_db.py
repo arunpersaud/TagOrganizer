@@ -6,8 +6,8 @@ This file is part of TagOrganizer, distributed under the GNU General Public
 License v3 or later. See the LICENSE file for details.
 """
 
-from .. import Plugin
-from ... import db
+from tagorganizer.plugins import Plugin
+from tagorganizer import db
 
 # The thumbnail cache lives beside the photos, and .DS_Store is noise: neither
 # is a missing import, and reporting them would bury the real answers.

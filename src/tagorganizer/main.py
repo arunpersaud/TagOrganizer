@@ -45,6 +45,7 @@ from qtpy.QtCore import Qt, QEvent, qInstallMessageHandler, QtMsgType
 from docopt import docopt
 
 from . import db
+from .scope import Scope, resolve_scope
 from . import config
 from . import DBimport
 from . import dbmove
@@ -142,19 +143,6 @@ class MainWindow(QMainWindow):
                 "---",
                 ["Quit", "Ctrl+Q", self.close],
             ],
-            "Tasks": [
-                ["Update Timestamps in DB", self.tasks.db_update_timestamps],
-                ["Update Locations in DB", self.tasks.db_update_locations],
-                ["Update Hashes in DB", self.tasks.db_update_hashes],
-                ["Check for Files in Default Dirs", self.tasks.list_files_not_in_db],
-                [
-                    "Check for Files outside of Default Dirs",
-                    self.tasks.list_files_not_in_config_dir,
-                ],
-                ["Move Files with new date set", self.tasks.fix_no_date_files],
-                ["Move Files to Default Dirs", self.tasks.move_files],
-                ["Build Video Previews", self.tasks.build_video_previews],
-            ],
             "Profiles": [],
             "Help": [["About", "Ctrl+H", self.show_about_dialog]],
         }
@@ -224,6 +212,13 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.messages, "Messages")
 
         self.tabs.currentChanged.connect(self.on_tab_changed)
+
+        # Loaded once the window is fully assembled. A plugin that fails to
+        # import is reported through the message widget, which needs the tab
+        # bar to exist - and a startup crash is exactly what the plugin error
+        # isolation exists to prevent.
+        self.tasks.load_plugins()
+        self.build_plugin_menu()
 
         self.update_items()
 
@@ -323,6 +318,32 @@ class MainWindow(QMainWindow):
             self.update_single_item()
         elif widget == self.map:
             self.map.on_shown()
+
+    def build_plugin_menu(self):
+        """Create the task menus from the plugin registry.
+
+        The scope is resolved inside the click handler rather than here: the
+        menu is built once at startup, and the selection changes constantly.
+        """
+        for category, plugins in self.tasks.registry.by_category().items():
+            menu = self.menu_bar.addMenu(category)
+            self.menu[category] = menu
+            for plugin in plugins:
+                action = QAction(text=plugin.name, parent=self)
+                if plugin.description:
+                    action.setToolTip(plugin.description)
+                # p=plugin binds this iteration's plugin. Without it every
+                # entry would close over the loop variable and run the last
+                # plugin in the category.
+                action.triggered.connect(
+                    lambda checked=False, p=plugin: self.tasks.run_plugin(
+                        p,
+                        resolve_scope(self.selection.ids())
+                        if p.accepts_selection
+                        else Scope.LIBRARY,
+                    )
+                )
+                menu.addAction(action)
 
     def closeEvent(self, event):
         """Stop the task worker before the window goes away.
@@ -902,10 +923,14 @@ class MainWindow(QMainWindow):
             self.update_items()
             self.messages.add(f"finished adding {directory}")
 
-            # Build previews for anything new straight away, so an imported
-            # batch of videos animates without having to be asked for. The task
-            # is incremental, so this costs nothing for the files already done.
-            self.tasks.build_video_previews()
+            # Run the automatic plugins over anything new straight away, so
+            # an imported batch is hashed and animates without being asked
+            # for. They are incremental, so this costs nothing for files that
+            # are already done. Registry order matters here: hashing has to
+            # precede preview building, because a preview is cached under the
+            # item's md5.
+            for plugin in self.tasks.registry.auto_plugins():
+                self.tasks.run_plugin(plugin, Scope.LIBRARY)
 
     def add_tag(self):
         dialog = AddTagDialog(self)

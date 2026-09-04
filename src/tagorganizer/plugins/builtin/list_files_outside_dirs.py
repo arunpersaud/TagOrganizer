@@ -8,8 +8,8 @@ License v3 or later. See the LICENSE file for details.
 
 from pathlib import Path
 
-from .. import Plugin
-from ... import config, db
+from tagorganizer.plugins import Plugin
+from tagorganizer import config, db
 
 
 class ListFilesOutsideDirs(Plugin):

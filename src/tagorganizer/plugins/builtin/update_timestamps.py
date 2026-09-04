@@ -9,8 +9,8 @@ License v3 or later. See the LICENSE file for details.
 from datetime import datetime
 from pathlib import Path
 
-from .. import Plugin
-from ...widgets.helper import load_exif
+from tagorganizer.plugins import Plugin
+from tagorganizer.widgets.helper import load_exif
 
 CHUNK = 10
 

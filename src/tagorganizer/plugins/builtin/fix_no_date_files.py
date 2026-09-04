@@ -8,9 +8,9 @@ License v3 or later. See the LICENSE file for details.
 
 from pathlib import Path
 
-from .. import Plugin
-from ... import db
-from ._move import destination_for, move_item
+from tagorganizer.plugins import Plugin
+from tagorganizer import db
+from tagorganizer.plugins.builtin._move import destination_for, move_item
 
 CHUNK = 10
 

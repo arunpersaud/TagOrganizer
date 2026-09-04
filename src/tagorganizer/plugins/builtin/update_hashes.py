@@ -8,8 +8,8 @@ License v3 or later. See the LICENSE file for details.
 
 from pathlib import Path
 
-from .. import Plugin
-from ...widgets.helper import calculate_md5, calculate_xxhash
+from tagorganizer.plugins import Plugin
+from tagorganizer.widgets.helper import calculate_md5, calculate_xxhash
 
 CHUNK = 10
 

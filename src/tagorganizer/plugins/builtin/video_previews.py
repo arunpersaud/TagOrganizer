@@ -8,9 +8,9 @@ License v3 or later. See the LICENSE file for details.
 
 from pathlib import Path
 
-from .. import Plugin
-from ... import config
-from ...widgets.helper import build_video_preview, preview_file
+from tagorganizer.plugins import Plugin
+from tagorganizer import config
+from tagorganizer.widgets.helper import build_video_preview, preview_file
 
 # Previews are built at the grid's default tile width; a hover shows them
 # scaled to whatever the tile currently is.

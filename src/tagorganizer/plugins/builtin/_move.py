@@ -12,8 +12,12 @@ import logging
 import shutil
 from pathlib import Path
 
-from ... import config
-from ...widgets.helper import calculate_md5, calculate_xxhash, forget_thumbnail
+from tagorganizer import config
+from tagorganizer.widgets.helper import (
+    calculate_md5,
+    calculate_xxhash,
+    forget_thumbnail,
+)
 
 logger = logging.getLogger(__name__)
 
