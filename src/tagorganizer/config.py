@@ -48,8 +48,20 @@ PHOTO_SUFFIX = [
     ".tiff",
     ".tif",
     ".webp",
+    ".heic",
+    ".heif",
 ]
-VIDEO_SUFFIX = [".avi", ".mp4", ".mkv", ".mov", ".wmv", ".flv", ".webm"]
+VIDEO_SUFFIX = [
+    ".avi",
+    ".mp4",
+    ".mkv",
+    ".mov",
+    ".wmv",
+    ".flv",
+    ".webm",
+    ".3gp",
+    ".m4v",
+]
 ALL_SUFFIX = PHOTO_SUFFIX + VIDEO_SUFFIX
 
 

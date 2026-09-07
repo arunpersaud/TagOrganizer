@@ -20,6 +20,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 from functools import lru_cache
 import hashlib
+import io
 import logging
 from pathlib import Path
 
@@ -32,6 +33,7 @@ import cv2
 import xxhash
 
 from .. import config
+from ..metadata import heif_brand
 from ..models import Item
 
 logger = logging.getLogger(__name__)
@@ -337,9 +339,20 @@ def load_exif(file):
     file = Path(file)
     if not file.is_file():
         return {}
+
+    brand = heif_brand(file)
+    if brand is not None and brand != b"heic":
+        # exifread dispatches on the exact bytes b"ftypheic" and returns
+        # nothing for every other HEIF brand, though the reader behind that
+        # check handles them all. Presenting the file under the brand it does
+        # recognise is the smallest honest fix; the alternative is
+        # reimplementing its container walk.
+        data = bytearray(file.read_bytes())
+        data[8:12] = b"heic"
+        return exif.process_file(io.BytesIO(bytes(data)))
+
     with file.open("rb") as f:
-        tags = exif.process_file(f)
-        return tags
+        return exif.process_file(f)
 
 
 def get_orientation(file):
@@ -449,7 +462,17 @@ class ThumbnailResultEmitter(QObject):
         self.thumbnail_ready.emit(result.key, result.qimage)
 
     def handle_result(self, key, qimage: QImage) -> None:
-        """Called from worker thread to deliver result via signal."""
+        """Called from worker thread to deliver result via signal.
+
+        A file Qt cannot decode comes back as None, and the signal is typed
+        QImage: emitting None aborts the process rather than raising. That is
+        reachable for any format the local Qt build lacks - HEIC on a machine
+        without qtimageformats, for instance - so it is dropped here and the
+        tile keeps its placeholder.
+        """
+        if qimage is None:
+            logger.debug("no thumbnail could be decoded for %s", key)
+            return
         self._result_ready.emit(_ResultReady(key, qimage))
 
 

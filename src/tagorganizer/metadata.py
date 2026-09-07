@@ -174,3 +174,40 @@ def video_gps(path) -> tuple[float, float] | None:
         return float(match.group(1)), float(match.group(2))
     except ValueError:
         return None
+
+
+# The HEIF family as written by phones and cameras. exifread recognises only
+# the first of these and returns nothing for the rest, even though its HEIC
+# reader handles them all.
+HEIF_BRANDS = frozenset(
+    [
+        b"heic",
+        b"heix",
+        b"hevc",
+        b"hevx",
+        b"heim",
+        b"heis",
+        b"hevm",
+        b"hevs",
+        b"mif1",
+        b"msf1",
+    ]
+)
+
+
+def heif_brand(path) -> bytes | None:
+    """The HEIF brand of this file, or None if it is not a HEIF image.
+
+    MP4 videos share the ftyp box, so the brand is what separates a HEIC photo
+    from a video.
+    """
+    path = Path(path)
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(12)
+    except OSError:
+        return None
+    if len(header) < 12 or header[4:8] != b"ftyp":
+        return None
+    brand = header[8:12]
+    return brand if brand in HEIF_BRANDS else None
