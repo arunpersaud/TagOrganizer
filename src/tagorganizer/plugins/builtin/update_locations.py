@@ -9,6 +9,7 @@ License v3 or later. See the LICENSE file for details.
 from pathlib import Path
 
 from tagorganizer.plugins import Plugin
+from tagorganizer.metadata import video_gps
 from tagorganizer.widgets.helper import load_exif
 
 CHUNK = 10
@@ -60,6 +61,14 @@ class UpdateLocations(Plugin):
                     )
                     pending.append(item)
                     fixed += 1
+                else:
+                    # No EXIF GPS. Videos keep theirs in a container box that
+                    # exifread does not read at all.
+                    from_container = video_gps(path)
+                    if from_container is not None:
+                        item.latitude, item.longitude = from_container
+                        pending.append(item)
+                        fixed += 1
             done += 1
             if len(pending) >= CHUNK:
                 ctx.update(pending)

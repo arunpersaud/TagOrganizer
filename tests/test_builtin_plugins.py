@@ -5,6 +5,7 @@ plugin API. If the API could not express them it would not be ready for
 anyone else's plugin, so these tests are as much about the API as the tasks.
 """
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -192,3 +193,88 @@ class TestRegisteredCategories:
             VideoPreviews().category,
         }
         assert len(categories) == 1
+
+
+class TestTimestampsFromVideosAndNames:
+    """EXIF, then the container, then the filename."""
+
+    def _item(self, temp_db, path):
+        with Session(temp_db) as session:
+            session.add(Item(uri=str(path)))
+            session.commit()
+
+    def test_a_video_gets_its_container_date(self, temp_db, tmp_path):
+        from synthetic_media import write_mp4
+
+        self._item(
+            temp_db, write_mp4(tmp_path / "a.mp4", datetime(2021, 3, 7, 14, 25, 30))
+        )
+        run(UpdateTimestamps(), Scope.LIBRARY, tmp_path)
+        assert db.get_all_items()[0].date == datetime(2021, 3, 7, 14, 25, 30)
+
+    def test_a_dated_filename_is_used_when_the_file_has_no_date(
+        self, temp_db, tmp_path
+    ):
+        path = tmp_path / "IMG_20210307_142530.jpg"
+        path.write_bytes(b"not really a jpeg")
+        self._item(temp_db, path)
+
+        run(UpdateTimestamps(), Scope.LIBRARY, tmp_path)
+        assert db.get_all_items()[0].date == datetime(2021, 3, 7, 14, 25, 30)
+
+    def test_the_container_date_beats_the_filename(self, temp_db, tmp_path):
+        """The file's own record outranks a guess made from its name."""
+        from synthetic_media import write_mp4
+
+        self._item(
+            temp_db,
+            write_mp4(
+                tmp_path / "VID_20200101_000000.mp4", datetime(2021, 3, 7, 14, 25, 30)
+            ),
+        )
+        run(UpdateTimestamps(), Scope.LIBRARY, tmp_path)
+        assert db.get_all_items()[0].date == datetime(2021, 3, 7, 14, 25, 30)
+
+    def test_an_undated_unnamed_file_stays_undated(self, temp_db, tmp_path):
+        """Better no date than a wrong one."""
+        path = tmp_path / "holiday.mp4"
+        path.write_bytes(b"junk")
+        self._item(temp_db, path)
+
+        run(UpdateTimestamps(), Scope.LIBRARY, tmp_path)
+        assert db.get_all_items()[0].date is None
+
+    def test_a_video_without_a_container_date_falls_back_to_its_name(
+        self, temp_db, tmp_path
+    ):
+        from synthetic_media import write_mp4
+
+        self._item(temp_db, write_mp4(tmp_path / "VID_20210307_142530.mp4"))
+        run(UpdateTimestamps(), Scope.LIBRARY, tmp_path)
+        assert db.get_all_items()[0].date == datetime(2021, 3, 7, 14, 25, 30)
+
+
+class TestLocationsFromVideos:
+    def test_a_video_gets_its_container_gps(self, temp_db, tmp_path):
+        from synthetic_media import write_mp4
+
+        path = write_mp4(tmp_path / "a.mp4", None, gps=(40.7128, -74.0060))
+        with Session(temp_db) as session:
+            session.add(Item(uri=str(path)))
+            session.commit()
+
+        run(UpdateLocations(), Scope.LIBRARY, tmp_path)
+        item = db.get_all_items()[0]
+        assert round(item.latitude, 4) == 40.7128
+        assert round(item.longitude, 4) == -74.0060
+
+    def test_a_video_without_gps_is_left_alone(self, temp_db, tmp_path):
+        from synthetic_media import write_mp4
+
+        path = write_mp4(tmp_path / "a.mp4", datetime(2021, 3, 7))
+        with Session(temp_db) as session:
+            session.add(Item(uri=str(path)))
+            session.commit()
+
+        run(UpdateLocations(), Scope.LIBRARY, tmp_path)
+        assert db.get_all_items()[0].latitude is None
