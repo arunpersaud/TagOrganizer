@@ -22,8 +22,22 @@ You should have received a copy of the GNU General Public License
 along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
+import logging
 import re
 from datetime import datetime
+from pathlib import Path
+
+# Silence hachoir before its parsers are imported: it prints a [warn] line for
+# every parser it tries and rejects, and a task running over a whole library
+# would bury the console. This project logs rather than prints, deliberately.
+import hachoir.core.config as _hachoir_config
+
+_hachoir_config.quiet = True
+
+from hachoir.metadata import extractMetadata  # noqa: E402
+from hachoir.parser import createParser  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 # Cameras, phones and messaging apps write the date into the name in a handful
 # of shapes. Ordered most specific first, so a name that carries a time is not
@@ -74,3 +88,89 @@ def date_from_filename(name: str) -> datetime | None:
             if _EARLIEST_YEAR <= found.year <= datetime.now().year + 1:
                 return found
     return None
+
+
+def video_date(path) -> datetime | None:
+    """The creation time recorded in a video container.
+
+    Covers mp4, mov, avi, mkv, wmv and flv through hachoir. Returns None for
+    anything it cannot read: an unreadable file is not an error here, just an
+    item that keeps whatever date it already had.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        parser = createParser(str(path))
+        if parser is None:
+            return None
+        with parser:
+            metadata = extractMetadata(parser)
+        if metadata is None or not metadata.has("creation_date"):
+            return None
+        found = metadata.get("creation_date")
+    except Exception:
+        # hachoir raises a wide variety of things on malformed input, and none
+        # of it should stop a task part way through a library.
+        logger.debug("no container date for %s", path, exc_info=True)
+        return None
+    return found if isinstance(found, datetime) else None
+
+
+def _find_box(data: bytes, path: list[bytes]) -> bytes | None:
+    """Walk ISO-BMFF boxes to a named path such as [b"moov", b"udta"].
+
+    Boxes are length-prefixed. A corrupt length would otherwise leave this
+    looping on one box forever or reading past the buffer, so both are refused
+    rather than trusted.
+    """
+    want, rest = path[0], path[1:]
+    offset = 0
+    while offset + 8 <= len(data):
+        size = int.from_bytes(data[offset : offset + 4], "big")
+        kind = data[offset + 4 : offset + 8]
+        if size < 8 or offset + size > len(data):
+            return None
+        if kind == want:
+            body = data[offset + 8 : offset + size]
+            return _find_box(body, rest) if rest else body
+        offset += size
+    return None
+
+
+# ISO 6709, as written into the ©xyz box: +40.7128-074.0060/. The sign is
+# mandatory, which is what lets the two numbers be told apart without knowing
+# how many digits each uses.
+_ISO6709 = re.compile(rb"([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)")
+
+
+def video_gps(path) -> tuple[float, float] | None:
+    """Latitude and longitude from a video's ©xyz box.
+
+    Only the ISO-BMFF family (mp4, mov, m4v, 3gp) records GPS at all, and
+    hachoir does not surface it, so the box is read directly.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+
+    payload = _find_box(data, [b"moov", b"udta", b"\xa9xyz"])
+    if payload is None:
+        return None
+
+    # Two bytes of text length and two of language code precede the string.
+    # No test fails if the slice is dropped - those four bytes happen never to
+    # look like coordinates - but skipping them is what the format says, and
+    # the regex should not be relied on to reject a header it was never meant
+    # to see.
+    match = _ISO6709.search(payload[4:])
+    if match is None:
+        return None
+    try:
+        return float(match.group(1)), float(match.group(2))
+    except ValueError:
+        return None
