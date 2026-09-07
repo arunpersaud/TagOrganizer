@@ -20,6 +20,7 @@ dependencies = [
     "docopt>=0.6.2",
     "exifread>=3.0.0",
     "folium>=0.19.3",
+    "hachoir>=3.3.0",
     "matplotlib>=3.10.0",
     "more-itertools>=10.5.0",
     "numpy>=2.2.1",
