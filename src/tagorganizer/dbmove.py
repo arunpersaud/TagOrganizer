@@ -28,6 +28,7 @@ from sqlalchemy import text, create_engine as sa_create_engine
 from sqlmodel import SQLModel, Session
 
 from .migrations import upgrade_db, stamp_db
+from . import paths
 from .db import chunk_ids
 
 logger = logging.getLogger(__name__)
@@ -195,20 +196,33 @@ def move_items(session: Session, target_path: Path, item_ids: list[int]) -> Move
         conn = session.connection()
         conn.exec_driver_sql(f"ATTACH DATABASE '{target_path}' AS tgt")
 
-        # Step 1: Determine which items can be moved (those not already in target by uri).
+        # Step 1: Determine which items can be moved (those not already in
+        # target by uri). Whether case matters follows the filesystem holding
+        # the target: on macOS and Windows /p/A.JPG and /p/a.jpg are one file,
+        # so moving one beside the other would leave two rows for one photo -
+        # and the unique constraint cannot catch that, because the strings
+        # genuinely differ. On Linux they are two files and both belong.
         # Membership is decided once; both insert and delete act on exactly this set.
         # Use a set to track movable ids, then convert to list to preserve order.
         movable_set = set()
+        fold_case = paths.is_case_insensitive(Path(target_path).parent)
         raw_conn = conn.connection
         for chunk in chunk_ids(item_ids):
             if not chunk:
                 continue
             placeholders = ",".join("?" * len(chunk))
-            query = f"""
-                SELECT id FROM main.item
-                WHERE id IN ({placeholders})
-                AND uri NOT IN (SELECT uri FROM tgt.item)
-            """
+            if fold_case:
+                query = f"""
+                    SELECT id FROM main.item
+                    WHERE id IN ({placeholders})
+                    AND lower(uri) NOT IN (SELECT lower(uri) FROM tgt.item)
+                """
+            else:
+                query = f"""
+                    SELECT id FROM main.item
+                    WHERE id IN ({placeholders})
+                    AND uri NOT IN (SELECT uri FROM tgt.item)
+                """
             cursor = raw_conn.cursor()
             result_rows = cursor.execute(query, chunk).fetchall()
             movable_set.update([row[0] for row in result_rows])

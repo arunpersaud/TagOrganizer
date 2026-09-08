@@ -431,3 +431,76 @@ class TestMoveItemsAtomicity:
             target_ids_before == target_ids_after
         ), "Target database was modified despite transaction failure"
         assert target_count_before == target_count_after
+
+
+class TestCaseInsensitiveFilesystems:
+    """On macOS and Windows /p/A.JPG and /p/a.jpg are one file.
+
+    Moving one into a target that already holds the other would leave two rows
+    pointing at a single photo - and the unique constraint would not catch it,
+    because the two strings genuinely differ.
+    """
+
+    def _setup(self, setup, target_uri, source_uri):
+        with Session(setup["target_engine"]) as session:
+            session.add(Item(uri=target_uri))
+            session.commit()
+
+        with Session(setup["source_engine"]) as session:
+            item = Item(uri=source_uri)
+            session.add(item)
+            session.commit()
+            session.refresh(item)
+            return item.id
+
+    def test_a_case_variant_is_skipped_when_the_filesystem_ignores_case(
+        self, source_and_target, monkeypatch
+    ):
+        monkeypatch.setattr("tagorganizer.paths.is_case_insensitive", lambda path: True)
+        item_id = self._setup(source_and_target, "/p/Z.JPG", "/p/z.jpg")
+
+        with Session(source_and_target["source_engine"]) as session:
+            result = move_items(session, source_and_target["target_path"], [item_id])
+
+        assert result.skipped_ids == [item_id]
+        assert result.moved_ids == []
+
+    def test_the_photo_stays_in_the_source_when_skipped(
+        self, source_and_target, monkeypatch
+    ):
+        """Skipped must mean untouched, not quietly deleted."""
+        monkeypatch.setattr("tagorganizer.paths.is_case_insensitive", lambda path: True)
+        item_id = self._setup(source_and_target, "/p/Z.JPG", "/p/z.jpg")
+
+        with Session(source_and_target["source_engine"]) as session:
+            move_items(session, source_and_target["target_path"], [item_id])
+
+        with Session(source_and_target["source_engine"]) as session:
+            assert session.get(Item, item_id) is not None
+
+    def test_a_case_variant_moves_when_the_filesystem_respects_case(
+        self, source_and_target, monkeypatch
+    ):
+        """On Linux they really are two different files."""
+        monkeypatch.setattr(
+            "tagorganizer.paths.is_case_insensitive", lambda path: False
+        )
+        item_id = self._setup(source_and_target, "/p/Z.JPG", "/p/z.jpg")
+
+        with Session(source_and_target["source_engine"]) as session:
+            result = move_items(session, source_and_target["target_path"], [item_id])
+
+        assert result.moved_ids == [item_id]
+
+    def test_an_exact_duplicate_is_skipped_either_way(
+        self, source_and_target, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "tagorganizer.paths.is_case_insensitive", lambda path: False
+        )
+        item_id = self._setup(source_and_target, "/p/z.jpg", "/p/z.jpg")
+
+        with Session(source_and_target["source_engine"]) as session:
+            result = move_items(session, source_and_target["target_path"], [item_id])
+
+        assert result.skipped_ids == [item_id]
