@@ -55,7 +55,7 @@ class ItemParentLink(SQLModel, table=True):
 
 class Tag(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    name: str
+    name: str = Field(index=True, unique=True)
     parent_id: int | None = Field(default=None, foreign_key="tag.id")
 
     parent: Optional["Tag"] = Relationship(
@@ -70,7 +70,7 @@ class Tag(SQLModel, table=True):
 
 class Item(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    uri: str = Field(index=True)
+    uri: str = Field(index=True, unique=True)
     uri_md5: str = Field(default="")
     data_xxhash: str = Field(default="", index=True)
     camera: str | None = Field(default=None, index=True)

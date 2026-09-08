@@ -173,3 +173,58 @@ class TestRemoveTags:
             db.remove_tags([Item(id=items[2])], [Tag(id=tags["Beach"], name="Beach")])
             == 0
         )
+
+
+class TestAddTagRace:
+    """add_tag looks the name up, then inserts.
+
+    Harmless when everything ran on the GUI thread; a real interleaving now
+    that plugins run on a worker while the user types in the tag bar. The
+    unique constraint turns the lost race into an IntegrityError, which
+    add_tag has to absorb rather than propagate.
+    """
+
+    @pytest.fixture
+    def lost_race(self, temp_db, monkeypatch):
+        """The tag exists, but add_tag's lookup misses it.
+
+        Exactly what a competing insert committed between the lookup and our
+        own insert looks like from here - and deterministic, which two real
+        threads would not be.
+        """
+        from sqlmodel import Session
+
+        from tagorganizer.models import Tag
+
+        with Session(db.engine) as session:
+            session.add(Tag(name="Beach"))
+            session.commit()
+
+        missed = []
+        real_exec = Session.exec
+
+        class _Empty:
+            def first(self):
+                return None
+
+        def exec_(self, statement, *args, **kwargs):
+            if not missed:
+                missed.append(True)
+                return _Empty()
+            return real_exec(self, statement, *args, **kwargs)
+
+        monkeypatch.setattr(Session, "exec", exec_)
+
+    def test_the_loser_of_the_race_still_gets_a_usable_id(self, lost_race):
+        tag_id = db.add_tag("Beach")
+        assert tag_id is not None
+        assert db.get_tag_by_id(tag_id).name == "Beach"
+
+    def test_only_one_tag_exists_afterwards(self, lost_race):
+        from sqlmodel import select
+
+        from tagorganizer.models import Tag
+
+        db.add_tag("Beach")
+        with db.new_session() as session:
+            assert len(session.exec(select(Tag)).all()) == 1

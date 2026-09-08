@@ -25,6 +25,7 @@ from sqlmodel import SQLModel, create_engine, select, Session, func, delete
 from sqlalchemy.orm import selectinload
 import sqlalchemy as sa
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 
 from .models import Tag, Item, ItemTagLink, ItemParentLink
 from .scope import Scope
@@ -176,7 +177,22 @@ def add_tag(name):
 
         new_tag = Tag(name=name)
         session.add(new_tag)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            # Someone created the tag between the lookup above and this
+            # insert. Tagging happens from the GUI thread and from plugins on
+            # the worker at the same time, so this is a real interleaving, not
+            # a theoretical one. The other writer's tag is just as good as
+            # ours would have been.
+            session.rollback()
+            logger.debug("tag %r was created concurrently; using theirs", name)
+            existing_tag = session.exec(
+                select(Tag).where(func.lower(Tag.name) == name.lower())
+            ).first()
+            if existing_tag is None:
+                raise
+            return existing_tag.id
         return new_tag.id
 
 
@@ -329,121 +345,6 @@ def delete_tag(id: int):
             session.exec(delete(ItemTagLink).where(ItemTagLink.tag_id == id))
             session.delete(tag)
             session.commit()
-
-
-# Fields a duplicate may know that the survivor does not. Merging fills these
-# in rather than discarding them: the whole point of keeping the older row is
-# that no work is lost, and a duplicate imported later may well have been
-# through more enrichment.
-_MERGEABLE_FIELDS = (
-    "date",
-    "latitude",
-    "longitude",
-    "camera",
-    "uri_md5",
-    "data_xxhash",
-)
-
-
-def find_duplicate_uris() -> dict[str, list[int]]:
-    """Uris held by more than one item, each with its ids oldest first.
-
-    Two rows for one file means tagging one leaves the other untagged and the
-    grid shows the photo twice.
-    """
-    with new_session() as session:
-        rows = session.exec(select(Item.id, Item.uri).order_by(Item.id)).all()
-    by_uri: dict[str, list[int]] = {}
-    for item_id, uri in rows:
-        by_uri.setdefault(uri, []).append(item_id)
-    return {uri: ids for uri, ids in by_uri.items() if len(ids) > 1}
-
-
-def find_duplicate_tag_names() -> dict[str, list[int]]:
-    """Tag names that collide, keyed by the folded name, ids oldest first.
-
-    get_tag lowercases and strips before comparing, so two rows differing only
-    in case or surrounding space are one tag to every lookup in the app - and
-    which of them a query happens to return is arbitrary.
-    """
-    with new_session() as session:
-        rows = session.exec(select(Tag.id, Tag.name).order_by(Tag.id)).all()
-    by_name: dict[str, list[int]] = {}
-    for tag_id, name in rows:
-        by_name.setdefault(name.strip().lower(), []).append(tag_id)
-    return {name: ids for name, ids in by_name.items() if len(ids) > 1}
-
-
-def merge_items(keep_id: int, drop_ids: list[int]) -> tuple[int, int]:
-    """Fold duplicates into one item and delete them.
-
-    Returns (tag links moved, items removed). Tags and lineage move to the
-    survivor, and any field the survivor is missing is taken from a duplicate
-    that has it, so nothing the user did is lost.
-    """
-    if keep_id in drop_ids:
-        raise ValueError(f"item {keep_id} cannot be merged into itself")
-    if not drop_ids:
-        return 0, 0
-
-    moved = 0
-    with new_session() as session:
-        keeper = session.get(Item, keep_id)
-        if keeper is None:
-            raise ValueError(f"no item with id {keep_id}")
-
-        for drop_id in drop_ids:
-            duplicate = session.get(Item, drop_id)
-            if duplicate is None:
-                continue
-
-            for field in _MERGEABLE_FIELDS:
-                if not getattr(keeper, field, None):
-                    value = getattr(duplicate, field, None)
-                    if value:
-                        setattr(keeper, field, value)
-
-            held = {
-                link.tag_id
-                for link in session.exec(
-                    select(ItemTagLink).where(ItemTagLink.item_id == keep_id)
-                ).all()
-            }
-            for link in session.exec(
-                select(ItemTagLink).where(ItemTagLink.item_id == drop_id)
-            ).all():
-                # ItemTagLink has a composite primary key, so a link the
-                # survivor already holds is dropped rather than repointed.
-                if link.tag_id not in held:
-                    session.add(ItemTagLink(item_id=keep_id, tag_id=link.tag_id))
-                    held.add(link.tag_id)
-                    moved += 1
-                session.delete(link)
-
-            for link in session.exec(
-                select(ItemParentLink).where(
-                    or_(
-                        ItemParentLink.child_id == drop_id,
-                        ItemParentLink.parent_id == drop_id,
-                    )
-                )
-            ).all():
-                child = keep_id if link.child_id == drop_id else link.child_id
-                parent = keep_id if link.parent_id == drop_id else link.parent_id
-                session.delete(link)
-                # The survivor and the duplicate are the same photo, so a link
-                # between them would make it its own parent.
-                if child != parent:
-                    session.flush()
-                    if session.get(ItemParentLink, (child, parent)) is None:
-                        session.add(ItemParentLink(child_id=child, parent_id=parent))
-
-            session.add(keeper)
-            session.flush()
-            session.delete(duplicate)
-
-        session.commit()
-    return moved, len(drop_ids)
 
 
 def delete_item(id: int):
