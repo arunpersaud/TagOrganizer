@@ -257,3 +257,100 @@ class TestConfigIsChosenBeforeAnyDatabaseOpens:
             assert opened == [str(db_file)]
         finally:
             config_module.db.engine.dispose()
+
+
+class TestDisabledPluginSetting:
+    """Which plugins are switched off is global, not per profile.
+
+    It lives in [DEFAULT], which already holds the current profile - the one
+    section configparser does not report as a profile, so it cannot show up in
+    the Profiles menu.
+    """
+
+    def _manager(self, tmp_path, extra=""):
+        from tagorganizer.config import ConfigManager
+
+        config_file = tmp_path / "config.ini"
+        config_file.write_text(
+            f"[DEFAULT]\nprofile = main\n{extra}\n\n[main]\n"
+            f"database = {tmp_path}/m.db\nphoto_path = {tmp_path}\n"
+            f"video_path = {tmp_path}\n"
+        )
+        return ConfigManager(config_file=config_file, profile="main")
+
+    def test_nothing_is_disabled_by_default(self, tmp_path):
+        from tagorganizer import db
+
+        manager = self._manager(tmp_path)
+        try:
+            assert manager.get_disabled_plugins() == set()
+        finally:
+            db.engine.dispose()
+
+    def test_a_stored_list_is_read_back(self, tmp_path):
+        from tagorganizer import db
+
+        manager = self._manager(tmp_path, "disabled_plugins = Alpha;Beta")
+        try:
+            assert manager.get_disabled_plugins() == {"Alpha", "Beta"}
+        finally:
+            db.engine.dispose()
+
+    def test_names_containing_spaces_survive(self, tmp_path):
+        """Plugin names are menu labels, so they have spaces in them."""
+        from tagorganizer import db
+
+        manager = self._manager(
+            tmp_path, "disabled_plugins = Update Hashes in DB;Build Video Previews"
+        )
+        try:
+            assert manager.get_disabled_plugins() == {
+                "Update Hashes in DB",
+                "Build Video Previews",
+            }
+        finally:
+            db.engine.dispose()
+
+    def test_setting_them_persists_to_the_file(self, tmp_path):
+        from tagorganizer import db
+        from tagorganizer.config import ConfigManager
+
+        manager = self._manager(tmp_path)
+        try:
+            manager.set_disabled_plugins({"Alpha"})
+            reloaded = ConfigManager(config_file=manager.config_file, profile="main")
+            assert reloaded.get_disabled_plugins() == {"Alpha"}
+        finally:
+            db.engine.dispose()
+
+    def test_clearing_them_persists_too(self, tmp_path):
+        from tagorganizer import db
+        from tagorganizer.config import ConfigManager
+
+        manager = self._manager(tmp_path, "disabled_plugins = Alpha")
+        try:
+            manager.set_disabled_plugins(set())
+            reloaded = ConfigManager(config_file=manager.config_file, profile="main")
+            assert reloaded.get_disabled_plugins() == set()
+        finally:
+            db.engine.dispose()
+
+    def test_the_profile_setting_is_not_clobbered(self, tmp_path):
+        """[DEFAULT] also holds the current profile."""
+        from tagorganizer import db
+
+        manager = self._manager(tmp_path)
+        try:
+            manager.set_disabled_plugins({"Alpha"})
+            assert "profile = main" in manager.config_file.read_text()
+        finally:
+            db.engine.dispose()
+
+    def test_it_does_not_become_a_profile(self, tmp_path):
+        from tagorganizer import db
+
+        manager = self._manager(tmp_path, "disabled_plugins = Alpha")
+        try:
+            assert manager.get_profiles() == ["main"]
+        finally:
+            db.engine.dispose()

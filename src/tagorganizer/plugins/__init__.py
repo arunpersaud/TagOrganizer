@@ -25,6 +25,11 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 from collections import OrderedDict
 
+# The menu bar reads left to right, so the tasks reached for most often come
+# first. Categories a plugin invents follow, alphabetically, so the order is
+# stable rather than depending on which file happened to load first.
+CATEGORY_ORDER = ("Maintenance", "Files", "Reports")
+
 
 class Plugin:
     """One unit of work the user can run.
@@ -60,6 +65,7 @@ class Registry:
 
     def __init__(self):
         self._plugins = []
+        self._disabled: set[str] = set()
 
     def add(self, plugin: Plugin) -> None:
         if not getattr(plugin, "name", ""):
@@ -69,21 +75,47 @@ class Registry:
             )
         self._plugins.append(plugin)
 
+    def set_disabled(self, names) -> None:
+        """Switch plugins off by name.
+
+        A disabled plugin stays in the registry rather than being dropped at
+        load time: the settings window lists it so it can be switched back on,
+        which is impossible if it was never loaded. Names matching nothing are
+        ignored, since a plugin can be uninstalled while the config still
+        mentions it.
+        """
+        self._disabled = set(names)
+
+    def is_disabled(self, plugin: Plugin) -> bool:
+        return plugin.name in self._disabled
+
+    def every(self) -> list[Plugin]:
+        """Every plugin, disabled ones included. For the settings window."""
+        return list(self._plugins)
+
     def all(self) -> list[Plugin]:
-        """Every plugin, in registration order.
+        """Every enabled plugin, in registration order.
 
         A copy: the menu builder iterates this, and a caller sorting it in
         place would silently reorder the menu for everyone else.
         """
-        return list(self._plugins)
+        return [p for p in self._plugins if not self.is_disabled(p)]
 
     def by_category(self) -> "OrderedDict[str, list[Plugin]]":
-        """Plugins grouped for the menu bar, categories in first-seen order."""
-        grouped = OrderedDict()
-        for plugin in self._plugins:
+        """Enabled plugins grouped for the menu bar, in a deliberate order."""
+        grouped: dict[str, list[Plugin]] = {}
+        for plugin in self.all():
             grouped.setdefault(plugin.category, []).append(plugin)
-        return grouped
+
+        def rank(category):
+            if category in CATEGORY_ORDER:
+                return (0, CATEGORY_ORDER.index(category), "")
+            return (1, 0, category)
+
+        return OrderedDict(
+            (category, grouped[category]) for category in sorted(grouped, key=rank)
+        )
 
     def auto_plugins(self) -> list[Plugin]:
-        """Those that also run themselves after an import."""
-        return [plugin for plugin in self._plugins if plugin.auto]
+        """Those enabled plugins that also run themselves after an import."""
+        return [plugin for plugin in self.all() if plugin.auto]

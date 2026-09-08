@@ -215,6 +215,25 @@ class ConfigManager:
         with self.config_file.open("w") as configfile:
             self.config.write(configfile)
 
+    def get_disabled_plugins(self) -> set[str]:
+        """Plugin names the user has switched off.
+
+        Stored in [DEFAULT] because it is global rather than per profile, and
+        because configparser does not report DEFAULT as a section - so it
+        cannot turn up in the Profiles menu the way a [plugins] section would.
+
+        Semicolon-separated: plugin names are menu labels and contain spaces,
+        so commas would be ambiguous.
+        """
+        raw = self.config.defaults().get("disabled_plugins", "")
+        return {name.strip() for name in raw.split(";") if name.strip()}
+
+    def set_disabled_plugins(self, names) -> None:
+        """Store the switched-off plugins and write the config out."""
+        self.config["DEFAULT"]["disabled_plugins"] = ";".join(sorted(names))
+        with open(self.config_file, "w") as handle:
+            self.config.write(handle)
+
     def get_profiles(self):
         return self.config.sections()
 

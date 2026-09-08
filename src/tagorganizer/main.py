@@ -129,6 +129,7 @@ class MainWindow(QMainWindow):
             "Edit": [
                 ["Add New Tag", "Ctrl+N", self.add_tag],
                 ["Edit Tags...", self.edit_tags],
+                ["Settings...", self.open_settings],
                 ["Add Images", "Ctrl+I", self.add_directory],
                 "---",
                 ["Delete", "Ctrl+D", self.delete_items],
@@ -218,6 +219,7 @@ class MainWindow(QMainWindow):
         # bar to exist - and a startup crash is exactly what the plugin error
         # isolation exists to prevent.
         self.tasks.load_plugins()
+        self.tasks.registry.set_disabled(self.config.get_disabled_plugins())
         self.build_plugin_menu()
 
         self.update_items()
@@ -319,12 +321,51 @@ class MainWindow(QMainWindow):
         elif widget == self.map:
             self.map.on_shown()
 
+    def open_settings(self):
+        """Show where things live, and which plugins are switched on."""
+        from .plugins.discovery import plugin_paths
+        from .widgets.settings import SettingsDialog
+
+        registry = self.tasks.registry
+        dialog = SettingsDialog(
+            self.config,
+            registry.every(),
+            self.tasks.broken,
+            self.config.get_disabled_plugins(),
+            plugin_paths(),
+            self,
+        )
+        if not dialog.exec():
+            return
+
+        disabled = dialog.disabled_plugins()
+        self.config.set_disabled_plugins(disabled)
+        registry.set_disabled(disabled)
+        # Rebuilt rather than deferred to the next start: a setting that does
+        # nothing until you restart reads as a setting that does not work.
+        self.build_plugin_menu()
+        self.messages.add(f"{len(disabled)} plugin(s) disabled")
+
     def build_plugin_menu(self):
         """Create the task menus from the plugin registry.
 
         The scope is resolved inside the click handler rather than here: the
-        menu is built once at startup, and the selection changes constantly.
+        menu is built once, and the selection changes constantly.
+
+        Any menus from a previous build are removed first, so switching a
+        plugin off in Settings and rebuilding does not leave a second
+        Maintenance menu beside the first.
         """
+        for menu in getattr(self, "_plugin_menus", []):
+            # Removing the action unhooks it from the bar but leaves the menu
+            # parented to it, so a rebuild would add a second Maintenance menu
+            # beside the first. The widget has to go too.
+            self.menu_bar.removeAction(menu.menuAction())
+            self.menu.pop(menu.title(), None)
+            menu.setParent(None)
+            menu.deleteLater()
+        self._plugin_menus = []
+
         for category, plugins in self.tasks.registry.by_category().items():
             menu = self.menu_bar.addMenu(category)
             self.menu[category] = menu
@@ -344,6 +385,7 @@ class MainWindow(QMainWindow):
                     )
                 )
                 menu.addAction(action)
+            self._plugin_menus.append(menu)
 
     def closeEvent(self, event):
         """Stop the task worker before the window goes away.

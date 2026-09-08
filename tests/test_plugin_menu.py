@@ -121,3 +121,43 @@ class TestShippedPlugins:
         auto = {p.name for p in registry.auto_plugins()}
         assert "Move Files to Default Dirs" not in auto
         assert "Move Files with new date set" not in auto
+
+
+class TestSettingsWiring:
+    def test_the_edit_menu_offers_settings(self):
+        source = inspect.getsource(main_module.MainWindow.__init__)
+        assert "Settings" in source
+
+    def test_opening_settings_passes_the_plugin_directories(self):
+        """The window exists largely to answer 'where do I put a plugin'."""
+        tree = source_tree(main_module.MainWindow.open_settings)
+        assert plain_calls(tree, "plugin_paths")
+
+    def test_it_lists_every_plugin_including_disabled_ones(self):
+        """all() hides disabled plugins, so the window would not show them."""
+        tree = source_tree(main_module.MainWindow.open_settings)
+        assert attribute_calls(tree, "every")
+
+    def test_the_choice_is_persisted(self):
+        tree = source_tree(main_module.MainWindow.open_settings)
+        assert attribute_calls(tree, "set_disabled_plugins")
+
+    def test_the_menus_are_rebuilt_so_the_change_shows_at_once(self):
+        tree = source_tree(main_module.MainWindow.open_settings)
+        assert attribute_calls(tree, "build_plugin_menu")
+
+    def test_disabled_plugins_are_applied_at_startup(self):
+        source = inspect.getsource(main_module.MainWindow.__init__)
+        assert "get_disabled_plugins" in source
+
+    def test_rebuilding_removes_the_previous_menus(self):
+        """Otherwise every visit to Settings adds another Maintenance menu.
+
+        removeAction alone is not enough and this test used to accept it:
+        unhooking the action leaves the menu still parented to the bar, and
+        the duplicates came back. Only a real window caught that, so this now
+        insists the widget is disposed of as well.
+        """
+        source = inspect.getsource(main_module.MainWindow.build_plugin_menu)
+        assert "removeAction" in source
+        assert "deleteLater" in source or "setParent(None)" in source
