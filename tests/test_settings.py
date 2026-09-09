@@ -6,19 +6,12 @@ am I actually looking at?" were previously unanswerable from inside the app.
 
 import os
 
-import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from tagorganizer.plugins import Plugin
 from tagorganizer.plugins.discovery import BrokenPlugin
 from tagorganizer.widgets.settings import SettingsDialog, describe_paths
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    widgets = pytest.importorskip("qtpy.QtWidgets")
-    return widgets.QApplication.instance() or widgets.QApplication([])
 
 
 class Alpha(Plugin):

@@ -6,15 +6,8 @@ tests/test_single_view_layout.py.
 
 import os
 
-import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    widgets = pytest.importorskip("qtpy.QtWidgets")
-    return widgets.QApplication.instance() or widgets.QApplication([])
 
 
 def _solid(qapp, size, colour):

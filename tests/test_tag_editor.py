@@ -6,7 +6,6 @@ dialog itself needs a QApplication, guarded as elsewhere.
 
 import os
 
-import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -57,12 +56,6 @@ class TestTagPaths:
 
     def test_empty(self):
         assert tag_paths([]) == []
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    widgets = pytest.importorskip("qtpy.QtWidgets")
-    return widgets.QApplication.instance() or widgets.QApplication([])
 
 
 class TestDialog:

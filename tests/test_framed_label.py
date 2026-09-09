@@ -12,12 +12,6 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    widgets = pytest.importorskip("qtpy.QtWidgets")
-    return widgets.QApplication.instance() or widgets.QApplication([])
-
-
 def test_tall_thumbnail_is_scaled_to_fit_the_tile(qapp, tmp_path):
     """A portrait photo must show whole, not cropped to its middle band.
 

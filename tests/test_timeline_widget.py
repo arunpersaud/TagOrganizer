@@ -8,15 +8,8 @@ helpers are tested separately in tests/test_widgets.py without Qt.
 import os
 from datetime import date, datetime, timedelta
 
-import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    widgets = pytest.importorskip("qtpy.QtWidgets")
-    return widgets.QApplication.instance() or widgets.QApplication([])
 
 
 class _RecordingTagBar:

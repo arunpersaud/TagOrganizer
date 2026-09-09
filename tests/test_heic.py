@@ -19,12 +19,6 @@ from tagorganizer import config
 from tagorganizer.metadata import heif_brand
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    widgets = pytest.importorskip("qtpy.QtWidgets")
-    return widgets.QApplication.instance() or widgets.QApplication([])
-
-
 def write_heif(path, brand=b"mif1"):
     """A file carrying a HEIF ftyp box.
 

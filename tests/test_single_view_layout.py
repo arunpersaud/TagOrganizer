@@ -9,20 +9,12 @@ import ast
 import os
 from pathlib import Path
 
-import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 SINGLE_ITEM = (
     Path(__file__).parent.parent / "src" / "tagorganizer" / "widgets" / "single_item.py"
 )
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    widgets = pytest.importorskip("qtpy.QtWidgets")
-    app = widgets.QApplication.instance() or widgets.QApplication([])
-    return app
 
 
 def test_photo_item_does_not_grow_when_reshown(qapp):

@@ -6,6 +6,7 @@ database and restoring it afterwards. Nothing in this file needs a display, so
 the whole pure-logic layer stays testable without Qt.
 """
 
+import os
 import pathlib
 from datetime import datetime
 
@@ -14,6 +15,23 @@ from sqlmodel import Session, SQLModel
 
 from tagorganizer import db
 from tagorganizer.models import Item, ItemTagLink, Tag
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """The one QApplication the whole suite shares.
+
+    Qt allows a single instance per process, and the program name matters:
+    QApplication([]) leaves Chromium without argv[0], so constructing the map
+    widget aborts. Sharing one instance also stops the answer depending on
+    which test module happened to run first.
+    """
+    widgets = pytest.importorskip("qtpy.QtWidgets")
+    return widgets.QApplication.instance() or widgets.QApplication(
+        ["tagorganizer-tests"]
+    )
 
 
 @pytest.fixture

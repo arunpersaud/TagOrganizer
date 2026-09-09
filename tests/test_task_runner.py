@@ -17,12 +17,6 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    widgets = pytest.importorskip("qtpy.QtWidgets")
-    return widgets.QApplication.instance() or widgets.QApplication([])
-
-
 @pytest.fixture
 def runner(qapp):
     """A TaskRunner that is always shut down, so threads never leak."""

@@ -15,12 +15,6 @@ from tagorganizer.scope import Scope, resolve_scope
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    widgets = pytest.importorskip("qtpy.QtWidgets")
-    return widgets.QApplication.instance() or widgets.QApplication([])
-
-
 class _Messages:
     def __init__(self):
         self.sent = []
