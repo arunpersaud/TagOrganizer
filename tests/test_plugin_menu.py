@@ -114,9 +114,16 @@ class TestShippedPlugins:
         auto = [p.name for p in registry.auto_plugins()]
         assert auto.index("Update Hashes in DB") < auto.index("Build Video Previews")
 
-    def test_the_categories_are_the_expected_three(self):
+    def test_the_core_categories_are_all_present(self):
+        """A superset check: shipping a plugin under a new category must not
+        fail this, but losing one of the three must."""
         registry, _ = self._shipped()
-        assert set(registry.by_category()) == {"Maintenance", "Files", "Reports"}
+        assert set(registry.by_category()) >= {"Maintenance", "Files", "Reports"}
+
+    def test_the_core_categories_come_first_and_in_order(self):
+        registry, _ = self._shipped()
+        order = list(registry.by_category())
+        assert order[:3] == ["Maintenance", "Files", "Reports"]
 
     def test_nothing_that_moves_files_runs_automatically(self):
         registry, _ = self._shipped()
