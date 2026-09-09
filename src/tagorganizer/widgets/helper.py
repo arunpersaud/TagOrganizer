@@ -188,6 +188,23 @@ def save_thumbnail(image, md5: str, size: int, photos_path: Path) -> None:
     image.save(str(thumbnail), "PNG")
 
 
+def cached_hashes(photos_path: Path):
+    """Every cached file, as (uri hash, path).
+
+    The hash is rebuilt from the layout - two directory characters plus the
+    file stem - so both the stills tree and the preview tree are covered by
+    one walk.
+    """
+    root = get_thumbnail_path(photos_path)
+    if not root.is_dir():
+        return
+    for path in root.rglob("*.png"):
+        prefix = path.parent.name
+        if len(prefix) != 2:
+            continue
+        yield prefix + path.stem, path
+
+
 def forget_thumbnail(uri_md5: str, photos_path: Path) -> None:
     """Drop every cached size for this uri hash.
 

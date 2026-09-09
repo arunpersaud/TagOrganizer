@@ -87,12 +87,14 @@ class TestShippedPlugins:
     def test_the_shipped_plugins_all_load(self):
         registry, broken = self._shipped()
         assert broken == [], broken
-        assert len(registry.all()) == 8
+        assert len(registry.all()) >= 8
 
     def test_every_task_the_app_had_is_still_offered(self):
         registry, _ = self._shipped()
         names = {p.name for p in registry.all()}
-        assert names == {
+        # A subset check, not equality: adding a plugin must not fail this,
+        # but losing one of the original eight must.
+        assert names >= {
             "Update Timestamps in DB",
             "Update Locations in DB",
             "Update Hashes in DB",

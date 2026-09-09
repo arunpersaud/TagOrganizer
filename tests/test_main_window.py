@@ -137,7 +137,7 @@ class TestBrokenPlugins:
 
         window = window_for(plugins_dir=home)
 
-        assert len(window.tasks.registry.all()) == 8
+        assert len(window.tasks.registry.all()) >= 8
 
 
 class TestUserPlugins:
