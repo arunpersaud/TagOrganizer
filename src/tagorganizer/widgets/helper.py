@@ -467,12 +467,16 @@ class ThumbnailResultEmitter(QObject):
         A file Qt cannot decode comes back as None, and the signal is typed
         QImage: emitting None aborts the process rather than raising. That is
         reachable for any format the local Qt build lacks - HEIC on a machine
-        without qtimageformats, for instance - so it is dropped here and the
-        tile keeps its placeholder.
+        without qtimageformats, for instance.
+
+        A null QImage is sent instead of nothing at all. The tile already
+        knows how to render a failed decode - it shows the file name - and
+        dropping the result silently left it saying "generating preview..."
+        forever about a file that will never decode.
         """
         if qimage is None:
             logger.debug("no thumbnail could be decoded for %s", key)
-            return
+            qimage = QImage()
         self._result_ready.emit(_ResultReady(key, qimage))
 
 

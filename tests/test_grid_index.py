@@ -4,7 +4,8 @@ This module tests the widget index calculation to ensure that the frame
 highlight and current_item always point to the same widget, across various
 page and item count combinations.
 
-The index calculation is extracted as a pure function to avoid GUI dependencies.
+The index calculation is a staticmethod on the widget, so it can be called
+directly without a GUI.
 """
 
 import textwrap
@@ -14,21 +15,11 @@ import pytest
 from tagorganizer.widgets.image_grid_widget import ImageGridWidget
 
 
-def get_widget_index(highlight, N, widget_count):
-    """Calculate the widget index for a given highlight position.
-
-    Args:
-        highlight: The global highlight position
-        N: The page size (columns * rows)
-        widget_count: The number of widgets currently displayed
-
-    Returns:
-        The index of the widget on the current page (0-based)
-    """
-    if widget_count == 0:
-        return 0
-    n = highlight % N
-    return min(n, widget_count - 1)
+# The real method, not a copy of it. This file used to define its own version
+# with the same body and test that: the tests then agreed with themselves
+# while the widget was free to drift, which is exactly how a broken
+# move_items once stayed green for a whole round of work.
+get_widget_index = ImageGridWidget._get_widget_index
 
 
 class TestWidgetIndexCalculation:

@@ -143,6 +143,30 @@ class TestUndecodableImages:
         emitter.thumbnail_ready.connect(lambda key, image: received.append(image))
 
         # This is what the decode path returns for a file Qt cannot read.
+        # Emitting Python None into a QImage-typed signal aborts the process.
         emitter.handle_result(("id", 150), None)
 
-        assert received == [] or received[0].isNull()
+        assert received, "the failure never reached the tile"
+        assert received[0].isNull()
+
+    def test_the_tile_is_told_rather_than_left_saying_it_is_working(
+        self, qapp, tmp_path
+    ):
+        """Dropping the failure left the tile showing 'generating preview...'
+        forever, which is a lie about a file that will never decode."""
+        from tagorganizer.models import Item
+        from tagorganizer.widgets.framed_label import FramedLabel
+        from tagorganizer.widgets.helper import get_thumbnail_loader
+
+        path = tmp_path / "unreadable.heic"
+        path.write_bytes(b"not decodable")
+        item = Item(id=7, uri=str(path), uri_md5="7" * 32)
+        label = FramedLabel(item, tmp_path)
+
+        from qtpy.QtGui import QImage
+
+        key = get_thumbnail_loader().key_for(item, label.pixmap_width)
+        label._on_thumbnail_ready(key, QImage())
+
+        assert label.text() == "unreadable.heic"
+        assert "generating" not in label.text()
