@@ -272,8 +272,9 @@ class TestGrouping:
             bar.toggle_chip(entry.widget)
         bar.group_selected()
 
-        # Ungrouping acts on the selected groups, so pick the group chip first.
-        bar.toggle_chip(bar._group_widgets[0])
+        # Ungrouping acts on the group a selected chip belongs to, so pick
+        # any one member.
+        bar.toggle_chip(next(iter(bar._group_members)))
         bar.ungroup_selected()
 
         filters = bar.get_filters()
@@ -303,12 +304,11 @@ class TestGrouping:
 
 
 class TestGroupIsVisible:
-    def test_grouping_leaves_a_chip_on_the_bar(self, qapp):
+    def test_grouping_leaves_the_members_visible_in_brackets(self, qapp):
         """A group must be visible, or filters appear to vanish.
 
-        Grouping removes the member chips from the bar; without a chip standing
-        for the group the user would see photos disappear with nothing on
-        screen explaining why.
+        The members stay as their own chips inside brackets rather than
+        collapsing into one, so each can still be clicked and deleted.
         """
         bar = _tag_bar()
         bar.add_tag("Beach")
@@ -318,8 +318,24 @@ class TestGroupIsVisible:
 
         bar.group_selected()
 
-        assert len(bar._group_widgets) == 1
-        assert bar._group_widgets[0].text() == "(Beach or Mountain)"
+        assert [w.text() for w in bar._group_widgets] == [
+            "(",
+            "Beach",
+            "or",
+            "Mountain",
+            ")",
+        ]
+
+    def test_each_member_is_a_chip_of_its_own(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("Beach")
+        bar.add_tag("Mountain")
+        for entry in list(bar.selected_tags):
+            bar.toggle_chip(entry.widget)
+
+        bar.group_selected()
+
+        assert len(bar._group_members) == 2
 
     def test_ungrouping_removes_the_group_chip(self, qapp):
         bar = _tag_bar()
@@ -329,7 +345,7 @@ class TestGroupIsVisible:
             bar.toggle_chip(entry.widget)
         bar.group_selected()
 
-        bar.toggle_chip(bar._group_widgets[0])
+        bar.toggle_chip(next(iter(bar._group_members)))
         bar.ungroup_selected()
 
         assert bar._group_widgets == []
@@ -359,7 +375,13 @@ class TestGroupIsVisible:
 
         bar.group_selected()
 
-        assert bar._group_widgets[0].text() == "(Beach or Area)"
+        assert [w.text() for w in bar._group_widgets] == [
+            "(",
+            "Beach",
+            "or",
+            "Area",
+            ")",
+        ]
 
 
 class TestDeleteKeyOnMac:
@@ -429,11 +451,16 @@ class TestUngroupOnlySelected:
         self._two_groups(bar)
         assert len(bar.get_filters().groups) == 2
 
-        bar.toggle_chip(bar._group_widgets[0])
+        # Selecting any member selects its group: there is no separate group
+        # chip to click any more.
+        first_member = next(
+            w for w, (group, _) in bar._group_members.items() if group == 0
+        )
+        bar.toggle_chip(first_member)
         bar.ungroup_selected()
 
         assert len(bar.get_filters().groups) == 1
-        assert len(bar._group_widgets) == 1
+        assert len(bar._group_members) == 2
 
     def test_ungroup_with_nothing_selected_does_nothing(self, qapp):
         bar = _tag_bar()
@@ -442,3 +469,165 @@ class TestUngroupOnlySelected:
         bar.ungroup_selected()
 
         assert len(bar.get_filters().groups) == 2
+
+
+class TestRemovingOneGroupMember:
+    """Groups could only be made and unmade whole.
+
+    Getting "(beach or surf or lake)" down to "(beach or surf)" meant
+    ungrouping and rebuilding it, which is tedious enough that a user
+    reasonably just leaves the wrong filter in place.
+    """
+
+    def conditions(self, *names):
+        from tagorganizer.widgets.tag_bar import Condition
+
+        return [Condition(kind="tag", value=name) for name in names]
+
+    def test_a_member_is_removed_and_the_group_survives(self):
+        from tagorganizer.widgets.tag_bar import remove_group_member
+
+        groups = [self.conditions("beach", "surf", "lake")]
+        remaining, dissolved = remove_group_member(groups, 0, 1)
+
+        assert [c.value for c in remaining[0]] == ["beach", "lake"]
+        assert dissolved == []
+
+    def test_a_group_of_two_dissolves_into_an_ordinary_chip(self):
+        """(beach) is not a disjunction, it is just beach."""
+        from tagorganizer.widgets.tag_bar import remove_group_member
+
+        groups = [self.conditions("beach", "surf")]
+        remaining, dissolved = remove_group_member(groups, 0, 1)
+
+        assert remaining == []
+        assert [c.value for c in dissolved] == ["beach"]
+
+    def test_the_removed_member_does_not_come_back_as_a_chip(self):
+        """Removing it from the group means removing it from the filter."""
+        from tagorganizer.widgets.tag_bar import remove_group_member
+
+        groups = [self.conditions("beach", "surf")]
+        _, dissolved = remove_group_member(groups, 0, 0)
+
+        assert [c.value for c in dissolved] == ["surf"]
+
+    def test_other_groups_are_untouched(self):
+        from tagorganizer.widgets.tag_bar import remove_group_member
+
+        groups = [self.conditions("a", "b", "c"), self.conditions("x", "y", "z")]
+        remaining, _ = remove_group_member(groups, 0, 0)
+
+        assert [c.value for c in remaining[1]] == ["x", "y", "z"]
+
+    def test_removing_from_the_second_group_leaves_the_first_alone(self):
+        from tagorganizer.widgets.tag_bar import remove_group_member
+
+        groups = [self.conditions("a", "b", "c"), self.conditions("x", "y", "z")]
+        remaining, _ = remove_group_member(groups, 1, 2)
+
+        assert [c.value for c in remaining[0]] == ["a", "b", "c"]
+        assert [c.value for c in remaining[1]] == ["x", "y"]
+
+    def test_an_out_of_range_group_changes_nothing(self):
+        from tagorganizer.widgets.tag_bar import remove_group_member
+
+        groups = [self.conditions("a", "b")]
+        remaining, dissolved = remove_group_member(groups, 5, 0)
+
+        assert [c.value for c in remaining[0]] == ["a", "b"]
+        assert dissolved == []
+
+    def test_an_out_of_range_member_changes_nothing(self):
+        from tagorganizer.widgets.tag_bar import remove_group_member
+
+        groups = [self.conditions("a", "b")]
+        remaining, dissolved = remove_group_member(groups, 0, 9)
+
+        assert [c.value for c in remaining[0]] == ["a", "b"]
+        assert dissolved == []
+
+    def test_the_original_list_is_not_mutated(self):
+        """The caller rebuilds its widgets from the result."""
+        from tagorganizer.widgets.tag_bar import remove_group_member
+
+        groups = [self.conditions("a", "b", "c")]
+        remove_group_member(groups, 0, 0)
+
+        assert len(groups[0]) == 3
+
+
+class TestDeletingAMemberChip:
+    """The point of drawing members as their own chips: Delete just works.
+
+    Getting "(beach or surf or lake)" down to "(beach or surf)" no longer
+    means ungrouping and rebuilding it.
+    """
+
+    def _group_of(self, bar, *names):
+        for name in names:
+            bar.add_tag(name)
+        for entry in list(bar.selected_tags):
+            bar.toggle_chip(entry.widget)
+        bar.group_selected()
+
+    def member(self, bar, label):
+        return next(w for w in bar._group_members if w.text() == label)
+
+    def test_deleting_one_member_shrinks_the_group(self, qapp):
+        bar = _tag_bar()
+        self._group_of(bar, "beach", "surf", "lake")
+
+        bar.toggle_chip(self.member(bar, "surf"))
+        bar.remove_selected()
+
+        assert [c.value for c in bar.get_filters().groups[0]] == ["beach", "lake"]
+
+    def test_the_group_still_shows_its_remaining_members(self, qapp):
+        bar = _tag_bar()
+        self._group_of(bar, "beach", "surf", "lake")
+
+        bar.toggle_chip(self.member(bar, "surf"))
+        bar.remove_selected()
+
+        assert [w.text() for w in bar._group_widgets] == [
+            "(",
+            "beach",
+            "or",
+            "lake",
+            ")",
+        ]
+
+    def test_deleting_down_to_one_dissolves_the_group(self, qapp):
+        """(beach) is not a disjunction, it is just beach."""
+        bar = _tag_bar()
+        self._group_of(bar, "beach", "surf")
+
+        bar.toggle_chip(self.member(bar, "surf"))
+        bar.remove_selected()
+
+        filters = bar.get_filters()
+        assert filters.groups == []
+        assert filters.tags == ["beach"]
+
+    def test_deleting_two_members_at_once(self, qapp):
+        """Removing one must not shift the position of the other."""
+        bar = _tag_bar()
+        self._group_of(bar, "a", "b", "c", "d")
+
+        bar.toggle_chip(self.member(bar, "a"))
+        bar.toggle_chip(self.member(bar, "c"))
+        bar.remove_selected()
+
+        assert [c.value for c in bar.get_filters().groups[0]] == ["b", "d"]
+
+    def test_a_loose_chip_beside_a_group_still_deletes(self, qapp):
+        bar = _tag_bar()
+        self._group_of(bar, "beach", "surf")
+        bar.add_tag("loose")
+
+        bar.toggle_chip(bar.selected_tags[0].widget)
+        bar.remove_selected()
+
+        assert bar.get_filters().tags in (None, [])
+        assert len(bar.get_filters().groups) == 1

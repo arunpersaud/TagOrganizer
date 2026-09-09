@@ -23,7 +23,13 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from qtpy.QtWidgets import QHBoxLayout, QPushButton, QSizePolicy, QWidget
+from qtpy.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
+)
 
 RESERVED_TAGS = ["No Time", "No GPS", "Wrong dir"]
 
@@ -81,6 +87,39 @@ class Condition:
     value: object = None
 
 
+def remove_group_member(groups, group_index: int, member_index: int):
+    """Drop one member from an OR group.
+
+    Returns (groups, dissolved): the groups that remain, and the conditions
+    that should go back to being ordinary chips. A group of two that loses one
+    member is no longer a disjunction - "(beach)" is just "beach" - so it
+    dissolves rather than lingering as a group of one.
+
+    The removed member is discarded, not restored: removing it from the group
+    is removing it from the filter. Ungrouping is the operation that keeps
+    everything.
+
+    Nothing is mutated in place; the caller rebuilds its chips from the result.
+    """
+    if not 0 <= group_index < len(groups):
+        return [list(group) for group in groups], []
+    if not 0 <= member_index < len(groups[group_index]):
+        return [list(group) for group in groups], []
+
+    remaining = []
+    dissolved = []
+    for index, group in enumerate(groups):
+        if index != group_index:
+            remaining.append(list(group))
+            continue
+        kept = [c for position, c in enumerate(group) if position != member_index]
+        if len(kept) >= 2:
+            remaining.append(kept)
+        else:
+            dissolved.extend(kept)
+    return remaining, dissolved
+
+
 @dataclass
 class Filters:
     tags: list[str] | None = None
@@ -132,6 +171,7 @@ class TagBar(QHBoxLayout):
         # the result to the opposite of what grouping is for.
         self._groups: list[list[Condition]] = []
         self._group_widgets: list[QWidget] = []
+        self._group_members: dict = {}
 
         # Set while a single user gesture is building several buttons, so
         # the view is redrawn once at the end instead of after each one.
@@ -186,6 +226,7 @@ class TagBar(QHBoxLayout):
         for widget in self._group_widgets:
             widget.setParent(None)
         self._group_widgets = []
+        self._group_members = {}
         self._groups = []
         self.refresh()
 
@@ -362,51 +403,102 @@ class TagBar(QHBoxLayout):
             self._suppress_refresh = False
 
         self._groups.append(conditions)
-        self._add_group_button(conditions)
+        self._rebuild_groups()
         self.main.update_items()
 
     def ungroup_selected(self):
-        """Break the selected groups back into ordinary chips.
+        """Break the groups the selected chips belong to back into loose chips.
 
-        Only the selected ones: ungrouping everything at once would undo
-        grouping the user deliberately kept, and there is no undo.
+        Selecting any member selects its group: with members drawn as their
+        own chips there is no separate group chip to click, and requiring the
+        user to select all of them would make ungrouping harder than grouping.
+
+        Only the groups actually touched: ungrouping everything at once would
+        undo grouping the user deliberately kept, and there is no undo.
         """
-        chosen = [
-            (group, widget)
-            for group, widget in zip(self._groups, self._group_widgets, strict=False)
-            if self.is_chip_selected(widget)
-        ]
-        if not chosen:
+        touched = sorted(
+            {
+                self._group_members[widget][0]
+                for widget in self._selected_chips
+                if widget in self._group_members
+            }
+        )
+        if not touched:
             return
 
+        freed = [self._groups[index] for index in touched]
         self._suppress_refresh = True
         try:
-            for group, widget in chosen:
-                self._groups.remove(group)
-                self._group_widgets.remove(widget)
-                if self.is_chip_selected(widget):
-                    self.toggle_chip(widget)
-                widget.setParent(None)
+            self._groups = [
+                group
+                for index, group in enumerate(self._groups)
+                if index not in touched
+            ]
+            self._rebuild_groups()
+            for group in freed:
                 for condition in group:
                     self._restore_condition(condition)
         finally:
             self._suppress_refresh = False
         self.main.update_items()
 
-    def _add_group_button(self, conditions):
-        """Show a group as one chip reading "(a or b)".
+    def _add_group_widgets(self, conditions, group_index):
+        """Show a group as its own chips inside brackets: ( beach or surf ).
 
-        Without this the members simply disappear from the bar when grouped and
-        the filter becomes invisible - the user would see photos vanish with
-        nothing on screen explaining why.
+        The members stay as ordinary chips rather than collapsing into one
+        "(a or b)" button, so each can be selected and deleted with the same
+        click-then-Delete that every other chip uses. Only the brackets and
+        the "or" between them are decoration.
         """
-        label = " or ".join(self._condition_label(c) for c in conditions)
-        button = QPushButton(f"({label})")
-        button.setObjectName("Group")
-        button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
-        button.clicked.connect(lambda flag, b=button: self.toggle_chip(b))
-        self.addWidget(button, 0)
-        self._group_widgets.append(button)
+        self._group_widgets.append(self._decoration("("))
+        for position, condition in enumerate(conditions):
+            if position:
+                self._group_widgets.append(self._decoration("or"))
+            button = QPushButton(self._condition_label(condition))
+            button.setObjectName("GroupMember")
+            button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+            button.clicked.connect(lambda flag, b=button: self.toggle_chip(b))
+            self.addWidget(button, 0)
+            self._group_widgets.append(button)
+            self._group_members[button] = (group_index, position)
+        self._group_widgets.append(self._decoration(")"))
+
+    def _decoration(self, text):
+        """A bracket or an 'or': visible, but not something to click."""
+        label = QLabel(text)
+        label.setObjectName("GroupDecoration")
+        self.addWidget(label, 0)
+        return label
+
+    def _rebuild_groups(self):
+        """Redraw every group from self._groups."""
+        for widget in self._group_widgets:
+            if self.is_chip_selected(widget):
+                self.toggle_chip(widget)
+            widget.setParent(None)
+        self._group_widgets = []
+        self._group_members = {}
+        for index, group in enumerate(self._groups):
+            self._add_group_widgets(group, index)
+
+    def group_of(self, widget):
+        """Which (group, member) a chip belongs to, or None if it is loose."""
+        return self._group_members.get(widget)
+
+    def remove_group_member(self, group_index: int, member_index: int):
+        """Drop one member, dissolving the group if one is left."""
+        remaining, dissolved = remove_group_member(
+            self._groups, group_index, member_index
+        )
+        self._suppress_refresh = True
+        try:
+            self._groups = remaining
+            self._rebuild_groups()
+            for condition in dissolved:
+                self._restore_condition(condition)
+        finally:
+            self._suppress_refresh = False
+        self.main.update_items()
 
     @staticmethod
     def _condition_label(condition) -> str:
@@ -470,10 +562,29 @@ class TagBar(QHBoxLayout):
             return
 
         chips = list(self._selected_chips)
+
+        # A chip inside a group is removed from the group rather than from the
+        # bar: the group has to shrink, and dissolve if only one member is
+        # left. Highest member index first, so removing one does not shift the
+        # position of another still to be removed.
+        members = sorted(
+            (self._group_members[w] for w in chips if w in self._group_members),
+            reverse=True,
+        )
+        loose = [w for w in chips if w not in self._group_members]
+
         self._suppress_refresh = True
         try:
-            for widget in chips:
+            for widget in loose:
                 self.remove_tag_button(widget)
+            for group_index, member_index in members:
+                remaining, dissolved = remove_group_member(
+                    self._groups, group_index, member_index
+                )
+                self._groups = remaining
+                self._rebuild_groups()
+                for condition in dissolved:
+                    self._restore_condition(condition)
         finally:
             self._suppress_refresh = False
 
