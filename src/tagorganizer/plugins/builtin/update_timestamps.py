@@ -6,6 +6,7 @@ This file is part of TagOrganizer, distributed under the GNU General Public
 License v3 or later. See the LICENSE file for details.
 """
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from tagorganizer.metadata import date_from_filename, video_date
 from tagorganizer.widgets.helper import load_exif
 
 CHUNK = 10
+
+logger = logging.getLogger(__name__)
 
 
 class UpdateTimestamps(Plugin):
@@ -58,7 +61,14 @@ class UpdateTimestamps(Plugin):
                 break
             path = Path(item.uri)
             if path.is_file():
-                found = self._date_for(path, ctx)
+                try:
+                    found = self._date_for(path, ctx)
+                except Exception as error:
+                    # One unreadable file must not end the run; see the note in
+                    # UpdateLocations.
+                    logger.debug("no date for %s", path, exc_info=True)
+                    ctx.message(f"[Skip] could not read a date from {path}: {error}")
+                    found = None
                 if found is not None:
                     item.date = found
                     pending.append(item)

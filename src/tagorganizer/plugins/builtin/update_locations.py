@@ -6,6 +6,7 @@ This file is part of TagOrganizer, distributed under the GNU General Public
 License v3 or later. See the LICENSE file for details.
 """
 
+import logging
 from pathlib import Path
 
 from tagorganizer.plugins import Plugin
@@ -13,6 +14,8 @@ from tagorganizer.metadata import video_gps
 from tagorganizer.widgets.helper import load_exif
 
 CHUNK = 10
+
+logger = logging.getLogger(__name__)
 
 
 def to_degrees(value, ref) -> float:
@@ -25,6 +28,24 @@ def to_degrees(value, ref) -> float:
     if ref not in ["E", "N"]:
         result = -result
     return result
+
+
+def _location_for(path: Path) -> tuple[float, float] | None:
+    """EXIF GPS, then the video container, as (latitude, longitude)."""
+    tags = load_exif(path)
+    if "GPS GPSLongitude" in tags and "GPS GPSLatitude" in tags:
+        longitude = to_degrees(
+            tags["GPS GPSLongitude"],
+            str(tags.get("GPS GPSLongitudeRef", "E")),
+        )
+        latitude = to_degrees(
+            tags["GPS GPSLatitude"],
+            str(tags.get("GPS GPSLatitudeRef", "N")),
+        )
+        return latitude, longitude
+    # No EXIF GPS. Videos keep theirs in a container box that exifread does
+    # not read at all.
+    return video_gps(path)
 
 
 class UpdateLocations(Plugin):
@@ -49,26 +70,21 @@ class UpdateLocations(Plugin):
                 break
             path = Path(item.uri)
             if path.is_file():
-                tags = load_exif(path)
-                if "GPS GPSLongitude" in tags and "GPS GPSLatitude" in tags:
-                    item.longitude = to_degrees(
-                        tags["GPS GPSLongitude"],
-                        str(tags.get("GPS GPSLongitudeRef", "E")),
+                try:
+                    found = _location_for(path)
+                except Exception as error:
+                    # Malformed metadata is a property of one file, not of the
+                    # run. Letting it escape would lose the batch in hand and
+                    # fail again on the same file next time.
+                    logger.debug("no location for %s", path, exc_info=True)
+                    ctx.message(
+                        f"[Skip] could not read a location from {path}: {error}"
                     )
-                    item.latitude = to_degrees(
-                        tags["GPS GPSLatitude"],
-                        str(tags.get("GPS GPSLatitudeRef", "N")),
-                    )
+                    found = None
+                if found is not None:
+                    item.latitude, item.longitude = found
                     pending.append(item)
                     fixed += 1
-                else:
-                    # No EXIF GPS. Videos keep theirs in a container box that
-                    # exifread does not read at all.
-                    from_container = video_gps(path)
-                    if from_container is not None:
-                        item.latitude, item.longitude = from_container
-                        pending.append(item)
-                        fixed += 1
             done += 1
             if len(pending) >= CHUNK:
                 ctx.update(pending)
