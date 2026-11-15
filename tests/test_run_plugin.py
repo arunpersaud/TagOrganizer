@@ -6,6 +6,7 @@ there is a single place that decides what a plugin acts on.
 
 import os
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -198,3 +199,77 @@ class TestLoadingIntoTheManager:
 
         assert any("bad.py" in m for m in task_manager.main.messages.sent)
         assert task_manager.registry.all() == []
+
+
+class TestStopping:
+    """stop() is the gate the profile switch goes through, so these call it."""
+
+    def test_stop_does_not_return_while_the_task_is_still_in_a_step(
+        self, temp_db, task_manager
+    ):
+        release = threading.Event()
+        started = threading.Event()
+        finished_its_step = []
+
+        class Slow(Plugin):
+            name = "Slow"
+
+            def run(self, ctx):
+                started.set()
+                release.wait(5)
+                finished_its_step.append(True)
+                yield 1, 1
+
+        task_manager.run_plugin(Slow(), Scope.LIBRARY)
+        # Without this the worker may not have picked the task up yet, and
+        # cancel would drop it unstarted, which proves nothing about waiting.
+        assert started.wait(5), "the task never started"
+        timer = threading.Timer(0.3, release.set)
+        timer.start()
+        try:
+            assert task_manager.stop() is True
+        finally:
+            timer.cancel()
+            release.set()
+        assert finished_its_step == [True], "stop() returned before the task let go"
+
+    def test_stop_reports_failure_when_the_task_does_not_let_go(
+        self, temp_db, task_manager
+    ):
+        """The caller must refuse the switch on False, so this must not claim
+        the worker is idle when it is not."""
+        release = threading.Event()
+        started = threading.Event()
+
+        class Stuck(Plugin):
+            name = "Stuck"
+
+            def run(self, ctx):
+                started.set()
+                release.wait(5)
+                yield 1, 1
+
+        task_manager.run_plugin(Stuck(), Scope.LIBRARY)
+        assert started.wait(5), "the task never started"
+        try:
+            assert task_manager.stop(timeout_ms=200) is False
+        finally:
+            release.set()
+        assert task_manager.wait_for_idle()
+
+    def test_stop_cancels_the_running_plugin(self, temp_db, task_manager):
+        class Forever(Plugin):
+            name = "Forever"
+
+            def run(self, ctx):
+                # Paced: an unthrottled loop queues a progress signal per
+                # spin, and draining that backlog on the GUI thread is what
+                # made this test take twenty seconds.
+                while not ctx.cancelled:
+                    time.sleep(0.001)
+                    yield 1, 1
+
+        task_manager.run_plugin(Forever(), Scope.LIBRARY)
+        assert task_manager.wait_for_idle(timeout_ms=200) is False
+        assert task_manager.stop() is True
+        assert task_manager.runner.is_idle()

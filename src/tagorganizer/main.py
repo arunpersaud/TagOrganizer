@@ -391,9 +391,14 @@ class MainWindow(QMainWindow):
         """Stop the task worker before the window goes away.
 
         A QThread still running when its owner is destroyed aborts the
-        process, which would turn a clean quit into a crash report.
+        process, which would turn a clean quit into a crash report. If a task
+        cannot be stopped in time the close is refused rather than forced; the
+        cancel has been requested, so a second close normally succeeds.
         """
-        self.tasks.shutdown()
+        if not self.tasks.shutdown():
+            self.messages.add("A task is still stopping; close again in a moment.")
+            event.ignore()
+            return
         super().closeEvent(event)
 
     def create_menu(self, menu: dict):
@@ -478,7 +483,14 @@ class MainWindow(QMainWindow):
 
     def change_profile(self, name):
         previous = self.config.profile
-        self.tasks.stop()
+        if not self.tasks.stop():
+            QMessageBox.warning(
+                self,
+                "Task still running",
+                "A task is still stopping, so the profile was not changed. "
+                "Try again in a moment.",
+            )
+            return
         self.single_item.stop_playback()
         try:
             self.config.set_current_profile(name)
@@ -515,6 +527,17 @@ class MainWindow(QMainWindow):
     def change_config(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Select new config file")
         if not file_name:
+            return
+
+        # Switching config switches the database too, so the worker must be
+        # idle first, exactly as for a profile switch.
+        if not self.tasks.stop():
+            QMessageBox.warning(
+                self,
+                "Task still running",
+                "A task is still stopping, so the config was not changed. "
+                "Try again in a moment.",
+            )
             return
 
         previous_file = self.config.config_file

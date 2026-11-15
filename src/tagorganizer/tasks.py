@@ -214,10 +214,6 @@ class TaskManager:
         )
         self.runner.finished.connect(self._on_finished)
 
-        # stop() is called on every profile switch, not only after a task, so
-        # it has to know whether there was anything to finish.
-        self._running = False
-
         self.progressbar_label = QLabel("Task")
         self.progressbar = QProgressBar()
         self.progressbar.setMaximumWidth(200)
@@ -237,23 +233,21 @@ class TaskManager:
         ``interval`` is accepted and ignored: there is no timer any more. The
         parameter stays so the existing call sites keep working.
         """
-        self._running = True
         self._set_progress_visible(True)
 
-    def stop(self):
-        """Cancel outstanding work and wait for the worker to let go.
+    def stop(self, timeout_ms=10_000) -> bool:
+        """Cancel outstanding work and wait until the worker has let go.
 
-        Callers switch profiles straight after this, which disposes the engine.
-        Returning while the worker still held a session on the old database
-        would pull the database out from under a running query.
+        Callers switch databases straight after this, which disposes the
+        engine. A worker still inside a task holds a session on the old
+        database, and writes it makes after the switch would land in the new
+        one. So when this returns False the caller must not switch.
         """
-        was_running = self._running
-        self._running = False
         self.runner.cancel()
-        self.wait_for_idle()
-        self._set_progress_visible(False)
-        if was_running:
-            self.main.messages.add("Task done")
+        idle = self.wait_for_idle(timeout_ms)
+        if idle:
+            self._set_progress_visible(False)
+        return idle
 
     def load_plugins(self, directories=None):
         """Find the plugins and report any that could not be loaded.
@@ -288,14 +282,15 @@ class TaskManager:
         self.register_generator(plugin.run(ctx), ctx)
         self.start()
 
-    def shutdown(self):
-        """Stop the worker thread.
+    def shutdown(self, timeout_ms=10_000) -> bool:
+        """Stop the worker thread. False if it is still busy after the timeout.
 
         A QThread still running when its C++ object is destroyed aborts the
         process, so every owner - the main window, and any test that builds a
-        manager - has to call this.
+        manager - has to call this. A False return means the caller must not
+        tear the window down yet.
         """
-        self.runner.shutdown()
+        return self.runner.shutdown(timeout_ms)
 
     def wait_for_idle(self, timeout_ms=10_000) -> bool:
         """Spin the event loop until the worker has finished.
@@ -332,6 +327,5 @@ class TaskManager:
         self.progressbar.setValue(current)
 
     def _on_finished(self):
-        self._running = False
         self._set_progress_visible(False)
         self.main.messages.add("Task done")
