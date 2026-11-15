@@ -87,37 +87,51 @@ class Condition:
     value: object = None
 
 
-def remove_group_member(groups, group_index: int, member_index: int):
-    """Drop one member from an OR group.
+def remove_group_members(groups, removals):
+    """Drop several members from OR groups in one pass.
+
+    ``removals`` are (group_index, member_index) pairs, and every position
+    refers to ``groups`` as it was passed in. Removing them one at a time
+    would shift the positions of the rest: removing a group's first member
+    moves its second into slot zero, and a group that dissolves shifts every
+    group after it. Doing them together makes the order irrelevant.
 
     Returns (groups, dissolved): the groups that remain, and the conditions
     that should go back to being ordinary chips. A group of two that loses one
     member is no longer a disjunction - "(beach)" is just "beach" - so it
     dissolves rather than lingering as a group of one.
 
-    The removed member is discarded, not restored: removing it from the group
-    is removing it from the filter. Ungrouping is the operation that keeps
-    everything.
+    The removed members are discarded, not restored: removing one from the
+    group is removing it from the filter. Ungrouping is the operation that
+    keeps everything. Positions that do not exist are ignored.
 
     Nothing is mutated in place; the caller rebuilds its chips from the result.
     """
-    if not 0 <= group_index < len(groups):
-        return [list(group) for group in groups], []
-    if not 0 <= member_index < len(groups[group_index]):
-        return [list(group) for group in groups], []
+    doomed = {
+        (group_index, member_index)
+        for group_index, member_index in removals
+        if 0 <= group_index < len(groups)
+        and 0 <= member_index < len(groups[group_index])
+    }
 
     remaining = []
     dissolved = []
-    for index, group in enumerate(groups):
-        if index != group_index:
-            remaining.append(list(group))
-            continue
-        kept = [c for position, c in enumerate(group) if position != member_index]
+    for group_index, group in enumerate(groups):
+        kept = [
+            condition
+            for member_index, condition in enumerate(group)
+            if (group_index, member_index) not in doomed
+        ]
         if len(kept) >= 2:
             remaining.append(kept)
         else:
             dissolved.extend(kept)
     return remaining, dissolved
+
+
+def remove_group_member(groups, group_index: int, member_index: int):
+    """Drop one member from an OR group. See remove_group_members."""
+    return remove_group_members(groups, [(group_index, member_index)])
 
 
 @dataclass
@@ -487,18 +501,23 @@ class TagBar(QHBoxLayout):
 
     def remove_group_member(self, group_index: int, member_index: int):
         """Drop one member, dissolving the group if one is left."""
-        remaining, dissolved = remove_group_member(
-            self._groups, group_index, member_index
-        )
         self._suppress_refresh = True
         try:
-            self._groups = remaining
-            self._rebuild_groups()
-            for condition in dissolved:
-                self._restore_condition(condition)
+            self._remove_members([(group_index, member_index)])
         finally:
             self._suppress_refresh = False
         self.main.update_items()
+
+    def _remove_members(self, removals):
+        """Remove members by position, all at once, restoring dissolved groups.
+
+        The caller holds _suppress_refresh and redraws once afterwards.
+        """
+        remaining, dissolved = remove_group_members(self._groups, removals)
+        self._groups = remaining
+        self._rebuild_groups()
+        for condition in dissolved:
+            self._restore_condition(condition)
 
     @staticmethod
     def _condition_label(condition) -> str:
@@ -565,26 +584,17 @@ class TagBar(QHBoxLayout):
 
         # A chip inside a group is removed from the group rather than from the
         # bar: the group has to shrink, and dissolve if only one member is
-        # left. Highest member index first, so removing one does not shift the
-        # position of another still to be removed.
-        members = sorted(
-            (self._group_members[w] for w in chips if w in self._group_members),
-            reverse=True,
-        )
+        # left. All the positions are taken before anything moves, so removing
+        # one member cannot shift the position of another.
+        removals = [self._group_members[w] for w in chips if w in self._group_members]
         loose = [w for w in chips if w not in self._group_members]
 
         self._suppress_refresh = True
         try:
             for widget in loose:
                 self.remove_tag_button(widget)
-            for group_index, member_index in members:
-                remaining, dissolved = remove_group_member(
-                    self._groups, group_index, member_index
-                )
-                self._groups = remaining
-                self._rebuild_groups()
-                for condition in dissolved:
-                    self._restore_condition(condition)
+            if removals:
+                self._remove_members(removals)
         finally:
             self._suppress_refresh = False
 

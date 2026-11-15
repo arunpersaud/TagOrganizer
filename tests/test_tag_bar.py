@@ -631,3 +631,50 @@ class TestDeletingAMemberChip:
 
         assert bar.get_filters().tags in (None, [])
         assert len(bar.get_filters().groups) == 1
+
+
+class TestRemovingSeveralMembersAtOnce:
+    """Removing two members of one group used to shift the other group's slots.
+
+    "(a or b) (c or d)" with a and b deleted came out as "a and d": the first
+    removal dissolved the group, and the second then hit the next group's
+    member at the same position.
+    """
+
+    def _groups(self, bar, *groups):
+        for names in groups:
+            for name in names:
+                bar.add_tag(name)
+            for entry in list(bar.selected_tags):
+                if entry.name in names:
+                    bar.toggle_chip(entry.widget)
+            bar.group_selected()
+
+    def _member(self, bar, label):
+        return next(w for w in bar._group_members if w.text() == label)
+
+    def test_two_members_of_one_group_leave_the_other_group_intact(self, qapp):
+        bar = _tag_bar()
+        self._groups(bar, ["a", "b"], ["c", "d"])
+
+        bar.toggle_chip(self._member(bar, "a"))
+        bar.toggle_chip(self._member(bar, "b"))
+        bar.remove_selected()
+
+        filters = bar.get_filters()
+        assert [[c.value for c in g] for g in filters.groups] == [["c", "d"]]
+        assert filters.tags in (None, [])
+
+    def test_a_dissolved_group_restores_its_survivor_and_spares_the_rest(self, qapp):
+        bar = _tag_bar()
+        self._groups(bar, ["a", "b", "c"], ["d", "e"])
+
+        bar.toggle_chip(self._member(bar, "a"))
+        bar.toggle_chip(self._member(bar, "b"))
+        bar.toggle_chip(self._member(bar, "d"))
+        bar.remove_selected()
+
+        filters = bar.get_filters()
+        # Each group is left with one member, so each dissolves into a chip.
+        assert filters.groups == []
+        assert set(filters.tags) == {"c", "e"}
