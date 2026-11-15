@@ -228,24 +228,40 @@ class TagBar(QHBoxLayout):
         self.addStretch(1)
 
     def clear_selected_tags(self):
-        for t in self.selected_tags:
-            t.widget.setParent(None)
-        for key, v in self.bool.items():
-            if v.value:
-                v.widget.setParent(None)
-                self.bool[key].value = False
-
-        self.selected_tags = []
-        self.remove_tag_button(self.selected_times_min.widget)
-        self.remove_tag_button(self.selected_times_max.widget)
-        self.remove_tag_button(self.selected_area.widget)
-        self.remove_tag_button(self.selected_ids.widget)
-        for widget in self._group_widgets:
-            widget.setParent(None)
-        self._group_widgets = []
-        self._group_members = {}
-        self._groups = []
+        self.reset()
         self.refresh()
+
+    def reset(self):
+        """Drop every chip and group without redrawing the view.
+
+        Used when the view is about to be redrawn anyway, as after a profile
+        switch; clear_selected_tags is the version that redraws.
+        """
+        previous = self._suppress_refresh
+        self._suppress_refresh = True
+        try:
+            for t in self.selected_tags:
+                t.widget.setParent(None)
+            for key, v in self.bool.items():
+                if v.value:
+                    v.widget.setParent(None)
+                    self.bool[key].value = False
+
+            self.selected_tags = []
+            self.remove_tag_button(self.selected_times_min.widget)
+            self.remove_tag_button(self.selected_times_max.widget)
+            self.remove_tag_button(self.selected_area.widget)
+            self.remove_tag_button(self.selected_ids.widget)
+            for widget in self._group_widgets:
+                widget.setParent(None)
+            self._group_widgets = []
+            self._group_members = {}
+            self._groups = []
+            # A chip deleted above can still be marked selected; keeping it
+            # would let a stale widget be grouped into the next filter.
+            self._selected_chips = []
+        finally:
+            self._suppress_refresh = previous
 
     def get_all_names(self):
         out = []

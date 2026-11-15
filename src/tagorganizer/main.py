@@ -490,11 +490,13 @@ class MainWindow(QMainWindow):
         cached filters forces update_items to redraw the timeline and the map,
         which it otherwise skips whenever two profiles compare equal - which
         they do whenever they share their photo and video directories.
+
+        The tag bar is reset without its own redraw; the caller redraws once.
         """
         self.grid.page = 0
         self.grid.highlight = 0
         self.selection.clear()
-        self.tag_bar.clear_selected_tags()
+        self.tag_bar.reset()
         self.filters = None
         self.update_numbers(selected=0)
 

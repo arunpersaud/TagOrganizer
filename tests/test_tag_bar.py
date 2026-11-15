@@ -774,3 +774,24 @@ class TestOneAreaChip:
 
         assert self._area_chips(bar) == []
         assert bar.get_filters().min_longitude is None
+
+
+class TestReset:
+    def test_reset_forgets_selected_chips(self, qapp):
+        """A chip that was selected before a profile switch must not be grouped after it."""
+        bar = _tag_bar()
+        bar.add_tag("beach")
+        bar.toggle_chip(bar.selected_tags[0].widget)
+
+        bar.reset()
+
+        assert bar.selected_chips() == []
+
+    def test_reset_does_not_redraw(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("beach")
+        calls = bar.main.update_items_calls
+
+        bar.reset()
+
+        assert bar.main.update_items_calls == calls
