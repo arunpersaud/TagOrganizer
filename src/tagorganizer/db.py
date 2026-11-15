@@ -19,6 +19,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import logging
+import os
 from pathlib import Path
 
 from sqlmodel import SQLModel, create_engine, select, Session, func, delete
@@ -27,6 +28,7 @@ import sqlalchemy as sa
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
+from . import paths
 from .models import Tag, Item, ItemTagLink, ItemParentLink
 from .scope import Scope
 from .widgets.tag_bar import Condition, Filters
@@ -75,6 +77,22 @@ def _materialise_ids(session, item_ids: list[int]) -> None:
             f"INSERT INTO {_ID_TABLE} (id) VALUES (?)",
             [(i,) for i in item_ids],
         )
+
+
+def _inside_dir(directory) -> sa.ColumnElement:
+    """Whether an item's file sits beneath this directory.
+
+    Compares a literal prefix rather than using LIKE. LIKE treats "_" and "%"
+    in a directory name as wildcards, and SQLite's LIKE folds ASCII case
+    whatever the filesystem does. The prefix ends in a separator so that
+    /photos-old is not counted as inside /photos. Case folds only where the
+    directory's filesystem ignores case, as everywhere else in the app.
+    """
+    prefix = str(directory).rstrip(os.sep) + os.sep
+    head = sa.func.substr(Item.uri, 1, len(prefix))
+    if paths.is_case_insensitive(Path(directory)):
+        return sa.func.lower(head) == prefix.lower()
+    return head == prefix
 
 
 def _restrict(query, session, scope: Scope):
@@ -622,7 +640,7 @@ def get_all_items_not_in_dir(directories: list[Path], suffix: list[str]):
         query = select(Item)
 
         for directory in set(directories):
-            query = query.where(~Item.uri.startswith(str(directory)))
+            query = query.where(sa.not_(_inside_dir(directory)))
 
         conditions = [Item.uri.endswith(ext) for ext in all_suffixes]
         query = query.where(or_(*conditions))
@@ -708,7 +726,7 @@ def condition_expression(condition: Condition, session: Session):
         return Item.latitude == sa.null()
 
     if kind == "wrong_dir":
-        return sa.and_(*[~Item.uri.startswith(str(d)) for d in value])
+        return sa.and_(*[sa.not_(_inside_dir(d)) for d in value])
 
     if kind == "item_ids":
         _materialise_ids(session, value)
@@ -756,7 +774,7 @@ def filter_query(query, filter: Filters, session: Session):
 
     if filter.wrong_dir and filter.directories:
         for directory in filter.directories:
-            query = query.where(~Item.uri.startswith(str(directory)))
+            query = query.where(sa.not_(_inside_dir(directory)))
 
     # Filter by id set. Materialise ids in a temp table to avoid SQLite's
     # per-statement 32766 parameter limit. The temp table keeps ids out of
