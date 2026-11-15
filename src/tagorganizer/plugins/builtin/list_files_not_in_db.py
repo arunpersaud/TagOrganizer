@@ -36,6 +36,8 @@ class ListFilesNotInDb(Plugin):
             if ctx.cancelled:
                 break
             done += 1
+            if done % 10 == 0:
+                yield total, done
             if path.is_dir() or any(part in str(path) for part in IGNORED):
                 continue
             if db.check_item_in_db(str(path)) is not None:
@@ -46,8 +48,6 @@ class ListFilesNotInDb(Plugin):
                 reported_label = label
             ctx.message(f"      {path}")
             missing += 1
-            if done % 10 == 0:
-                yield total, done
 
         ctx.message(f"files on disk but not in the database: {missing}")
         yield total, done

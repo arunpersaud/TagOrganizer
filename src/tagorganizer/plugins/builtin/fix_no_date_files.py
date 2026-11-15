@@ -32,6 +32,8 @@ class FixNoDateFiles(Plugin):
             if ctx.cancelled:
                 break
             done += 1
+            if done % CHUNK == 0:
+                yield total, done
             source = Path(item.uri)
             if not source.is_file():
                 ctx.message(f"[Error] item {item.uri} does not exist")
@@ -51,7 +53,6 @@ class FixNoDateFiles(Plugin):
             if len(pending) >= CHUNK:
                 ctx.update(pending)
                 pending = []
-                yield total, done
 
         ctx.update(pending)
         ctx.message(f"items in 'no-date': {total}")

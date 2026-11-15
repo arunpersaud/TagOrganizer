@@ -27,13 +27,13 @@ class ListFilesOutsideDirs(Plugin):
             if ctx.cancelled:
                 break
             done += 1
+            if done % 10 == 0:
+                yield total, done
             path = Path(item.uri)
             if not path.is_file():
                 ctx.message(f"[Error] item {item.uri} does not exist")
             else:
                 ctx.message(f"File: {path}")
-            if done % 10 == 0:
-                yield total, done
 
         ctx.message(f"items outside the photo/video directories: {total}")
         yield total, done

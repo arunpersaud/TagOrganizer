@@ -45,6 +45,11 @@ class UpdateHashes(Plugin):
             if len(pending) >= CHUNK:
                 ctx.update(pending)
                 pending = []
+            # Yielded on the item count rather than on a flush: a run of items
+            # that add nothing to pending would otherwise go unyielded for as
+            # long as the run lasts, and the runner only sees a cancel at a
+            # yield.
+            if done % CHUNK == 0:
                 yield total, done
 
         ctx.update(pending)
