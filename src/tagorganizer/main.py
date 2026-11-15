@@ -121,6 +121,59 @@ def clamp_grid_position(highlight: int, count: int, per_page: int) -> tuple[int,
     return highlight, highlight // per_page
 
 
+def delete_photos(items, delete_files: bool) -> tuple[list[int], list[str]]:
+    """Remove photos from the library, and optionally from disk too.
+
+    Each photo is handled on its own, so one file that cannot be removed does
+    not stop the rest. A photo whose file could not be deleted keeps its row:
+    dropping the row while the file is still there would let the next import
+    add the same photo back as new. Returns the ids removed and one line per
+    failure.
+    """
+    removed = []
+    failures = []
+    for item in items:
+        if delete_files:
+            path = Path(item.uri)
+            try:
+                if path.exists():
+                    path.unlink()
+            except OSError as error:
+                failures.append(
+                    f"could not delete {item.uri}: {error.strerror or error}"
+                )
+                continue
+        db.delete_item(item.id)
+        removed.append(item.id)
+    return removed, failures
+
+
+def copy_photos(items, target: Path) -> tuple[int, list[str]]:
+    """Copy photos into ``target``, returning the count copied and what was skipped.
+
+    A photo that is missing, or whose name is already taken there, is skipped
+    rather than overwritten. A copy that fails is reported and the rest still go.
+    """
+    copied = 0
+    problems = []
+    for item in items:
+        source = Path(item.uri)
+        if not source.is_file():
+            problems.append(f"{source} does not exist; skipped")
+            continue
+        destination = target / source.name
+        if destination.exists():
+            problems.append(f"{destination} already exists; skipped")
+            continue
+        try:
+            shutil.copy(source, destination)
+        except OSError as error:
+            problems.append(f"could not copy {source}: {error.strerror or error}")
+            continue
+        copied += 1
+    return copied, problems
+
+
 # Widgets that take typed text or arrow keys for themselves. The app-wide key
 # filter must leave their key presses alone.
 _KEY_TAKING_WIDGETS = (
@@ -875,16 +928,12 @@ class MainWindow(QMainWindow):
             self.messages.add(f"[ERROR] target {target} not a directory.")
             return
 
-        for item in db.get_items_by_ids(self.selection.ids()):
-            source = Path(item.uri)
-            if not source.is_file():
-                self.messages.add(f"[ERROR] item at {source} does not exist...skipping")
-                continue
-            destination = target / source.name
-            if destination.exists():
-                self.messages.add(f"[ERROR] {destination} already exists...skipping")
-                continue
-            shutil.copy(source, destination)
+        copied, problems = copy_photos(
+            db.get_items_by_ids(self.selection.ids()), target
+        )
+        for problem in problems:
+            self.messages.add(f"[ERROR] {problem}")
+        self.messages.add(f"Copied {copied} photo(s) to {target}")
 
     def clear_selection(self):
         self.grid.clear_selection()
@@ -926,15 +975,24 @@ class MainWindow(QMainWindow):
 
         dialog = DeleteConfirmationDialog(items_to_delete, self)
         if dialog.exec_() == QDialog.Accepted:
-            delete_files = dialog.should_delete_files()
-            for item in items_to_delete:
-                if delete_files:
-                    filepath = Path(item.uri)
-                    if filepath.exists():
-                        filepath.unlink()
-                db.delete_item(item.id)
+            removed, failures = delete_photos(
+                items_to_delete, dialog.should_delete_files()
+            )
+            for failure in failures:
+                self.messages.add(f"[ERROR] {failure}")
+            if failures:
+                QMessageBox.warning(
+                    self,
+                    "Some photos were kept",
+                    f"{len(failures)} photo(s) could not be deleted from disk, "
+                    "so they stay in the library. See the Messages tab.",
+                )
+            self.messages.add(f"Deleted {len(removed)} photo(s)")
 
-            self.selection.clear()
+            # Only what was removed leaves the selection; a photo kept after a
+            # failed file delete is still selected.
+            for item_id in removed:
+                self.selection.discard(item_id)
             self.refresh_after_data_change()
 
     def mark_as_derived(self):
