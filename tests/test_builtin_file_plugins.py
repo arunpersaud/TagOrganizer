@@ -324,6 +324,18 @@ class TestListFilesNotInDb:
         messages = run(ListFilesNotInDb(), tmp_path)
         assert not any("abc.jpg" in m for m in messages)
 
+    def test_a_photo_in_a_folder_named_like_the_cache_is_reported(
+        self, temp_db, tmp_path
+    ):
+        """Only whole components count: 'my-thumbnails-2020' is a folder of
+        photos, not the cache."""
+        folder = tmp_path / "my-thumbnails-2020"
+        folder.mkdir()
+        (folder / "holiday.jpg").write_bytes(b"x")
+
+        messages = run(ListFilesNotInDb(), tmp_path)
+        assert any("holiday.jpg" in m for m in messages), messages
+
 
 class TestListFilesOutsideDirs:
     def test_reports_an_item_stored_outside_the_configured_tree(
