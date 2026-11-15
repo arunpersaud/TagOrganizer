@@ -13,6 +13,7 @@ the data-loss bug (delete by uri instead of by id).
 
 import pytest
 from datetime import datetime
+from pathlib import Path
 from sqlalchemy import create_engine as sa_create_engine
 from sqlmodel import Session, SQLModel, select
 
@@ -484,6 +485,42 @@ class TestCaseInsensitiveFilesystems:
         """On Linux they really are two different files."""
         monkeypatch.setattr(
             "tagorganizer.paths.is_case_insensitive", lambda path: False
+        )
+        item_id = self._setup(source_and_target, "/p/Z.JPG", "/p/z.jpg")
+
+        with Session(source_and_target["source_engine"]) as session:
+            result = move_items(session, source_and_target["target_path"], [item_id])
+
+        assert result.moved_ids == [item_id]
+
+    def test_the_photos_volume_decides_case_not_the_targets(
+        self, source_and_target, monkeypatch
+    ):
+        """A target on a case-sensitive disk, beside photos on a case-insensitive one.
+
+        The duplicate is still a duplicate: the file the photo names lives on
+        the photos' volume, which folds case, whatever the database's disk does.
+        """
+        photos = Path("/p")
+        monkeypatch.setattr(
+            "tagorganizer.paths.is_case_insensitive",
+            lambda path: Path(path) == photos,
+        )
+        item_id = self._setup(source_and_target, "/p/Z.JPG", "/p/z.jpg")
+
+        with Session(source_and_target["source_engine"]) as session:
+            result = move_items(session, source_and_target["target_path"], [item_id])
+
+        assert result.skipped_ids == [item_id]
+
+    def test_distinct_photos_move_when_the_photos_volume_keeps_case(
+        self, source_and_target, monkeypatch
+    ):
+        """The reverse: a target on a case-insensitive disk, beside case-sensitive photos."""
+        photos = Path("/p")
+        monkeypatch.setattr(
+            "tagorganizer.paths.is_case_insensitive",
+            lambda path: Path(path) != photos,
         )
         item_id = self._setup(source_and_target, "/p/Z.JPG", "/p/z.jpg")
 

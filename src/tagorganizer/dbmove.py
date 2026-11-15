@@ -234,34 +234,32 @@ def move_items(session: Session, target_path: Path, item_ids: list[int]) -> Move
 
         # Step 1: Determine which items can be moved (those not already in
         # target by uri). Whether case matters follows the filesystem holding
-        # the target: on macOS and Windows /p/A.JPG and /p/a.jpg are one file,
-        # so moving one beside the other would leave two rows for one photo -
-        # and the unique constraint cannot catch that, because the strings
-        # genuinely differ. On Linux they are two files and both belong.
+        # the photos, not the one holding the target: a target database on ext4
+        # beside photos on exFAT still has to fold case for those photos. On
+        # macOS and Windows /p/A.JPG and /p/a.jpg are one file, so moving one
+        # beside the other would leave two rows for one photo - and the unique
+        # constraint cannot catch that, because the strings genuinely differ.
+        # On Linux they are two files and both belong.
         # Membership is decided once; both insert and delete act on exactly this set.
-        # Use a set to track movable ids, then convert to list to preserve order.
+        target_uris = {
+            row[0] for row in conn.exec_driver_sql("SELECT uri FROM tgt.item").all()
+        }
+        target_folded = {uri.lower() for uri in target_uris}
         movable_set = set()
-        fold_case = paths.is_case_insensitive(Path(target_path).parent)
         raw_conn = conn.connection
         for chunk in chunk_ids(item_ids):
-            if not chunk:
-                continue
             placeholders = ",".join("?" * len(chunk))
-            if fold_case:
-                query = f"""
-                    SELECT id FROM main.item
-                    WHERE id IN ({placeholders})
-                    AND lower(uri) NOT IN (SELECT lower(uri) FROM tgt.item)
-                """
-            else:
-                query = f"""
-                    SELECT id FROM main.item
-                    WHERE id IN ({placeholders})
-                    AND uri NOT IN (SELECT uri FROM tgt.item)
-                """
             cursor = raw_conn.cursor()
-            result_rows = cursor.execute(query, chunk).fetchall()
-            movable_set.update([row[0] for row in result_rows])
+            source_rows = cursor.execute(
+                f"SELECT id, uri FROM main.item WHERE id IN ({placeholders})", chunk
+            ).fetchall()
+            for item_id, uri in source_rows:
+                if paths.is_case_insensitive(Path(uri).parent):
+                    duplicate = uri.lower() in target_folded
+                else:
+                    duplicate = uri in target_uris
+                if not duplicate:
+                    movable_set.add(item_id)
 
         # Preserve order by filtering requested ids, keeping only the movable ones
         # in the order they were requested (handling duplicates in item_ids).
