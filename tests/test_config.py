@@ -354,3 +354,51 @@ class TestDisabledPluginSetting:
             assert manager.get_profiles() == ["main"]
         finally:
             db.engine.dispose()
+
+
+class TestProfilesSharingAPhotoFolder:
+    """A photo folder's thumbnail cache is shared by every profile on it."""
+
+    def _manager(self, tmp_path, profile):
+        from tagorganizer.config import ConfigManager
+
+        shared = tmp_path / "shared"
+        other = tmp_path / "other"
+        config_file = tmp_path / "config.ini"
+        config_file.write_text(
+            "[DEFAULT]\nprofile = a\n\n"
+            f"[a]\ndatabase = {tmp_path}/a.db\nphoto_path = {shared}\n"
+            f"video_path = {tmp_path}\n\n"
+            f"[b]\ndatabase = {tmp_path}/b.db\nphoto_path = {shared}/\n"
+            f"video_path = {tmp_path}\n\n"
+            f"[c]\ndatabase = {tmp_path}/c.db\nphoto_path = {other}\n"
+            f"video_path = {tmp_path}\n"
+        )
+        return ConfigManager(config_file=config_file, profile=profile)
+
+    def test_a_profile_on_the_same_folder_is_reported(self, tmp_path):
+        from tagorganizer import db
+
+        manager = self._manager(tmp_path, "a")
+        try:
+            assert manager.other_profiles_sharing_photos() == ["b"]
+        finally:
+            db.engine.dispose()
+
+    def test_a_profile_on_another_folder_is_not(self, tmp_path):
+        from tagorganizer import db
+
+        manager = self._manager(tmp_path, "c")
+        try:
+            assert manager.other_profiles_sharing_photos() == []
+        finally:
+            db.engine.dispose()
+
+    def test_the_sharing_is_symmetric(self, tmp_path):
+        from tagorganizer import db
+
+        manager = self._manager(tmp_path, "b")
+        try:
+            assert manager.other_profiles_sharing_photos() == ["a"]
+        finally:
+            db.engine.dispose()

@@ -21,6 +21,17 @@ class PruneThumbnailCache(Plugin):
     accepts_selection = False
 
     def run(self, ctx):
+        # Each profile knows only its own items, and the cache is shared by
+        # every profile on the same photo folder. Pruning here would delete the
+        # thumbnails of items that another profile still shows, so it refuses
+        # rather than guess which hashes the others hold.
+        if ctx.sharing_profiles:
+            names = ", ".join(ctx.sharing_profiles)
+            ctx.message(
+                f"not pruning: {names} keep photos in the same folder, and "
+                "their thumbnails would be deleted"
+            )
+            return
         known = {item.uri_md5 for item in ctx.items() if item.uri_md5}
 
         cached = list(cached_hashes(ctx.photos))

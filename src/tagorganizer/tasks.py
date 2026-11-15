@@ -293,6 +293,7 @@ class TaskManager:
             # Plugins run on the worker, so their messages go through the
             # runner's queued signal rather than straight to the message widget.
             message_sink=self.runner.message.emit,
+            sharing_profiles=tuple(self.main.config.other_profiles_sharing_photos()),
         )
         self.main.messages.add(f"{plugin.name}: running on {scope.describe()}")
         self.register_generator(_steps(plugin, ctx), ctx)

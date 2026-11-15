@@ -38,9 +38,15 @@ def cache(temp_db, tmp_path):
     return {"kept": kept, "ghost": ghost, "ghost_preview": ghost_preview}
 
 
-def run(plugin, tmp_path):
+def run(plugin, tmp_path, sharing_profiles=()):
     messages = []
-    ctx = TaskContext(Scope.LIBRARY, tmp_path, tmp_path, messages.append)
+    ctx = TaskContext(
+        Scope.LIBRARY,
+        tmp_path,
+        tmp_path,
+        messages.append,
+        sharing_profiles=sharing_profiles,
+    )
     list(plugin.run(ctx))
     return messages
 
@@ -89,9 +95,7 @@ class TestPruning:
         run(PruneThumbnailCache(), tmp_path)
         assert thumbnail_file(cache["kept"], 150, tmp_path).exists()
 
-    def test_an_empty_library_does_not_delete_a_cache_it_cannot_explain(
-        self, temp_db, tmp_path
-    ):
+    def test_an_empty_library_deletes_everything_cached(self, temp_db, tmp_path):
         """A library with no items has no hashes, so everything looks orphaned
         - which is right, but only because the scope really is everything."""
         path = thumbnail_file("d" * 32, 150, tmp_path)
@@ -100,6 +104,34 @@ class TestPruning:
 
         run(PruneThumbnailCache(), tmp_path)
         assert not path.exists()
+
+    def test_an_unhashed_item_neither_protects_nor_breaks_pruning(
+        self, cache, temp_db, tmp_path
+    ):
+        """An item not hashed yet has no md5, so it can own no cache entry. It
+        must not stop the pruning of the others, nor be mistaken for a key."""
+        with Session(temp_db) as session:
+            session.add(Item(uri=str(tmp_path / "new.jpg"), uri_md5=None))
+            session.add(Item(uri=str(tmp_path / "newer.jpg"), uri_md5=""))
+            session.commit()
+        run(PruneThumbnailCache(), tmp_path)
+        assert thumbnail_file(cache["kept"], 150, tmp_path).exists()
+        assert not thumbnail_file(cache["ghost"], 150, tmp_path).exists()
+
+
+class TestSharedPhotoFolder:
+    """Another profile on the same folder shows items this one cannot see."""
+
+    def test_nothing_is_deleted_when_another_profile_shares_the_folder(
+        self, cache, tmp_path
+    ):
+        run(PruneThumbnailCache(), tmp_path, sharing_profiles=("work",))
+        assert thumbnail_file(cache["ghost"], 150, tmp_path).exists()
+        assert preview_file(cache["ghost_preview"], 150, tmp_path).exists()
+
+    def test_the_user_is_told_which_profile_is_why(self, cache, tmp_path):
+        messages = run(PruneThumbnailCache(), tmp_path, sharing_profiles=("work",))
+        assert any("work" in m and "not pruning" in m for m in messages), messages
 
 
 class TestScope:

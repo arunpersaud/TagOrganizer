@@ -34,10 +34,21 @@ from ..scope import Scope
 class TaskContext:
     """Handed to a plugin's ``run``; the only thing it should need."""
 
-    def __init__(self, scope: Scope, photos: Path, videos: Path, message_sink):
+    def __init__(
+        self,
+        scope: Scope,
+        photos: Path,
+        videos: Path,
+        message_sink,
+        sharing_profiles: tuple[str, ...] = (),
+    ):
         self.scope = scope
         self.photos = photos
         self.videos = videos
+        # Other profiles that keep their photos in the same folder. Their
+        # items are not visible through items(), so a plugin that acts on the
+        # shared folder as a whole must check this first.
+        self.sharing_profiles = tuple(sharing_profiles)
         self._message_sink = message_sink
         # An Event rather than a bool: it is set on the GUI thread and read on
         # the worker, and the Event makes that visibility guarantee explicit.

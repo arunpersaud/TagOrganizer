@@ -32,6 +32,9 @@ class _Config:
         self.photos = Path(path)
         self.videos = Path(path)
 
+    def other_profiles_sharing_photos(self):
+        return []
+
 
 class _Main:
     def __init__(self, path):

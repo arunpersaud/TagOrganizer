@@ -26,6 +26,7 @@ import os
 
 from . import db
 from .migrations import upgrade_db, stamp_db
+from .paths import same_path
 
 # Define the application name and author
 APP_NAME = "TagOrganizer"
@@ -236,6 +237,27 @@ class ConfigManager:
 
     def get_profiles(self):
         return self.config.sections()
+
+    def other_profiles_sharing_photos(self) -> list[str]:
+        """Other profiles whose photo folder is this profile's photo folder.
+
+        Thumbnails live inside the photo folder and are named only by the
+        item's hash, so profiles on one folder share a single cache. A profile
+        cannot see another's items, which is why this is asked for: a task
+        that deletes cache entries it does not recognise needs to know.
+        """
+        mine = str(self.photos)
+        sharing = []
+        for name in self.get_profiles():
+            if name == self.profile:
+                continue
+            raw = self.config[name].get("photo_path")
+            if not raw:
+                continue
+            other = str(Path(raw).expanduser().resolve())
+            if same_path(mine, other, self.photos):
+                sharing.append(name)
+        return sharing
 
     def get_profile_database(self, name: str) -> Path:
         """Return the configured database path for a profile.
