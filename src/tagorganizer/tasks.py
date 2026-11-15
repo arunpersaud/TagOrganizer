@@ -19,7 +19,9 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import logging
+import threading
 from collections import deque
+from dataclasses import dataclass, field
 
 from qtpy.QtWidgets import QProgressBar, QLabel
 from qtpy.QtCore import (
@@ -44,6 +46,26 @@ logger = logging.getLogger(__name__)
 PREVIEW_WIDTH = 150
 
 
+@dataclass(eq=False)
+class _Job:
+    """One generator waiting for, or in, the worker, with its cancel flag.
+
+    The flag lives on the job rather than on the runner. A runner-wide flag
+    that the next enqueue clears would let a cancelled task keep running the
+    moment the user queued something new behind it.
+    """
+
+    gen: object
+    ctx: TaskContext | None = None
+    stop: threading.Event = field(default_factory=threading.Event)
+
+    def request_stop(self) -> None:
+        self.stop.set()
+        # Plugins poll the context, not the runner, so both must be told.
+        if self.ctx is not None:
+            self.ctx.cancel()
+
+
 class TaskRunner(QObject):
     """Steps task generators on a dedicated thread.
 
@@ -61,10 +83,10 @@ class TaskRunner(QObject):
 
     def __init__(self):
         super().__init__()
-        self._queue = deque()
+        self._queue: deque[_Job] = deque()
+        self._current: _Job | None = None
         self._lock = QMutex()
         self._draining = False
-        self._cancelled = False
 
         self._thread = QThread()
         self.moveToThread(self._thread)
@@ -74,8 +96,11 @@ class TaskRunner(QObject):
         with QMutexLocker(self._lock):
             return not self._draining and not self._queue
 
-    def enqueue(self, gen) -> None:
+    def enqueue(self, gen, ctx: TaskContext | None = None) -> None:
         """Add work and make sure the worker is awake.
+
+        ``ctx`` is the context the generator was built with, if any. Cancelling
+        the runner cancels it too, so a plugin polling ``ctx.cancelled`` stops.
 
         _drain is posted unconditionally rather than only when the worker looks
         idle. Deciding that from here means reading a flag the worker is
@@ -85,21 +110,36 @@ class TaskRunner(QObject):
         if it is already running.
         """
         with QMutexLocker(self._lock):
-            self._queue.append(gen)
-            self._cancelled = False
+            self._queue.append(_Job(gen, ctx))
         # Queued, so _drain runs on the worker thread rather than this one.
         QMetaObject.invokeMethod(self, "_drain", Qt.QueuedConnection)
 
     def cancel(self) -> None:
-        """Drop pending work and ask the running task to stop at its next yield."""
-        with QMutexLocker(self._lock):
-            self._cancelled = True
-            self._queue.clear()
+        """Drop pending work and ask the running task to stop at its next yield.
 
-    def shutdown(self) -> None:
+        Both halves matter: the running plugin is told through its context, and
+        the runner itself stops stepping it, so a plugin that ignores the flag
+        still cannot run past its next yield.
+        """
+        with QMutexLocker(self._lock):
+            self._queue.clear()
+            if self._current is not None:
+                self._current.request_stop()
+
+    def shutdown(self, timeout_ms=10_000) -> bool:
+        """Cancel, then wait for the worker to exit. False if it did not in time.
+
+        Waiting without a bound would hang the application on close whenever a
+        plugin is slow to reach its next yield. The worker only ever needs the
+        event loop to be free, and the GUI thread is the one blocking here, so
+        the wait cannot deadlock against queued messages.
+        """
         self.cancel()
         self._thread.quit()
-        self._thread.wait()
+        if self._thread.wait(timeout_ms):
+            return True
+        logger.warning("task worker still busy %s ms after cancel", timeout_ms)
+        return False
 
     @Slot()
     def _drain(self):
@@ -110,24 +150,42 @@ class TaskRunner(QObject):
         with QMutexLocker(self._lock):
             self._draining = True
 
+        ran = False
         while True:
             with QMutexLocker(self._lock):
-                if self._cancelled or not self._queue:
+                if not self._queue:
                     self._draining = False
+                    self._current = None
                     break
-                gen = self._queue.popleft()
-            try:
-                for total, current in gen:
-                    with QMutexLocker(self._lock):
-                        stopping = self._cancelled
-                    if stopping:
-                        break
-                    self.progress.emit(total, current)
-            except Exception as error:
-                # A failing task must not stop the queue or take the app down.
-                logger.exception("task failed")
-                self.message.emit(f"Task failed: {error}")
-        self.finished.emit()
+                job = self._queue.popleft()
+                self._current = job
+            ran = True
+            self._step(job)
+            with QMutexLocker(self._lock):
+                self._current = None
+
+        # Only a drain that did work says so. Each enqueue posts a drain, so an
+        # unconditional emit reported "Task done" once per queued item.
+        if ran:
+            self.finished.emit()
+
+    def _step(self, job: _Job) -> None:
+        if job.stop.is_set():
+            job.gen.close()
+            return
+        try:
+            for total, current in job.gen:
+                if job.stop.is_set():
+                    break
+                self.progress.emit(total, current)
+        except Exception as error:
+            # A failing task must not stop the queue or take the app down.
+            logger.exception("task failed")
+            self.message.emit(f"Task failed: {error}")
+        finally:
+            # A generator abandoned mid-way runs its finally blocks only when
+            # closed; leaving that to the garbage collector delays them.
+            job.gen.close()
 
 
 class TaskManager:
@@ -170,8 +228,8 @@ class TaskManager:
         statusbar.addPermanentWidget(self.progressbar_label)
         statusbar.addPermanentWidget(self.progressbar)
 
-    def register_generator(self, gen):
-        self.runner.enqueue(gen)
+    def register_generator(self, gen, ctx=None):
+        self.runner.enqueue(gen, ctx)
 
     def start(self, interval=500):
         """Show the progress widgets.
@@ -227,7 +285,7 @@ class TaskManager:
         # A plugin whose run() raises immediately produces a generator that
         # raises on first next(), which the worker catches like any other
         # failure - so there is no separate error path here.
-        self.register_generator(plugin.run(ctx))
+        self.register_generator(plugin.run(ctx), ctx)
         self.start()
 
     def shutdown(self):

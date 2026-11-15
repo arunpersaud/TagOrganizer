@@ -159,6 +159,56 @@ class TestCancellation:
         assert ran == []
 
 
+class TestCancellationReachesThePlugin:
+    def test_cancel_sets_the_flag_the_plugin_polls(self, runner):
+        """The runner's cancel must be visible through the context a plugin
+        was handed; before, the flag lived only on the runner and every
+        ``if ctx.cancelled`` check in the shipped plugins was dead code."""
+        from tagorganizer.plugins.context import TaskContext
+        from tagorganizer.scope import Scope
+
+        ctx = TaskContext(Scope.LIBRARY, None, None, lambda text: None)
+        started = threading.Event()
+        seen = []
+
+        def polling():
+            started.set()
+            while not ctx.cancelled:
+                yield 1, 1
+            seen.append(True)
+            yield 1, 1
+
+        runner.enqueue(polling(), ctx)
+        assert started.wait(5), "the task never started"
+        runner.cancel()
+        assert wait_until(runner.is_idle), "the plugin never saw the cancel"
+        assert seen == [True]
+
+    def test_a_task_queued_after_a_cancel_still_runs(self, runner):
+        """Cancelling stops the task that was running, not whatever the user
+        queues next; a runner-wide flag cleared by the next enqueue got this
+        the wrong way round."""
+        started = threading.Event()
+        release = threading.Event()
+        ran = []
+
+        def slow():
+            started.set()
+            release.wait(5)
+            yield 1, 1
+
+        def later():
+            ran.append(True)
+            yield 1, 1
+
+        runner.enqueue(slow())
+        assert started.wait(5), "the first task never started"
+        runner.cancel()
+        runner.enqueue(later())
+        release.set()
+        assert wait_until(lambda: ran == [True]), "the later task was dropped"
+
+
 class TestProfileSwitch:
     def test_the_worker_is_idle_before_the_engine_is_replaced(self, runner, tmp_path):
         """Switching profiles disposes the engine.

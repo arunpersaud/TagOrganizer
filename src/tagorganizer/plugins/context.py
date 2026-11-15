@@ -23,6 +23,7 @@ You should have received a copy of the GNU General Public License
 along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
+import threading
 from pathlib import Path
 
 from .. import db
@@ -38,7 +39,9 @@ class TaskContext:
         self.photos = photos
         self.videos = videos
         self._message_sink = message_sink
-        self._cancelled = False
+        # An Event rather than a bool: it is set on the GUI thread and read on
+        # the worker, and the Event makes that visibility guarantee explicit.
+        self._cancelled = threading.Event()
 
     def items(self):
         """Every item in scope.
@@ -82,7 +85,8 @@ class TaskContext:
     @property
     def cancelled(self) -> bool:
         """True once the user has stopped the task; check it between yields."""
-        return self._cancelled
+        return self._cancelled.is_set()
 
     def cancel(self) -> None:
-        self._cancelled = True
+        """Ask the plugin to stop. Called by the runner, not by plugins."""
+        self._cancelled.set()
