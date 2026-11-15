@@ -50,7 +50,8 @@ def chunk_ids(item_ids: list[int], size: int = ID_FILTER_CHUNK) -> list[list[int
     Each chunk goes into its own query, so bound variables don't accumulate
     across statements. An empty input yields a single empty chunk, so the
     caller still builds a clause - one that matches nothing, which is what an
-    empty selection means. Used only for get_items_by_ids.
+    empty selection means. Used by get_items_by_ids, the tagging queries, and
+    the cross-profile move, all of which bind one variable per id.
     """
     if not item_ids:
         return [[]]

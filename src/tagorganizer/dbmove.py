@@ -304,8 +304,6 @@ def move_items(session: Session, target_path: Path, item_ids: list[int]) -> Move
         dropped_tag_names = set()
         lineage_pairs = set()
         for chunk in chunk_ids(movable):
-            if not chunk:
-                continue
             placeholders = ",".join("?" * len(chunk))
             query = f"""
                 SELECT DISTINCT tag.name
@@ -333,8 +331,6 @@ def move_items(session: Session, target_path: Path, item_ids: list[int]) -> Move
         # Step 3: Insert the movable items into the target.
         # The target will assign new ids; we don't carry ids across databases.
         for chunk in chunk_ids(movable):
-            if not chunk:
-                continue
             placeholders = ",".join("?" * len(chunk))
             insert_query = f"""
                 INSERT INTO tgt.item ({ITEM_COLUMNS})
@@ -350,8 +346,6 @@ def move_items(session: Session, target_path: Path, item_ids: list[int]) -> Move
         # and SQLite can hand a freed id to a later photo, so a link left behind
         # would make that photo appear derived from something it never was.
         for chunk in chunk_ids(movable):
-            if not chunk:
-                continue
             placeholders = ",".join("?" * len(chunk))
             cursor = raw_conn.cursor()
             cursor.execute(
@@ -370,8 +364,6 @@ def move_items(session: Session, target_path: Path, item_ids: list[int]) -> Move
         # Step 5: Remove the moved items from source.
         # Delete by id, never by uri, to avoid the data-loss bug.
         for chunk in chunk_ids(movable):
-            if not chunk:
-                continue
             placeholders = ",".join("?" * len(chunk))
             delete_items_query = f"""
                 DELETE FROM main.item
