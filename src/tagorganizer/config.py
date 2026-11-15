@@ -79,6 +79,25 @@ class ProfileNotFoundError(Exception):
         self.config_file = Path(config_file)
 
 
+class InvalidProfileError(ProfileNotFoundError):
+    """The profile exists but cannot be used: a required setting is missing.
+
+    A subclass of ProfileNotFoundError so the callers that catch the one
+    catch the other too, and a half-written profile cannot crash a menu action.
+    """
+
+    def __init__(self, profile: str, config_file, reason: str):
+        Exception.__init__(
+            self, f"profile {profile!r} in {config_file} is unusable: {reason}"
+        )
+        self.profile = profile
+        self.config_file = Path(config_file)
+        self.reason = reason
+
+
+_PROFILE_SETTINGS = ("database", "photo_path", "video_path")
+
+
 def next_database_name(profile: str, exists, limit: int = 100_000) -> str | None:
     """First unused database file name for this profile.
 
@@ -127,24 +146,48 @@ class ConfigManager:
         config = configparser.ConfigParser()
         config.read(self.config_file)
 
-        if self.profile not in config:
+        # Everything is checked before anything is assigned. The DEFAULT
+        # section counts as present to configparser, but it is not a profile:
+        # its settings are the global ones, so selecting it used to fail with
+        # a KeyError rather than a message.
+        if self.profile == configparser.DEFAULTSECT or self.profile not in config:
             raise ProfileNotFoundError(self.profile, self.config_file)
+        section = config[self.profile]
+        for setting in _PROFILE_SETTINGS:
+            if not section.get(setting):
+                raise InvalidProfileError(
+                    self.profile, self.config_file, f"no '{setting}' setting"
+                )
+        db_path_text = section["database"]
+        photos = Path(section["photo_path"]).expanduser().resolve()
+        videos = Path(section["video_path"]).expanduser().resolve()
 
-        # Profile is valid; now safe to mutate state.
+        # Opening the database is the step that can fail (a migration can
+        # refuse an old file). The previous library stays in place until it
+        # has opened, so a failure leaves the application on the profile it
+        # was showing.
+        previous_db = getattr(self, "db", None)
+        previous_url = os.environ.get("TAGORGANIZER_DB_URL")
+        db.set_engine(db_path_text)
+        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{db_path_text}"
+        try:
+            self._open_database(Path(db_path_text))
+        except Exception:
+            if previous_db is not None:
+                db.set_engine(previous_db)
+                if previous_url is None:
+                    os.environ.pop("TAGORGANIZER_DB_URL", None)
+                else:
+                    os.environ["TAGORGANIZER_DB_URL"] = previous_url
+            raise
+
         self.config = config
-        self.db = self.config[self.profile]["database"]
-        self.photos = (
-            Path(self.config[self.profile]["photo_path"]).expanduser().resolve()
-        )
-        self.videos = (
-            Path(self.config[self.profile]["video_path"]).expanduser().resolve()
-        )
+        self.db = db_path_text
+        self.photos = photos
+        self.videos = videos
 
-        db.set_engine(self.db)
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{self.db}"
-
-        # Check if database file already exists
-        db_path = Path(self.db)
+    def _open_database(self, db_path: Path) -> None:
+        """Create the database if it is new, otherwise bring it up to date."""
         db_is_new = not db_path.exists()
 
         # Building the schema and stamping it are only ever correct together:
@@ -269,10 +312,24 @@ class ConfigManager:
         return Path(self.config[name]["database"])
 
     def set_config_file(self, config_file: Path):
-        self.config_file = config_file
-        self.profile = "default"
-        self.read_config()
+        self._switch(config_file=Path(config_file), profile="default")
 
     def set_current_profile(self, profile_name):
-        self.profile = profile_name
-        self.read_config()
+        self._switch(profile=profile_name)
+
+    def _switch(self, config_file=None, profile=None):
+        """Load another config or profile, or leave everything as it was.
+
+        The caller's error handling assumes a refused switch changed nothing,
+        so the names are put back if the load fails.
+        """
+        previous = (self.config_file, self.profile)
+        if config_file is not None:
+            self.config_file = config_file
+        if profile is not None:
+            self.profile = profile
+        try:
+            self.read_config()
+        except Exception:
+            self.config_file, self.profile = previous
+            raise

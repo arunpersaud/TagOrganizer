@@ -402,3 +402,88 @@ class TestProfilesSharingAPhotoFolder:
             assert manager.other_profiles_sharing_photos() == ["a"]
         finally:
             db.engine.dispose()
+
+
+class TestAFailedLoadChangesNothing:
+    """A refused profile or config must leave the working one in place."""
+
+    def _two_profiles(self, tmp_path):
+        config_file = tmp_path / "config.ini"
+        config_file.write_text(
+            "[DEFAULT]\nprofile = a\n\n"
+            f"[a]\ndatabase = {tmp_path}/a.db\nphoto_path = {tmp_path}\n"
+            f"video_path = {tmp_path}\n\n"
+            f"[b]\ndatabase = {tmp_path}/b.db\nphoto_path = {tmp_path}\n"
+            f"video_path = {tmp_path}\n"
+        )
+        return config_file
+
+    def test_the_default_section_is_refused_as_a_profile(self, tmp_path):
+        """configparser reports [DEFAULT] as present, and selecting it used to
+        raise KeyError. It is not a profile, so it is a not-found error."""
+        from tagorganizer.config import ConfigManager
+
+        config_file = self._two_profiles(tmp_path)
+        with pytest.raises(ProfileNotFoundError):
+            ConfigManager(config_file=config_file, profile="DEFAULT")
+
+    def test_a_profile_missing_a_setting_is_refused_by_name(self, tmp_path):
+        from tagorganizer.config import ConfigManager, InvalidProfileError
+
+        config_file = tmp_path / "config.ini"
+        config_file.write_text(f"[half]\ndatabase = {tmp_path}/h.db\nphoto_path = .\n")
+        manager = ConfigManager.__new__(ConfigManager)
+        manager.config = None
+        manager.profile = "half"
+        manager.config_file = config_file
+        with pytest.raises(InvalidProfileError, match="video_path"):
+            manager.read_config()
+
+    def test_an_invalid_profile_is_still_a_profile_error_for_callers(self):
+        """main.py catches ProfileNotFoundError; a subclass keeps that working."""
+        from tagorganizer.config import InvalidProfileError
+
+        assert issubclass(InvalidProfileError, ProfileNotFoundError)
+
+    def test_a_database_that_will_not_open_keeps_the_previous_profile(
+        self, tmp_path, monkeypatch
+    ):
+        from tagorganizer import config as config_module
+        from tagorganizer import db
+        from tagorganizer.config import ConfigManager
+
+        config_file = self._two_profiles(tmp_path)
+        (tmp_path / "b.db").write_bytes(b"")  # exists, so the migration path runs
+
+        manager = ConfigManager(config_file=config_file, profile="a")
+        try:
+            before = str(db.engine.url)
+
+            def refuse(*args, **kwargs):
+                raise RuntimeError("migration refused")
+
+            monkeypatch.setattr(config_module, "upgrade_db", refuse)
+            with pytest.raises(RuntimeError):
+                manager.set_current_profile("b")
+
+            assert manager.profile == "a"
+            assert manager.db == str(tmp_path / "a.db")
+            assert str(db.engine.url) == before
+        finally:
+            db.engine.dispose()
+
+    def test_a_refused_config_file_keeps_the_previous_one(self, tmp_path):
+        from tagorganizer import db
+        from tagorganizer.config import ConfigManager
+
+        config_file = self._two_profiles(tmp_path)
+        bad = tmp_path / "bad.ini"
+        bad.write_text("[elsewhere]\ndatabase = x\n")
+        manager = ConfigManager(config_file=config_file, profile="a")
+        try:
+            with pytest.raises(ProfileNotFoundError):
+                manager.set_config_file(bad)
+            assert manager.config_file == config_file
+            assert manager.profile == "a"
+        finally:
+            db.engine.dispose()
