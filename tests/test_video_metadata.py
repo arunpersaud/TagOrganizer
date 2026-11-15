@@ -84,3 +84,63 @@ class TestVideoGps:
         path = tmp_path / "overlong.mp4"
         path.write_bytes(b"\xff\xff\xff\xffmoov" + b"\x00" * 8)
         assert video_gps(path) is None
+
+
+def _moov_with_gps(latitude, longitude):
+    """A moov box holding the ©xyz location, built without its own header."""
+    from synthetic_media import _box, _xyz
+
+    return _box(b"udta", _xyz(latitude, longitude))
+
+
+class TestContainerLayouts:
+    """Layouts a phone or a large camera file can produce."""
+
+    def test_a_64_bit_box_before_moov_is_stepped_over(self, tmp_path):
+        """mdat written with a largesize header, ahead of moov. Refusing size 1
+        meant such a file lost its location entirely."""
+        from synthetic_media import _box
+
+        mdat_body = b"\x00" * 64
+        mdat = b"\x00\x00\x00\x01mdat" + (16 + len(mdat_body)).to_bytes(8, "big")
+        mdat += mdat_body
+        moov = _box(b"moov", _moov_with_gps(40.7128, -74.0060))
+        path = tmp_path / "large.mp4"
+        path.write_bytes(_box(b"ftyp", b"isom" + b"\x00" * 8) + mdat + moov)
+        latitude, longitude = video_gps(path)
+        assert round(latitude, 4) == 40.7128
+        assert round(longitude, 4) == -74.0060
+
+    def test_a_box_that_runs_to_the_end_of_the_file(self, tmp_path):
+        """Size 0 means 'to the end'; a moov written that way is the last box."""
+        from synthetic_media import _box
+
+        moov = _box(b"moov", _moov_with_gps(-33.8688, 151.2093))
+        open_ended = b"\x00\x00\x00\x00" + moov[4:]
+        path = tmp_path / "open.mp4"
+        path.write_bytes(_box(b"ftyp", b"isom" + b"\x00" * 8) + open_ended)
+        latitude, longitude = video_gps(path)
+        assert round(latitude, 4) == -33.8688
+        assert round(longitude, 4) == 151.2093
+
+    def test_the_file_is_not_read_whole(self, tmp_path, monkeypatch):
+        """A multi-gigabyte video must not be pulled into memory to find a
+        box near its end. read_bytes is replaced so any whole-file read fails
+        the test rather than the machine."""
+        from pathlib import Path as _Path
+
+        from synthetic_media import _box
+
+        big = _box(b"mdat", b"\x00" * (1024 * 1024))
+        path = tmp_path / "big.mp4"
+        path.write_bytes(
+            _box(b"ftyp", b"isom" + b"\x00" * 8)
+            + big
+            + _box(b"moov", _moov_with_gps(40.7128, -74.0060))
+        )
+
+        def refuse(self, *args, **kwargs):
+            raise AssertionError("video_gps read the whole file")
+
+        monkeypatch.setattr(_Path, "read_bytes", refuse)
+        assert video_gps(path) is not None

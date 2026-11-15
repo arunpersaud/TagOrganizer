@@ -117,25 +117,69 @@ def video_date(path) -> datetime | None:
     return found if isinstance(found, datetime) else None
 
 
-def _find_box(data: bytes, path: list[bytes]) -> bytes | None:
-    """Walk ISO-BMFF boxes to a named path such as [b"moov", b"udta"].
+def _box_header(handle, offset: int, end: int):
+    """The kind and extent of the box starting at ``offset``, or None.
 
-    Boxes are length-prefixed. A corrupt length would otherwise leave this
-    looping on one box forever or reading past the buffer, so both are refused
-    rather than trusted.
+    Returns ``(kind, body_start, box_end)``. Three size encodings exist in the
+    ISO-BMFF family: a 32-bit length, size 1 meaning a 64-bit length follows
+    (boxes over 4 GB, which is where a phone video's moov can end up when mdat
+    comes first), and size 0 meaning the box runs to the end of its container.
+    Anything that would reach past ``end`` is refused rather than trusted.
+    """
+    if end - offset < 8:
+        return None
+    handle.seek(offset)
+    header = handle.read(8)
+    if len(header) < 8:
+        return None
+    size = int.from_bytes(header[:4], "big")
+    kind = header[4:8]
+    header_len = 8
+    if size == 1:
+        largesize = handle.read(8)
+        if len(largesize) < 8:
+            return None
+        size = int.from_bytes(largesize, "big")
+        header_len = 16
+        if size < header_len:
+            return None
+    elif size == 0:
+        size = end - offset
+    elif size < 8:
+        return None
+    box_end = offset + size
+    if box_end > end:
+        return None
+    return kind, offset + header_len, box_end
+
+
+def _find_box(handle, start: int, end: int, path: list[bytes]):
+    """Locate a nested box by path, e.g. [b"moov", b"udta"].
+
+    Returns the ``(body_start, body_end)`` of the last box named, or None. The
+    file is walked with seeks, skipping every box it does not need, so a large
+    mdat in front of moov is never read. Each step moves forward by at least a
+    header's length, so the walk cannot loop.
     """
     want, rest = path[0], path[1:]
-    offset = 0
-    while offset + 8 <= len(data):
-        size = int.from_bytes(data[offset : offset + 4], "big")
-        kind = data[offset + 4 : offset + 8]
-        if size < 8 or offset + size > len(data):
+    offset = start
+    while offset < end:
+        box = _box_header(handle, offset, end)
+        if box is None:
             return None
+        kind, body_start, box_end = box
         if kind == want:
-            body = data[offset + 8 : offset + size]
-            return _find_box(body, rest) if rest else body
-        offset += size
+            if not rest:
+                return body_start, box_end
+            return _find_box(handle, body_start, box_end, rest)
+        offset = box_end
     return None
+
+
+# A ©xyz location string is a few dozen bytes. Anything much larger under that
+# name is not one, and reading it whole would be the very memory cost the
+# streaming walk exists to avoid.
+_MAX_XYZ_BYTES = 64 * 1024
 
 
 # ISO 6709, as written into the ©xyz box: +40.7128-074.0060/. The sign is
@@ -154,12 +198,18 @@ def video_gps(path) -> tuple[float, float] | None:
     if not path.is_file():
         return None
     try:
-        data = path.read_bytes()
+        with path.open("rb") as handle:
+            handle.seek(0, 2)
+            file_size = handle.tell()
+            span = _find_box(handle, 0, file_size, [b"moov", b"udta", b"\xa9xyz"])
+            if span is None:
+                return None
+            body_start, body_end = span
+            if body_end - body_start > _MAX_XYZ_BYTES:
+                return None
+            handle.seek(body_start)
+            payload = handle.read(body_end - body_start)
     except OSError:
-        return None
-
-    payload = _find_box(data, [b"moov", b"udta", b"\xa9xyz"])
-    if payload is None:
         return None
 
     # Two bytes of text length and two of language code precede the string.
