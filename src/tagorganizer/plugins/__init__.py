@@ -49,6 +49,10 @@ class Plugin:
     accepts_selection: bool = True
     #: Also run after images are imported.
     auto: bool = False
+    #: Names of plugins that must finish before this one in the post-import
+    #: chain. Declared rather than left to registration order, which depends
+    #: on file names and would silently change if a plugin were renamed.
+    after: tuple[str, ...] = ()
 
     def run(self, ctx):
         """Do the work, yielding ``(total, current)`` as progress."""
@@ -117,5 +121,26 @@ class Registry:
         )
 
     def auto_plugins(self) -> list[Plugin]:
-        """Those enabled plugins that also run themselves after an import."""
-        return [plugin for plugin in self.all() if plugin.auto]
+        """Enabled plugins that run themselves after an import, in run order.
+
+        Registration order is kept wherever the declared ``after`` names allow,
+        so the result is stable. A dependency on a plugin that is disabled or
+        not installed is ignored: there is nothing to wait for. A cycle is a
+        mistake in the plugins themselves and is raised, not guessed at.
+        """
+        pending = [plugin for plugin in self.all() if plugin.auto]
+        present = {plugin.name for plugin in pending}
+        ordered: list[Plugin] = []
+        finished: set[str] = set()
+        while pending:
+            for candidate in pending:
+                waiting_for = {name for name in candidate.after if name in present}
+                if waiting_for <= finished:
+                    break
+            else:
+                names = ", ".join(plugin.name for plugin in pending)
+                raise ValueError(f"plugins declare an order cycle: {names}")
+            ordered.append(candidate)
+            finished.add(candidate.name)
+            pending.remove(candidate)
+        return ordered

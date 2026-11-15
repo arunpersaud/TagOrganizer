@@ -188,3 +188,60 @@ class TestCategoryOrder:
     def test_a_plugin_defined_category_is_not_dropped(self):
         registry = self._registry_with("Tags")
         assert list(registry.by_category()) == ["Tags"]
+
+
+class _Auto(Plugin):
+    auto = True
+
+    def __init__(self, name, after=()):
+        self.name = name
+        self.after = tuple(after)
+
+    def run(self, ctx):
+        yield 1, 1
+
+
+class TestAutoRunOrder:
+    """The post-import chain runs in declared order, not file-name order."""
+
+    def test_a_plugin_runs_after_what_it_declares_even_if_registered_first(self):
+        registry = Registry()
+        registry.add(_Auto("Previews", after=("Hashes",)))
+        registry.add(_Auto("Hashes"))
+        assert [p.name for p in registry.auto_plugins()] == ["Hashes", "Previews"]
+
+    def test_registration_order_is_kept_where_nothing_is_declared(self):
+        registry = Registry()
+        for name in ("Charlie", "Alpha", "Bravo"):
+            registry.add(_Auto(name))
+        assert [p.name for p in registry.auto_plugins()] == [
+            "Charlie",
+            "Alpha",
+            "Bravo",
+        ]
+
+    def test_a_dependency_on_a_disabled_plugin_is_not_waited_for(self):
+        registry = Registry()
+        registry.add(_Auto("Previews", after=("Hashes",)))
+        registry.add(_Auto("Hashes"))
+        registry.set_disabled(["Hashes"])
+        assert [p.name for p in registry.auto_plugins()] == ["Previews"]
+
+    def test_an_order_cycle_is_refused_rather_than_guessed(self):
+        registry = Registry()
+        registry.add(_Auto("A", after=("B",)))
+        registry.add(_Auto("B", after=("A",)))
+        with pytest.raises(ValueError, match="cycle"):
+            registry.auto_plugins()
+
+    def test_the_shipped_hashing_runs_before_previews_whatever_the_load_order(self):
+        """Built in reverse, so the order can only come from the declaration."""
+        from tagorganizer.plugins.discovery import load_plugins, plugin_paths
+
+        shipped, broken = load_plugins([plugin_paths()[0]])
+        assert broken == []
+        reversed_registry = Registry()
+        for plugin in reversed(shipped.all()):
+            reversed_registry.add(plugin)
+        names = [p.name for p in reversed_registry.auto_plugins()]
+        assert names.index("Update Hashes in DB") < names.index("Build Video Previews")

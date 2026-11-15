@@ -19,8 +19,8 @@ class UpdateHashes(Plugin):
     description = "Compute md5 and content hashes for files that have none."
     category = "Maintenance"
     accepts_selection = True
-    # A preview's cache key is the md5, so hashing has to have run before any
-    # preview is built. This is also why it runs automatically after an import.
+    # Automatic after an import. The order that matters - hashing before
+    # previews - is declared by VideoPreviews.after, not left to file names.
     auto = True
 
     def run(self, ctx):

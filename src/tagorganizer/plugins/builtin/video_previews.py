@@ -24,6 +24,8 @@ class VideoPreviews(Plugin):
     category = "Maintenance"
     accepts_selection = True
     auto = True
+    # A preview is cached under the item's md5, so hashing must have run first.
+    after = ("Update Hashes in DB",)
 
     def run(self, ctx):
         """Incremental: an existing sheet is left alone, so interrupting the
