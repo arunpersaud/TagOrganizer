@@ -250,3 +250,55 @@ class TestSelectedCount:
         window.update_items()
 
         assert "Selected: 3" in window.numbers_label.text()
+
+
+class TestKeysBelongToTheWindow:
+    """The key filter sits on the whole application.
+
+    It used to take every key press in the program, so typing into a dialog
+    moved the hidden grid, Backspace removed filter chips behind it and Return
+    switched tabs. Only this window's own keys may be taken.
+    """
+
+    def _key(self, key):
+        from qtpy.QtCore import QEvent, Qt
+        from qtpy.QtGui import QKeyEvent
+
+        return QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+
+    def test_a_key_from_another_window_is_left_alone(self, window_for):
+        from qtpy.QtCore import Qt
+        from qtpy.QtWidgets import QWidget
+
+        window = window_for()
+        other = QWidget()  # a top-level window, as a dialog would be
+        try:
+            handled = window.eventFilter(other, self._key(Qt.Key.Key_Backspace))
+        finally:
+            other.deleteLater()
+
+        assert handled is False
+
+    def test_a_key_from_another_window_does_not_touch_the_filters(self, window_for):
+        from qtpy.QtCore import Qt
+        from qtpy.QtWidgets import QWidget
+
+        window = window_for()
+        window.tag_bar.add_tag("beach")
+        window.tag_bar.toggle_chip(window.tag_bar.selected_tags[0].widget)
+        other = QWidget()
+        try:
+            window.eventFilter(other, self._key(Qt.Key.Key_Delete))
+        finally:
+            other.deleteLater()
+
+        assert window.tag_bar.get_all_names() == ["beach"]
+
+    def test_the_window_still_gets_its_own_keys(self, window_for):
+        """The positive case, so the negative ones above cannot pass by
+        accident because the filter stopped doing anything at all."""
+        from qtpy.QtCore import Qt
+
+        window = window_for()
+        assert window.eventFilter(window.grid, self._key(Qt.Key.Key_Escape)) is True
+        assert window._owns_key_event(window.grid) is True

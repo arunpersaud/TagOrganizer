@@ -27,6 +27,8 @@ import traceback
 
 from qtpy.QtWidgets import (
     QAction,
+    QAbstractSpinBox,
+    QComboBox,
     QInputDialog,
     QApplication,
     QDialog,
@@ -36,8 +38,10 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QStatusBar,
     QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -115,6 +119,17 @@ def clamp_grid_position(highlight: int, count: int, per_page: int) -> tuple[int,
         return 0, 0
     highlight = min(max(highlight, 0), count - 1)
     return highlight, highlight // per_page
+
+
+# Widgets that take typed text or arrow keys for themselves. The app-wide key
+# filter must leave their key presses alone.
+_KEY_TAKING_WIDGETS = (
+    QLineEdit,
+    QTextEdit,
+    QPlainTextEdit,
+    QAbstractSpinBox,
+    QComboBox,
+)
 
 
 class MainWindow(QMainWindow):
@@ -794,11 +809,26 @@ class MainWindow(QMainWindow):
 
         self.tag_line_edit.setText(",".join(common_tags))
 
-    def eventFilter(self, source, event):
-        if self.tag_line_edit.hasFocus():
-            return super().eventFilter(source, event)
+    def _owns_key_event(self, source) -> bool:
+        """Whether a key press belongs to this window's own shortcuts.
 
-        if event.type() == QEvent.KeyPress:
+        The filter is installed on the whole application, so it also sees keys
+        typed into dialogs and other windows. Taking those would let arrow keys
+        move the hidden grid behind a dialog, Backspace delete a filter chip, or
+        Return switch tabs. A key is ours only when it comes from inside this
+        window, no modal dialog is open, and the focused widget does not take
+        typing or arrow keys itself.
+        """
+        if not isinstance(source, QWidget):
+            return False
+        if source is not self and not self.isAncestorOf(source):
+            return False
+        if QApplication.activeModalWidget() is not None:
+            return False
+        return not isinstance(QApplication.focusWidget(), _KEY_TAKING_WIDGETS)
+
+    def eventFilter(self, source, event):
+        if event.type() == QEvent.KeyPress and self._owns_key_event(source):
             if event.key() in self.keys_in_use:
                 self.keyPressEvent(event)
                 return True  # Event has been handled
