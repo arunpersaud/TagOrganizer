@@ -9,7 +9,7 @@ import os
 import pytest
 
 from conftest import alembic_head
-from sqlalchemy import text, inspect, create_engine as sa_create_engine
+from sqlalchemy import inspect, text, create_engine as sa_create_engine
 
 from tagorganizer import db
 from tagorganizer.config import ConfigManager, ProfileNotFoundError
@@ -146,6 +146,10 @@ class TestPrepareTarget:
         assert "WAL" in error_msg or "wal" in error_msg.lower()
         assert "atomic" in error_msg.lower() or "transaction" in error_msg.lower()
 
+        # A refused target must not be migrated on the way to being refused:
+        # only the original table is there, with no version record added.
+        assert _table_names(target_path) == {"dummy"}
+
     def test_prepare_target_migrates_behind_database(self, tmp_path):
         """prepare_target upgrades a database that is behind the migration chain."""
         target_path = tmp_path / "old-target.db"
@@ -279,3 +283,65 @@ class TestGetProfileDatabase:
             manager.get_profile_database("unknown")
 
         assert exc_info.value.profile == "unknown"
+
+
+def _table_names(path):
+    engine = sa_create_engine(f"sqlite:///{path}")
+    try:
+        with engine.connect() as conn:
+            return set(inspect(conn).get_table_names())
+    finally:
+        engine.dispose()
+
+
+def _set_stored_revision(path, revision):
+    engine = sa_create_engine(f"sqlite:///{path}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE alembic_version SET version_num = :r"), {"r": revision}
+            )
+    finally:
+        engine.dispose()
+
+
+def _stored_revision(path):
+    engine = sa_create_engine(f"sqlite:///{path}")
+    try:
+        with engine.connect() as conn:
+            return conn.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar()
+    finally:
+        engine.dispose()
+
+
+class TestRefusalsLeaveTheTargetUntouched:
+    """Refusals are decided before any upgrade, so a refused target is unchanged.
+
+    The alternative - migrating a target and then refusing it - leaves a
+    database the user never asked to change.
+    """
+
+    def test_a_newer_revision_is_refused_and_not_rewritten(self, tmp_path):
+        target_path = tmp_path / "newer.db"
+        prepare_target(target_path)
+        _set_stored_revision(target_path, "ffffffffffff")
+        tables_before = _table_names(target_path)
+
+        with pytest.raises(TargetUnusable, match="does not know"):
+            prepare_target(target_path)
+
+        assert _stored_revision(target_path) == "ffffffffffff"
+        assert _table_names(target_path) == tables_before
+
+    def test_a_database_that_cannot_be_upgraded_is_reported_as_unusable(self, tmp_path):
+        """Migration failures surface as TargetUnusable, not a raw alembic error."""
+        target_path = tmp_path / "unmigratable.db"
+        engine = sa_create_engine(f"sqlite:///{target_path}")
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE item (clash INTEGER)"))
+        engine.dispose()
+
+        with pytest.raises(TargetUnusable):
+            prepare_target(target_path)

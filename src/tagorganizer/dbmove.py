@@ -24,10 +24,11 @@ import os
 from pathlib import Path
 from dataclasses import dataclass, field
 
-from sqlalchemy import text, create_engine as sa_create_engine
+from alembic.script import ScriptDirectory
+from sqlalchemy import inspect, text, create_engine as sa_create_engine
 from sqlmodel import SQLModel, Session
 
-from .migrations import upgrade_db, stamp_db
+from .migrations import ALEMBIC_CFG, upgrade_db, stamp_db
 from . import paths
 from .db import chunk_ids
 
@@ -59,20 +60,41 @@ def journal_mode(path: Path) -> str:
         engine.dispose()
 
 
+def _stored_revision(path: Path) -> str | None:
+    """The migration revision a database records, or None if it records none."""
+    engine = sa_create_engine(f"sqlite:///{path}")
+    try:
+        with engine.connect() as conn:
+            if not inspect(conn).has_table("alembic_version"):
+                return None
+            row = conn.execute(text("SELECT version_num FROM alembic_version")).first()
+            return row[0] if row else None
+    finally:
+        engine.dispose()
+
+
+def _known_revisions() -> set[str]:
+    """Every revision in the migration chain this build ships."""
+    script = ScriptDirectory.from_config(ALEMBIC_CFG)
+    return {revision.revision for revision in script.walk_revisions()}
+
+
 def prepare_target(path: Path) -> None:
     """Make a target database safe to move rows into, or refuse.
 
-    Checked in this order, all before any transaction: the parent directory is
-    reachable (an unmounted drive must fail here, not midway); the database is
-    created and stamped at head if absent, exactly as switching to that profile
-    would; migrated if behind; refused if AHEAD of the migration chain this
-    build knows, because writing to a schema we do not understand is how a
-    library gets corrupted; and refused if it is in WAL mode, because SQLite's
-    atomic multi-database commit guarantee does not hold there and the move
-    would silently degrade to a non-atomic copy-then-delete.
+    Every refusal is decided before anything is written, so a refused target is
+    left exactly as it was. In order: the parent directory is reachable (an
+    unmounted drive must fail here, not midway); an existing database is
+    refused if it is in WAL mode, because SQLite's atomic multi-database commit
+    guarantee does not hold there and the move would silently degrade to a
+    non-atomic copy-then-delete; and refused if it records a migration this
+    build does not know, because writing to a schema we do not understand is
+    how a library gets corrupted. Only then is the database created and
+    stamped at head if absent, or migrated if behind, exactly as switching to
+    that profile would. Any failure in that migration is reported as
+    TargetUnusable too.
 
     This is the only feature in the application that can destroy photos.
-    Every failure path here leaves the source database completely untouched.
     """
     path = Path(path)
 
@@ -85,9 +107,39 @@ def prepare_target(path: Path) -> None:
             f"This may indicate an unmounted drive or invalid path."
         )
 
-    # If the database doesn't exist yet, create it with the full schema,
-    # exactly as switching to a new profile would.
     is_new = not path.exists()
+
+    if not is_new:
+        # The journal mode is checked first, and before any upgrade. SQLite's
+        # atomic multi-database commit guarantee applies only in rollback-journal
+        # mode. WAL mode does not provide that guarantee, and the move would
+        # silently degrade to a non-atomic copy-then-delete, losing photos on
+        # any failure between the insert and delete.
+        mode = journal_mode(path)
+        if mode.lower() == "wal":
+            raise TargetUnusable(
+                f"Target database is in WAL (write-ahead logging) mode.\n"
+                f"Target: {path}\n"
+                f"Journal mode: {mode}\n\n"
+                f"SQLite's atomic multi-database commit guarantee does not hold in WAL mode. "
+                f"A move to this target would silently degrade to a non-atomic copy-then-delete, "
+                f"which could lose photos on any failure between the insert and delete steps.\n"
+                f"Please set the database to rollback-journal mode (journal_mode=delete) before "
+                f"attempting the move."
+            )
+
+        # A database written by a newer build is refused rather than migrated:
+        # this build cannot know what its later migrations changed.
+        stored = _stored_revision(path)
+        if stored is not None and stored not in _known_revisions():
+            raise TargetUnusable(
+                f"Target database is at migration {stored}, which this version of "
+                f"TagOrganizer does not know. It was probably written by a newer "
+                f"version.\n"
+                f"Target: {path}\n"
+                f"Update TagOrganizer, or move the photos with the version that "
+                f"last opened this profile."
+            )
 
     if is_new:
         # Create a local engine for this target database. Critical: do not
@@ -113,10 +165,7 @@ def prepare_target(path: Path) -> None:
         except Exception:
             target_engine.dispose()
             raise
-
-    # At this point the database exists and has the schema at least at the
-    # initial migration. Check if it needs upgrading.
-    if not is_new:
+    else:
         # For existing databases, run upgrade to apply any pending migrations.
         # This temporarily points ALEMBIC_CFG at the target. Again, preserve
         # the currently loaded database's environment.
@@ -124,29 +173,16 @@ def prepare_target(path: Path) -> None:
         try:
             os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{path}"
             upgrade_db()
+        except Exception as exc:
+            raise TargetUnusable(
+                f"Could not bring the target database up to date: {exc}\n"
+                f"Target: {path}"
+            ) from exc
         finally:
             if old_env is not None:
                 os.environ["TAGORGANIZER_DB_URL"] = old_env
             else:
                 os.environ.pop("TAGORGANIZER_DB_URL", None)
-
-    # Final check: the database must be in delete (rollback-journal) mode.
-    # SQLite's atomic multi-database commit guarantee applies only in rollback
-    # mode. WAL mode does not provide that guarantee, and the move would
-    # silently degrade to a non-atomic copy-then-delete, losing photos on
-    # any failure between the insert and delete.
-    mode = journal_mode(path)
-    if mode.lower() == "wal":
-        raise TargetUnusable(
-            f"Target database is in WAL (write-ahead logging) mode.\n"
-            f"Target: {path}\n"
-            f"Journal mode: {mode}\n\n"
-            f"SQLite's atomic multi-database commit guarantee does not hold in WAL mode. "
-            f"A move to this target would silently degrade to a non-atomic copy-then-delete, "
-            f"which could lose photos on any failure between the insert and delete steps.\n"
-            f"Please set the database to rollback-journal mode (journal_mode=delete) before "
-            f"attempting the move."
-        )
 
 
 @dataclass
