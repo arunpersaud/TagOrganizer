@@ -31,6 +31,9 @@ from qtpy.QtWidgets import (
 
 from .helper import load_pixmap
 
+# Thumbnails decoded synchronously when the dialog opens.
+MAX_PREVIEWS = 20
+
 
 class DeleteConfirmationDialog(QDialog):
     def __init__(self, items, main):
@@ -51,7 +54,10 @@ class DeleteConfirmationDialog(QDialog):
         scroll_area.setWidget(scroll_widget)
         scroll_area.setWidgetResizable(True)
 
-        for item in self.items:
+        # Each thumbnail is decoded here, on the GUI thread, before the dialog
+        # can appear. A selection of thousands would freeze the window, so only
+        # the first few are drawn; the count and the full list are still shown.
+        for item in self.items[:MAX_PREVIEWS]:
             label = QLabel()
             pixmap = load_pixmap(item, size=80, photos_path=self.main.config.photos)
             if pixmap:
@@ -60,6 +66,9 @@ class DeleteConfirmationDialog(QDialog):
                 label.setText(item.uri)
             label.setToolTip(item.uri)
             scroll_layout.addWidget(label)
+        hidden = len(self.items) - MAX_PREVIEWS
+        if hidden > 0:
+            scroll_layout.addWidget(QLabel(f"and {hidden} more"))
 
         layout.addWidget(scroll_area)
 
