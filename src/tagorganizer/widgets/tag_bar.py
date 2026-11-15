@@ -33,6 +33,9 @@ from qtpy.QtWidgets import (
 
 RESERVED_TAGS = ["No Time", "No GPS", "Wrong dir"]
 
+# Condition kind -> the reserved chip that stands for it.
+FLAG_CHIP_NAMES = {"no_time": "No Time", "no_gps": "No GPS", "wrong_dir": "Wrong dir"}
+
 
 @dataclass
 class SelectedTime:
@@ -537,6 +540,8 @@ class TagBar(QHBoxLayout):
         """Put a condition back as an ordinary chip."""
         if condition.kind == "tag":
             self.add_tag(condition.value)
+        elif condition.kind in FLAG_CHIP_NAMES:
+            self.add_tag(FLAG_CHIP_NAMES[condition.kind])
         elif condition.kind == "area":
             self.selected_area.set_values(**condition.value)
             self.add_area_tag()

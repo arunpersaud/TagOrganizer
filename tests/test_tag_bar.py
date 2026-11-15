@@ -678,3 +678,41 @@ class TestRemovingSeveralMembersAtOnce:
         # Each group is left with one member, so each dissolves into a chip.
         assert filters.groups == []
         assert set(filters.tags) == {"c", "e"}
+
+
+class TestFlagChipsSurviveUngrouping:
+    """No GPS, No Time and Wrong dir were dropped when their group was broken up."""
+
+    def _flag_into_group(self, bar, flag):
+        bar.add_tag(flag)
+        bar.add_tag("beach")
+        bar.toggle_chip(bar.bool[flag].widget)
+        bar.toggle_chip(next(e.widget for e in bar.selected_tags if e.name == "beach"))
+        bar.group_selected()
+
+    def test_ungrouping_restores_no_gps(self, qapp):
+        bar = _tag_bar()
+        self._flag_into_group(bar, "No GPS")
+
+        bar.toggle_chip(next(w for w in bar._group_members if w.text() == "beach"))
+        bar.ungroup_selected()
+
+        assert bar.get_filters().no_gps is True
+
+    def test_ungrouping_restores_no_time(self, qapp):
+        bar = _tag_bar()
+        self._flag_into_group(bar, "No Time")
+
+        bar.toggle_chip(next(w for w in bar._group_members if w.text() == "beach"))
+        bar.ungroup_selected()
+
+        assert bar.get_filters().no_time is True
+
+    def test_a_flag_left_alone_by_a_dissolving_group_comes_back(self, qapp):
+        bar = _tag_bar()
+        self._flag_into_group(bar, "Wrong dir")
+
+        bar.toggle_chip(next(w for w in bar._group_members if w.text() == "beach"))
+        bar.remove_selected()
+
+        assert bar.get_filters().wrong_dir is True
