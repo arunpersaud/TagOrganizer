@@ -122,6 +122,7 @@ def upgrade() -> None:
         )
     )
     connection.execute(sa.text("UPDATE tag SET parent_id = NULL WHERE parent_id = id"))
+    _break_parent_cycles(connection)
     connection.execute(
         sa.text("DELETE FROM tag WHERE id NOT IN (SELECT new_id FROM _tag_map)")
     )
@@ -176,6 +177,38 @@ def _rebuild_links(connection, mapping: str) -> None:
         )
     )
     connection.execute(sa.text("DROP TABLE _new_parent_links"))
+
+
+def _break_parent_cycles(connection) -> None:
+    """Detach one tag from each loop the remapping has closed.
+
+    Remapping parents onto survivors can join tags into a loop without any tag
+    becoming its own parent. For example, foo (under bar) and bar (under Foo)
+    merge foo and Foo, leaving foo under bar and bar under foo. The lowest id in
+    each loop is detached, which makes the result the same on every run.
+    """
+    parents = dict(connection.execute(sa.text("SELECT id, parent_id FROM tag")).all())
+    finished: set[int] = set()
+    for start in sorted(parents):
+        if start in finished:
+            continue
+        path: list[int] = []
+        position: dict[int, int] = {}
+        current = start
+        while current is not None and current not in finished:
+            if current in position:
+                loop = path[position[current] :]
+                victim = min(loop)
+                connection.execute(
+                    sa.text("UPDATE tag SET parent_id = NULL WHERE id = :id"),
+                    {"id": victim},
+                )
+                parents[victim] = None
+                break
+            position[current] = len(path)
+            path.append(current)
+            current = parents.get(current)
+        finished.update(path)
 
 
 def downgrade() -> None:

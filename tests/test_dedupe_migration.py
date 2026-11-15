@@ -174,6 +174,67 @@ class TestUpgradingADirtyLibrary:
         assert rows(dirty_library, "SELECT parent_id FROM tag WHERE id=3") == [(1,)]
 
 
+class TestMergingTagsCanCloseALoop:
+    """Merging a tag into its parent's side can make two tags each other's parent.
+
+    foo sits under bar, and bar under Foo. Foo and foo are the same tag once
+    case is folded, so the merge makes foo under bar and bar under foo. Nothing
+    is its own parent, so the existing self-parent check does not catch it, and
+    a walk up the hierarchy would loop.
+    """
+
+    @pytest.fixture
+    def looping_library(self, tmp_path):
+        path = tmp_path / "loop.db"
+        db.set_engine(str(path))
+        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{path}"
+        migrations.upgrade_db(DEDUPE_REVISION)
+        db.engine.dispose()
+
+        connection = sqlite3.connect(path)
+        connection.executescript(
+            """
+            INSERT INTO tag (id, name, parent_id)
+            VALUES (1, 'foo', 2), (2, 'bar', 3), (3, 'Foo', NULL);
+            """
+        )
+        connection.commit()
+        connection.close()
+        return path
+
+    def test_the_upgrade_succeeds(self, looping_library):
+        db.set_engine(str(looping_library))
+        migrations.upgrade_db()
+        db.engine.dispose()
+
+        assert rows(looping_library, "SELECT version_num FROM alembic_version") == [
+            (head_revision(),)
+        ]
+
+    def test_the_loop_is_broken_at_its_lowest_id(self, looping_library):
+        db.set_engine(str(looping_library))
+        migrations.upgrade_db()
+        db.engine.dispose()
+
+        assert rows(looping_library, "SELECT id, parent_id FROM tag ORDER BY id") == [
+            (1, None),
+            (2, 1),
+        ]
+
+    def test_no_surviving_tag_has_itself_as_an_ancestor(self, looping_library):
+        db.set_engine(str(looping_library))
+        migrations.upgrade_db()
+        db.engine.dispose()
+
+        parents = dict(rows(looping_library, "SELECT id, parent_id FROM tag"))
+        for start in parents:
+            seen, current = set(), parents[start]
+            while current is not None:
+                assert current not in seen, f"tag {start} is in a loop"
+                seen.add(current)
+                current = parents.get(current)
+
+
 class TestTheConstraintsAreEnforced:
     def test_a_second_row_for_a_uri_is_refused(self, dirty_library):
         db.set_engine(str(dirty_library))
