@@ -214,14 +214,42 @@ def add_tag(name):
         return new_tag.id
 
 
+def _subtree_tag_ids(session, roots: set[int]) -> set[int]:
+    """The roots and every tag beneath them, at any depth.
+
+    Each tag is visited once. A hierarchy can contain a cycle - a database
+    written before set_parent_tag refused them may hold one - and walking it
+    without a visited set would recurse or loop forever.
+    """
+    found = set(roots)
+    frontier = list(roots)
+    while frontier:
+        children = []
+        for chunk in chunk_ids(frontier):
+            children.extend(
+                session.exec(select(Tag.id).where(Tag.parent_id.in_(chunk))).all()
+            )
+        frontier = [child for child in set(children) if child not in found]
+        found.update(frontier)
+    return found
+
+
 def _descendant_tag_ids(session, tag_id: int) -> set[int]:
     """Every tag beneath this one, at any depth."""
-    found, stack = set(), [tag_id]
-    while stack:
-        current = stack.pop()
-        for child in session.exec(select(Tag).where(Tag.parent_id == current)).all():
-            found.add(child.id)
-            stack.append(child.id)
+    return _subtree_tag_ids(session, {tag_id}) - {tag_id}
+
+
+def _ancestor_chain(session, tag_id: int) -> set[int]:
+    """This tag and every tag above it, following parents up to the top.
+
+    Stops at a tag it has already passed, for the same reason as
+    _subtree_tag_ids: a stored cycle must not hang the walk.
+    """
+    found = set()
+    current = tag_id
+    while current is not None and current not in found:
+        found.add(current)
+        current = session.exec(select(Tag.parent_id).where(Tag.id == current)).first()
     return found
 
 
@@ -498,32 +526,48 @@ def get_all_tags():
         return results.all()
 
 
-def set_parent_tag(child: Tag, parent: Tag):
-    if child is None:
-        logger.error("set_parent_tag called without a child")
-    if parent is None:
-        logger.error("set_parent_tag called without a parent")
+def _store_parent(child_id: int, parent_id: int | None) -> None:
+    """Make parent_id the parent of child_id, or top-level when it is None.
 
-    with new_session() as session:
-        child.parent_id = parent.id
-        session.add(child)
-        session.commit()
-
-
-def set_parent_tag_by_id(child_id: int, parent_id: int):
+    Refuses a parent that is the child itself or one of its descendants: the
+    tag would then be its own ancestor, and every walk up or down the hierarchy
+    would loop. A missing tag is logged and left alone, as it always was.
+    """
     with new_session() as session:
         child = session.get(Tag, child_id)
-        parent = session.get(Tag, parent_id)
-        if (not child) or (not parent):
+        if child is None or (
+            parent_id is not None and session.get(Tag, parent_id) is None
+        ):
             logger.error(
                 "could not set parent tag: child_id=%s parent_id=%s",
                 child_id,
                 parent_id,
             )
             return
-        child.parent_id = parent.id
+        if parent_id is not None and child_id in _ancestor_chain(session, parent_id):
+            raise ValueError(
+                f"tag {child_id} cannot go under tag {parent_id}: "
+                "that would make it its own ancestor"
+            )
+        child.parent_id = parent_id
         session.add(child)
         session.commit()
+
+
+def set_parent_tag(child: Tag, parent: Tag | None) -> None:
+    """Place a tag under another, or at the top level when parent is None.
+
+    Raises ValueError for a placement that would make the tag its own ancestor.
+    """
+    if child is None:
+        logger.error("set_parent_tag called without a child")
+        return
+    _store_parent(child.id, parent.id if parent is not None else None)
+
+
+def set_parent_tag_by_id(child_id: int, parent_id: int | None) -> None:
+    """Id form of set_parent_tag; the same cycle refusal applies."""
+    _store_parent(child_id, parent_id)
 
 
 def add_images(files):
@@ -667,27 +711,15 @@ def update_items_in_db(items: list[Item]) -> None:
 def get_all_tag_ids(tag_names: list[str]) -> list[int]:
     """Fetch all tag IDs including children for given tag names."""
     with new_session() as session:
-        tag_ids = set()
         # Names are stored exactly as the user typed them, so any lookup that
         # compares them literally will miss, and tag filtering fails silently
         # rather than loudly — the user just sees no photos.
-        tags = session.exec(
-            select(Tag).where(
+        ids = session.exec(
+            select(Tag.id).where(
                 func.lower(Tag.name).in_([n.strip().lower() for n in tag_names])
             )
         ).all()
-
-        def fetch_child_tags(tag):
-            tag_ids.add(tag.id)
-            if tag.children is None:
-                return
-            for child in tag.children:
-                fetch_child_tags(child)
-
-        for tag in tags:
-            fetch_child_tags(tag)
-
-        return list(tag_ids)
+        return list(_subtree_tag_ids(session, set(ids)))
 
 
 def condition_expression(
