@@ -23,6 +23,7 @@ import logging
 from pathlib import Path
 import shutil
 import sys
+import traceback
 
 from qtpy.QtWidgets import (
     QAction,
@@ -279,6 +280,24 @@ class MainWindow(QMainWindow):
         # we want the cursor keys to move our red window at startup
         # and not be in the tag_line
         self.grid.setFocus()
+
+    def report_unhandled(self, summary: str, details: str) -> None:
+        """Show an exception that escaped a handler, without ending the session.
+
+        The Messages tab keeps the one-line summary; the dialog carries the
+        full traceback behind its details button, so a bug report can be
+        copied from it.
+        """
+        self.messages.add(f"[ERROR] Unexpected error: {summary}")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Critical)
+        box.setWindowTitle("Unexpected error")
+        box.setText(
+            f"{summary}\n\nTagOrganizer is still running. The details are in "
+            "the Messages tab and the log."
+        )
+        box.setDetailedText(details)
+        box.exec()
 
     def update_numbers(self, view=None, selected=None, total=None):
         if view is not None:
@@ -1037,6 +1056,40 @@ def qt_message_handler(mode, context, message):
     logging.getLogger("qt").log(_QT_LOG_LEVELS.get(mode, logging.INFO), "%s", message)
 
 
+def format_unhandled(exc_type, exc, tb) -> tuple[str, str]:
+    """A one-line summary and the full traceback of an uncaught exception."""
+    summary = f"{exc_type.__name__}: {exc}"
+    details = "".join(traceback.format_exception(exc_type, exc, tb))
+    return summary, details
+
+
+def make_excepthook(report):
+    """Build a sys.excepthook that reports an uncaught exception and carries on.
+
+    PyQt6 aborts the whole process when an exception escapes a slot, unless a
+    hook is installed. Left alone, any bug in a handler would close the
+    program with the user's unsaved tagging in flight. The hook logs the
+    traceback and hands it to ``report`` so the user can see what went wrong.
+
+    KeyboardInterrupt keeps the default handling: it is how a terminal asks
+    the program to stop, and that is not a bug to report.
+    """
+
+    def hook(exc_type, exc, tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc, tb)
+            return
+        summary, details = format_unhandled(exc_type, exc, tb)
+        logger.error("Unhandled exception: %s\n%s", summary, details)
+        try:
+            report(summary, details)
+        except Exception:
+            # A failing reporter must not turn one abort into a silent one.
+            logger.exception("could not show the unhandled exception")
+
+    return hook
+
+
 def configure_logging(verbose: bool = False) -> None:
     """Send library log records to the console.
 
@@ -1093,6 +1146,10 @@ def main():
     if commands["--import-from-f-spot"]:
         old_db = Path(commands["--import-from-f-spot"]).expanduser()
         DBimport.import_f_spot(old_db)
+
+    # Installed once the window exists, so the report has somewhere to go. The
+    # default hook is what PyQt6 aborts on; see make_excepthook.
+    sys.excepthook = make_excepthook(window.report_unhandled)
 
     window.show()
     sys.exit(app.exec_())
