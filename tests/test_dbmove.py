@@ -348,6 +348,24 @@ class TestMoveItemsSuccessful:
         assert set(result.moved_ids) == set(real_ids)
 
 
+class TestTargetPathsWithAwkwardCharacters:
+    def test_an_apostrophe_in_the_target_path_does_not_break_the_move(
+        self, source_and_target, tmp_path
+    ):
+        """The target path is bound into ATTACH, so a quote in it is just a character."""
+        target = tmp_path / "Ann's photos" / "library.db"
+        target.parent.mkdir()
+        prepare_target(target)
+
+        with Session(source_and_target["source_engine"]) as session:
+            item_id = session.exec(select(Item.id).where(Item.uri == "/p/a.jpg")).one()
+
+        with Session(source_and_target["source_engine"]) as session:
+            result = move_items(session, target, [item_id])
+
+        assert result.moved_ids == [item_id]
+
+
 class TestMoveItemsAtomicity:
     """Test atomic transaction behavior."""
 

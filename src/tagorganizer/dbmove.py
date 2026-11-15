@@ -230,7 +230,9 @@ def move_items(session: Session, target_path: Path, item_ids: list[int]) -> Move
         # All operations below occur in this one transaction; if any step fails,
         # SQLite rolls back changes to both databases simultaneously.
         conn = session.connection()
-        conn.exec_driver_sql(f"ATTACH DATABASE '{target_path}' AS tgt")
+        # The path is bound, not interpolated: an apostrophe in a folder name
+        # would otherwise end the string literal and break the statement.
+        conn.exec_driver_sql("ATTACH DATABASE ? AS tgt", (str(target_path),))
 
         # Step 1: Determine which items can be moved (those not already in
         # target by uri). Whether case matters follows the filesystem holding
