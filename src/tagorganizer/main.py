@@ -1043,6 +1043,14 @@ class MainWindow(QMainWindow):
         here, and acting on ids from another database is a bug this project has
         already shipped once.
         """
+        # A running task may be writing to these photos right now, and it
+        # would be left pointing at rows that have just moved away.
+        if not self.tasks.runner.is_idle():
+            self.messages.add(
+                "A task is still running. Wait for it to finish before moving photos."
+            )
+            return
+
         # Refuse if nothing is selected
         if not len(self.selection):
             self.messages.add("Nothing is selected.")

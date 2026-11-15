@@ -302,3 +302,14 @@ class TestKeysBelongToTheWindow:
         window = window_for()
         assert window.eventFilter(window.grid, self._key(Qt.Key.Key_Escape)) is True
         assert window._owns_key_event(window.grid) is True
+
+
+class TestMovingWhileATaskRuns:
+    def test_a_move_is_refused_while_the_worker_is_busy(self, window_for, monkeypatch):
+        window = window_for()
+        window.selection.add_many([1])
+        monkeypatch.setattr(window.tasks.runner, "is_idle", lambda: False)
+
+        window.move_selection_to_profile()
+
+        assert "still running" in window.messages.text_edit.toPlainText()
