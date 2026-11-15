@@ -11,6 +11,8 @@ BOTH databases is unchanged by a skip. That is the assertion that catches
 the data-loss bug (delete by uri instead of by id).
 """
 
+import sqlite3
+
 import pytest
 from datetime import datetime
 from pathlib import Path
@@ -422,13 +424,23 @@ class TestMoveItemsAtomicity:
 
         monkeypatch.setattr("tagorganizer.dbmove.chunk_ids", chunk_ids_with_failure)
 
-        # Execute the REAL move_items function with failure injection
+        # Execute the REAL move_items function with failure injection. The
+        # session is held in a name so it stays alive while the lock is probed:
+        # a session that is collected or closed discards its transaction, which
+        # would hide a move_items that never rolled back.
+        session = Session(sa_create_engine(f"sqlite:///{source_path}"))
         with pytest.raises(RuntimeError, match="Injected mid-transaction failure"):
-            move_items(
-                Session(sa_create_engine(f"sqlite:///{source_path}")),
-                target_path,
-                move_ids,
-            )
+            move_items(session, target_path, move_ids)
+
+        # The INSERT into the target took a write lock. If the failure left it
+        # held, another connection cannot begin a write transaction on the target.
+        probe = sqlite3.connect(target_path, timeout=0.1)
+        try:
+            probe.execute("BEGIN IMMEDIATE")
+            probe.rollback()
+        finally:
+            probe.close()
+        session.close()
 
         # Verify both databases are exactly as they were
         with Session(source_and_target["source_engine"]) as session:
