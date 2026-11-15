@@ -148,7 +148,12 @@ class TaskManager:
         self.runner.progress.connect(self._on_progress)
         # Resolved at emit time, not now: the manager is built before the
         # main window has its message widget.
-        self.runner.message.connect(lambda text: self.main.messages.add(text))
+        # Queued explicitly: a plain callable connected here would run on the
+        # thread that emits, which is the worker, and the message widget is a
+        # GUI object. The queued call is delivered on the GUI thread.
+        self.runner.message.connect(
+            self._show_message, Qt.ConnectionType.QueuedConnection
+        )
         self.runner.finished.connect(self._on_finished)
 
         # stop() is called on every profile switch, not only after a task, so
@@ -214,7 +219,9 @@ class TaskManager:
             scope=scope,
             photos=self.main.config.photos,
             videos=self.main.config.videos,
-            message_sink=self.main.messages.add,
+            # Plugins run on the worker, so their messages go through the
+            # runner's queued signal rather than straight to the message widget.
+            message_sink=self.runner.message.emit,
         )
         self.main.messages.add(f"{plugin.name}: running on {scope.describe()}")
         # A plugin whose run() raises immediately produces a generator that
@@ -258,6 +265,9 @@ class TaskManager:
     def _set_progress_visible(self, visible):
         self.progressbar_label.setVisible(visible)
         self.progressbar.setVisible(visible)
+
+    def _show_message(self, text):
+        self.main.messages.add(text)
 
     def _on_progress(self, total, current):
         self.progressbar.setMaximum(total)

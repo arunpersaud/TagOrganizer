@@ -5,6 +5,7 @@ there is a single place that decides what a plugin acts on.
 """
 
 import os
+import threading
 from pathlib import Path
 
 import pytest
@@ -18,9 +19,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 class _Messages:
     def __init__(self):
         self.sent = []
+        self.threads = []
 
     def add(self, text):
         self.sent.append(text)
+        self.threads.append(threading.get_ident())
 
 
 class _Config:
@@ -121,6 +124,30 @@ class TestContextWiring:
         task_manager.run_plugin(Chatty(), Scope.LIBRARY)
         assert task_manager.wait_for_idle()
         assert "halfway" in task_manager.main.messages.sent
+
+
+class TestMessageThread:
+    def test_plugin_messages_are_added_on_the_gui_thread(self, temp_db, task_manager):
+        """The message widget is a QTextEdit, so a plugin's message must be
+        queued to the GUI thread rather than added from the worker."""
+
+        class Chatty(Plugin):
+            name = "Chatty"
+
+            def run(self, ctx):
+                ctx.message("from the worker")
+                yield 1, 1
+
+        gui_thread = threading.get_ident()
+        task_manager.run_plugin(Chatty(), Scope.LIBRARY)
+        assert task_manager.wait_for_idle()
+        sent = task_manager.main.messages
+        threads = [
+            ident
+            for text, ident in zip(sent.sent, sent.threads, strict=False)
+            if text == "from the worker"
+        ]
+        assert threads == [gui_thread]
 
 
 class TestFailureIsolation:
