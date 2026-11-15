@@ -227,3 +227,14 @@ class TestViewsFollowTheLibrary:
 
         window.refresh_after_data_change()
         assert len(drawn) == 1
+
+
+class TestGridAfterAFilterChange:
+    def test_a_shrunken_result_moves_the_frame_back_on_screen(self, window_for):
+        window = window_for()
+        window.grid.page = 10
+        window.grid.highlight = 10 * window.grid.N + 3
+
+        window.update_items()  # the library is empty: nothing matches
+
+        assert (window.grid.page, window.grid.highlight) == (0, 0)

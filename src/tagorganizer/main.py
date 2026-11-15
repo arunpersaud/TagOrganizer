@@ -104,6 +104,19 @@ def lineage_targets(
     return parents, None
 
 
+def clamp_grid_position(highlight: int, count: int, per_page: int) -> tuple[int, int]:
+    """Where the red frame and the page belong once the result has ``count`` items.
+
+    A filter change or a deletion can shrink the result under a frame that was
+    on page ten. Without this the grid shows an empty page and the frame is off
+    screen. Returns (highlight, page).
+    """
+    if count <= 0:
+        return 0, 0
+    highlight = min(max(highlight, 0), count - 1)
+    return highlight, highlight // per_page
+
+
 class MainWindow(QMainWindow):
     def __init__(self, app, config_file=None, profile=None):
         super().__init__()
@@ -444,6 +457,9 @@ class MainWindow(QMainWindow):
 
         nr_items = db.get_number_of_items(filters)
         nr_total_items = db.get_number_of_items()
+        self.grid.highlight, self.grid.page = clamp_grid_position(
+            self.grid.highlight, nr_items, self.grid.N
+        )
         self.update_numbers(view=nr_items, total=nr_total_items)
 
         items = db.get_images(self.grid.page, filters)
