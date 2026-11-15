@@ -20,7 +20,7 @@ from sqlalchemy import create_engine as sa_create_engine
 from sqlmodel import Session, SQLModel, select
 
 from tagorganizer import db
-from tagorganizer.models import Item, ItemTagLink, Tag
+from tagorganizer.models import Item, ItemParentLink, ItemTagLink, Tag
 from tagorganizer.dbmove import TargetUnusable, move_items, prepare_target
 
 
@@ -384,6 +384,59 @@ class TestTargetPathsWithAwkwardCharacters:
             result = move_items(session, target, [item_id])
 
         assert result.moved_ids == [item_id]
+
+
+class TestLineageAcrossTheMove:
+    """A moved photo's "derived from" links must leave with it.
+
+    Item ids have no AUTOINCREMENT, so when the highest id is freed the next
+    import reuses it. A link left behind would make that new photo appear to
+    come from something it never did.
+    """
+
+    def _id(self, uri):
+        with Session(db.engine) as session:
+            return session.exec(select(Item.id).where(Item.uri == uri)).one()
+
+    def test_links_touching_a_moved_item_are_removed_and_counted(
+        self, source_and_target
+    ):
+        a, b, c = (self._id(f"/p/{n}.jpg") for n in "abc")
+        with Session(db.engine) as session:
+            session.add(ItemParentLink(child_id=c, parent_id=a))
+            session.add(ItemParentLink(child_id=b, parent_id=c))
+            session.commit()
+
+        with Session(db.engine) as session:
+            result = move_items(session, source_and_target["target_path"], [c])
+
+        assert result.moved_ids == [c]
+        assert result.dropped_lineage == 2
+        assert db.get_parent_ids(b) == []
+        with Session(db.engine) as session:
+            assert session.exec(select(ItemParentLink)).all() == []
+
+    def test_a_photo_imported_into_the_freed_id_inherits_nothing(
+        self, source_and_target
+    ):
+        a, b, c = (self._id(f"/p/{n}.jpg") for n in "abc")
+        assert c == max(a, b, c), "the test moves the highest id, so it gets reused"
+        with Session(db.engine) as session:
+            session.add(ItemParentLink(child_id=c, parent_id=a))
+            session.commit()
+
+        with Session(db.engine) as session:
+            move_items(session, source_and_target["target_path"], [c])
+
+        with Session(db.engine) as session:
+            newcomer = Item(uri="/p/new.jpg")
+            session.add(newcomer)
+            session.commit()
+            session.refresh(newcomer)
+            new_id = newcomer.id
+
+        assert new_id == c, "SQLite reuses the freed highest id here"
+        assert db.get_parent_ids(new_id) == []
 
 
 class TestMoveItemsAtomicity:

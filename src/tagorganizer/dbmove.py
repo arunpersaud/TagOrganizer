@@ -193,11 +193,15 @@ class MoveResult:
         moved_ids: IDs of items successfully moved.
         skipped_ids: IDs of items not moved because they already exist in the target.
         dropped_tags: Names of tags linked to moved items (these links are removed).
+        dropped_lineage: How many "derived from" links were removed. Each one ties
+            a moved photo to a photo that stays behind, or the reverse, and cannot
+            survive the move because the ids it names no longer mean the same thing.
     """
 
     moved_ids: list[int] = field(default_factory=list)
     skipped_ids: list[int] = field(default_factory=list)
     dropped_tags: list[str] = field(default_factory=list)
+    dropped_lineage: int = 0
 
 
 # Columns to move from source to target, excluding id which is reassigned.
@@ -294,9 +298,11 @@ def move_items(session: Session, target_path: Path, item_ids: list[int]) -> Move
             conn.exec_driver_sql("DETACH DATABASE tgt")
             return result
 
-        # Step 2: Collect the distinct tag names linked to movable items, for reporting.
-        # We query for tags linked to these items so we can report which tags lose links.
+        # Step 2: Collect what the move will cut loose, for reporting: the
+        # distinct tag names linked to movable items, and every lineage link
+        # touching one, from either end.
         dropped_tag_names = set()
+        lineage_pairs = set()
         for chunk in chunk_ids(movable):
             if not chunk:
                 continue
@@ -311,7 +317,18 @@ def move_items(session: Session, target_path: Path, item_ids: list[int]) -> Move
             tag_rows = cursor.execute(query, chunk).fetchall()
             dropped_tag_names.update(row[0] for row in tag_rows)
 
+            # Each end is queried on its own: one statement matching either end
+            # would bind every id twice and could exceed the variable cap.
+            for end in ("child_id", "parent_id"):
+                lineage_rows = cursor.execute(
+                    f"SELECT child_id, parent_id FROM main.itemparentlink "
+                    f"WHERE {end} IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                lineage_pairs.update(tuple(row) for row in lineage_rows)
+
         result.dropped_tags = sorted(list(dropped_tag_names))
+        result.dropped_lineage = len(lineage_pairs)
 
         # Step 3: Insert the movable items into the target.
         # The target will assign new ids; we don't carry ids across databases.
@@ -327,18 +344,28 @@ def move_items(session: Session, target_path: Path, item_ids: list[int]) -> Move
             cursor = raw_conn.cursor()
             cursor.execute(insert_query, chunk)
 
-        # Step 4: Remove tag links for moved items from source.
-        # Tag rows remain in the source; only the links are removed.
+        # Step 4: Remove tag and lineage links for moved items from source.
+        # Tag rows remain in the source; only the links are removed. Lineage
+        # links go from both ends. The moved ids are reassigned in the target,
+        # and SQLite can hand a freed id to a later photo, so a link left behind
+        # would make that photo appear derived from something it never was.
         for chunk in chunk_ids(movable):
             if not chunk:
                 continue
             placeholders = ",".join("?" * len(chunk))
-            delete_links_query = f"""
-                DELETE FROM main.itemtaglink
-                WHERE item_id IN ({placeholders})
-            """
             cursor = raw_conn.cursor()
-            cursor.execute(delete_links_query, chunk)
+            cursor.execute(
+                f"DELETE FROM main.itemtaglink WHERE item_id IN ({placeholders})",
+                chunk,
+            )
+            cursor.execute(
+                f"DELETE FROM main.itemparentlink WHERE child_id IN ({placeholders})",
+                chunk,
+            )
+            cursor.execute(
+                f"DELETE FROM main.itemparentlink WHERE parent_id IN ({placeholders})",
+                chunk,
+            )
 
         # Step 5: Remove the moved items from source.
         # Delete by id, never by uri, to avoid the data-loss bug.
