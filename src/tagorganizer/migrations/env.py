@@ -19,8 +19,12 @@ logger = logging.getLogger("alembic.env")
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
+# disable_existing_loggers=False is load-bearing. The default silences every
+# logger created before this runs, and this runs at app startup and again from
+# dbmove.prepare_target - so all of tagorganizer.* would go quiet, including
+# F-Spot import errors and plugin warnings.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # ues SQLModel
 target_metadata = SQLModel.metadata
