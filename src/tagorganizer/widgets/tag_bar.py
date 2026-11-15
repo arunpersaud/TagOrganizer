@@ -336,6 +336,13 @@ class TagBar(QHBoxLayout):
         self.main.update_items()
 
     def add_area_tag(self):
+        """Show the drawn area as a chip, replacing any area chip already shown.
+
+        The old chip is dropped from the bar without touching the stored
+        bounds: map.py sets the new bounds before calling this, and clearing
+        them here would throw the new area away.
+        """
+        self._discard_chip(self.selected_area.widget)
         tag_name = "Area"
         tag_button = QPushButton(tag_name)
         tag_button.setObjectName("Area")
@@ -346,6 +353,14 @@ class TagBar(QHBoxLayout):
         self.selected_area.widget = tag_button
 
         self.refresh()
+
+    def _discard_chip(self, widget):
+        """Take a chip off the bar, leaving the state it stood for alone."""
+        if widget is None:
+            return
+        if widget in self._selected_chips:
+            self._selected_chips.remove(widget)
+        widget.setParent(None)
 
     def add_selection_tag(self, item_ids: list[int]):
         """Show the frozen selection as a removable filter button.

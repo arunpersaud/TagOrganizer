@@ -716,3 +716,61 @@ class TestFlagChipsSurviveUngrouping:
         bar.remove_selected()
 
         assert bar.get_filters().wrong_dir is True
+
+
+class TestOneAreaChip:
+    """A second area selection used to strand the first chip on the bar.
+
+    The bar is put inside a widget here, as the main window does. Left as a
+    bare layout, setParent(None) does not take a button out of it, and the
+    count below would be wrong for a reason that has nothing to do with the
+    app.
+    """
+
+    def _bar(self):
+        from qtpy.QtWidgets import QWidget
+
+        bar = _tag_bar()
+        host = QWidget()
+        host.setLayout(bar)
+        self._host = host
+        return bar
+
+    def _area_chips(self, bar):
+        return [
+            bar.itemAt(i).widget()
+            for i in range(bar.count())
+            if bar.itemAt(i).widget() is not None
+            and bar.itemAt(i).widget().objectName() == "Area"
+        ]
+
+    def test_a_second_area_replaces_the_first_chip(self, qapp):
+        bar = self._bar()
+        bar.selected_area.set_values(1.0, 2.0, 3.0, 4.0)
+        bar.add_area_tag()
+        bar.selected_area.set_values(5.0, 6.0, 7.0, 8.0)
+        bar.add_area_tag()
+
+        assert len(self._area_chips(bar)) == 1
+
+    def test_the_new_bounds_are_kept_when_the_old_chip_goes(self, qapp):
+        bar = self._bar()
+        bar.selected_area.set_values(1.0, 2.0, 3.0, 4.0)
+        bar.add_area_tag()
+        bar.selected_area.set_values(5.0, 6.0, 7.0, 8.0)
+        bar.add_area_tag()
+
+        assert bar.get_filters().min_longitude == 5.0
+
+    def test_the_remaining_chip_can_be_removed(self, qapp):
+        bar = self._bar()
+        bar.selected_area.set_values(1.0, 2.0, 3.0, 4.0)
+        bar.add_area_tag()
+        bar.selected_area.set_values(5.0, 6.0, 7.0, 8.0)
+        bar.add_area_tag()
+
+        bar.toggle_chip(bar.selected_area.widget)
+        bar.remove_selected()
+
+        assert self._area_chips(bar) == []
+        assert bar.get_filters().min_longitude is None
