@@ -57,7 +57,7 @@ def chunk_ids(item_ids: list[int], size: int = ID_FILTER_CHUNK) -> list[list[int
     return [item_ids[i : i + size] for i in range(0, len(item_ids), size)]
 
 
-def _materialise_ids(session, item_ids: list[int]) -> None:
+def _materialise_ids(session, item_ids: list[int], table: str = _ID_TABLE) -> None:
     """Put the selected ids in a temp table instead of in the statement.
 
     SQLite's 32766-variable cap is per prepared statement, not per IN clause,
@@ -70,11 +70,11 @@ def _materialise_ids(session, item_ids: list[int]) -> None:
     behind by an earlier query on the same connection would be reused.
     """
     conn = session.connection()
-    conn.exec_driver_sql(f"DROP TABLE IF EXISTS {_ID_TABLE}")
-    conn.exec_driver_sql(f"CREATE TEMP TABLE {_ID_TABLE} (id INTEGER PRIMARY KEY)")
+    conn.exec_driver_sql(f"DROP TABLE IF EXISTS {table}")
+    conn.exec_driver_sql(f"CREATE TEMP TABLE {table} (id INTEGER PRIMARY KEY)")
     if item_ids:
         conn.exec_driver_sql(
-            f"INSERT INTO {_ID_TABLE} (id) VALUES (?)",
+            f"INSERT INTO {table} (id) VALUES (?)",
             [(i,) for i in item_ids],
         )
 
@@ -690,11 +690,16 @@ def get_all_tag_ids(tag_names: list[str]) -> list[int]:
         return list(tag_ids)
 
 
-def condition_expression(condition: Condition, session: Session):
+def condition_expression(
+    condition: Condition, session: Session, id_table: str = _ID_TABLE
+):
     """The boolean expression for a single filter chip.
 
     The same logic the flat branches of filter_query use, pulled out so chips
     can be composed with or_() instead of only applied one after another.
+
+    An id-set chip materialises into id_table. Each one in a query needs its
+    own table, or the second overwrites the first before the statement runs.
     """
     kind, value = condition.kind, condition.value
 
@@ -729,8 +734,8 @@ def condition_expression(condition: Condition, session: Session):
         return sa.and_(*[sa.not_(_inside_dir(d)) for d in value])
 
     if kind == "item_ids":
-        _materialise_ids(session, value)
-        return Item.id.in_(sa.select(sa.column("id")).select_from(sa.table(_ID_TABLE)))
+        _materialise_ids(session, value, id_table)
+        return Item.id.in_(sa.select(sa.column("id")).select_from(sa.table(id_table)))
 
     raise ValueError(f"unknown filter condition kind: {kind!r}")
 
@@ -785,18 +790,15 @@ def filter_query(query, filter: Filters, session: Session):
             Item.id.in_(sa.select(sa.column("id")).select_from(sa.table(_ID_TABLE)))
         )
 
-    # Groups: each is OR'd internally, then AND'd like any other conjunct.
-    id_conditions = sum(
-        1 for group in filter.groups for c in group if c.kind == "item_ids"
-    )
-    if id_conditions > 1:
-        # Every id condition materialises the same temporary table, so a second
-        # one silently overwrites the first and the query then answers about the
-        # wrong set of photos. Refuse rather than return a confident lie.
-        raise ValueError("only one item_ids condition is supported per query")
-
-    for group in filter.groups:
-        expressions = [condition_expression(c, session) for c in group]
+    # Groups: each is OR'd internally, then AND'd like any other conjunct. Every
+    # id-set condition gets its own temporary table: a shared one would be
+    # overwritten by the next materialisation, and the query would then answer
+    # about whichever set was written last.
+    for group_index, group in enumerate(filter.groups):
+        expressions = [
+            condition_expression(c, session, f"{_ID_TABLE}_g{group_index}_{i}")
+            for i, c in enumerate(group)
+        ]
         if expressions:
             query = query.where(
                 or_(*expressions) if len(expressions) > 1 else expressions[0]

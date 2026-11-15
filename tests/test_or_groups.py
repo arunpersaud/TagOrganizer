@@ -138,10 +138,12 @@ class TestConditionKindsMatchTheFlatFields:
 
 
 class TestItemIdCollision:
-    def test_two_id_conditions_raise_rather_than_answering_wrongly(self, library):
-        """Both would materialise the same temp table; the second would win.
+    def test_two_id_conditions_in_one_group_each_answer_for_their_own_set(
+        self, library
+    ):
+        """Each id-set chip materialises into its own table, so neither overwrites the other.
 
-        Returning a confident wrong answer here is worse than refusing.
+        Asking for a and b together, as OR'd chips, must return both photos.
         """
         filters = Filters(
             groups=[
@@ -151,8 +153,8 @@ class TestItemIdCollision:
                 ]
             ]
         )
-        with pytest.raises(ValueError, match="item_ids"):
-            db.get_images(0, filters)
+        found = {item.id for item in db.get_images(0, filters)}
+        assert found == {library["a"], library["b"]}
 
 
 class TestFiltersEquality:
