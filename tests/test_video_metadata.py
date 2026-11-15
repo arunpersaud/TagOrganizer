@@ -5,8 +5,10 @@ at all, so the ©xyz box is read directly - and only the ISO-BMFF family
 records GPS in the first place.
 """
 
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 
+import pytest
 from synthetic_media import write_mp4
 
 from tagorganizer.metadata import video_date, video_gps
@@ -14,8 +16,38 @@ from tagorganizer.metadata import video_date, video_gps
 
 class TestVideoDate:
     def test_reads_the_container_creation_time(self, tmp_path):
-        path = write_mp4(tmp_path / "a.mp4", datetime(2021, 3, 7, 14, 25, 30))
-        assert video_date(path) == datetime(2021, 3, 7, 14, 25, 30)
+        """The container holds UTC; the result is the same instant as local
+        time, which is what the EXIF dates beside it are stored as."""
+        when = datetime(2021, 3, 7, 14, 25, 30)
+        path = write_mp4(tmp_path / "a.mp4", when)
+        expected = when.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+        assert video_date(path) == expected
+
+    @pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs POSIX TZ")
+    def test_the_result_is_local_time_not_utc(self, tmp_path, monkeypatch):
+        """Pinned to a zone with a fixed offset, so the expectation is exact:
+        14:25 UTC is 23:25 in Tokyo, and 14:25 would mean the conversion was
+        skipped."""
+        monkeypatch.setenv("TZ", "Asia/Tokyo")
+        time.tzset()
+        try:
+            path = write_mp4(tmp_path / "a.mp4", datetime(2021, 3, 7, 14, 25, 30))
+            assert video_date(path) == datetime(2021, 3, 7, 23, 25, 30)
+        finally:
+            monkeypatch.undo()
+            time.tzset()
+
+    def test_the_unset_mp4_time_is_not_a_date(self, tmp_path):
+        """A zero creation time decodes to 1904-01-01, which an earlier version
+        accepted as a capture date."""
+        path = write_mp4(tmp_path / "a.mp4", datetime(1904, 1, 1))
+        assert video_date(path) is None
+
+    def test_a_date_in_the_future_is_not_a_date(self, tmp_path):
+        # 2035 rather than something far off: a 32-bit MP4 time cannot hold
+        # dates past 2040, and the synthetic writer is limited by that.
+        path = write_mp4(tmp_path / "a.mp4", datetime(2035, 1, 1))
+        assert video_date(path) is None
 
     def test_a_video_without_a_date_gives_none(self, tmp_path):
         assert video_date(write_mp4(tmp_path / "a.mp4")) is None

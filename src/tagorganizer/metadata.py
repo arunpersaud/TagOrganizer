@@ -24,7 +24,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Silence hachoir before its parsers are imported: it prints a [warn] line for
@@ -59,6 +59,20 @@ _FILENAME_PATTERNS = [
 # misparse rather than a photograph.
 _EARLIEST_YEAR = 1900
 
+# MP4 stores time as seconds since 1904-01-01 UTC, and writes zero for "not
+# set". Zero therefore decodes to exactly this instant, which is inside the
+# year range above and would otherwise pass as a real date.
+_MP4_UNSET_TIME = datetime(1904, 1, 1)
+
+
+def _plausible(found: datetime) -> bool:
+    """Whether a date is one a camera could have written.
+
+    The same rule for every source of dates: the filename reader and the
+    container reader must not disagree about what counts as a date.
+    """
+    return _EARLIEST_YEAR <= found.year <= datetime.now().year + 1
+
 
 def date_from_filename(name: str) -> datetime | None:
     """The capture date encoded in a filename, if one plausibly is.
@@ -85,17 +99,35 @@ def date_from_filename(name: str) -> datetime | None:
                 # Digits in the right shape but not a real date or time, such
                 # as month 33. Keep looking rather than giving up on the name.
                 continue
-            if _EARLIEST_YEAR <= found.year <= datetime.now().year + 1:
+            if _plausible(found):
                 return found
     return None
 
 
+def _as_local(found: datetime) -> datetime | None:
+    """A container time as naive local time, the form EXIF dates are stored in.
+
+    Containers record UTC. Storing it unconverted put video dates hours away
+    from the photos taken alongside them on the timeline. A naive value from
+    hachoir is UTC by its convention, so it is treated as such.
+    """
+    try:
+        if found.tzinfo is None:
+            found = found.replace(tzinfo=timezone.utc)
+        return found.astimezone().replace(tzinfo=None)
+    except (OverflowError, OSError, ValueError):
+        # Some platforms cannot convert the very early or very late dates a
+        # damaged header produces. Such a date is not usable either way.
+        return None
+
+
 def video_date(path) -> datetime | None:
-    """The creation time recorded in a video container.
+    """The creation time recorded in a video container, as naive local time.
 
     Covers mp4, mov, avi, mkv, wmv and flv through hachoir. Returns None for
-    anything it cannot read: an unreadable file is not an error here, just an
-    item that keeps whatever date it already had.
+    anything it cannot read, or for a time that is not plausible: an
+    unreadable file is not an error here, just an item that keeps whatever
+    date it already had.
     """
     path = Path(path)
     if not path.is_file():
@@ -114,7 +146,14 @@ def video_date(path) -> datetime | None:
         # of it should stop a task part way through a library.
         logger.debug("no container date for %s", path, exc_info=True)
         return None
-    return found if isinstance(found, datetime) else None
+    if not isinstance(found, datetime):
+        return None
+    if found.replace(tzinfo=None) == _MP4_UNSET_TIME:
+        return None
+    local = _as_local(found)
+    if local is None or not _plausible(local):
+        return None
+    return local
 
 
 def _box_header(handle, offset: int, end: int):

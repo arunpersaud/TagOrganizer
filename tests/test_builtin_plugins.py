@@ -5,7 +5,7 @@ plugin API. If the API could not express them it would not be ready for
 anyone else's plugin, so these tests are as much about the API as the tasks.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -210,7 +210,9 @@ class TestTimestampsFromVideosAndNames:
             temp_db, write_mp4(tmp_path / "a.mp4", datetime(2021, 3, 7, 14, 25, 30))
         )
         run(UpdateTimestamps(), Scope.LIBRARY, tmp_path)
-        assert db.get_all_items()[0].date == datetime(2021, 3, 7, 14, 25, 30)
+        # The container holds UTC; the item stores the same instant as local.
+        expected = datetime(2021, 3, 7, 14, 25, 30, tzinfo=timezone.utc)
+        assert db.get_all_items()[0].date == expected.astimezone().replace(tzinfo=None)
 
     def test_a_dated_filename_is_used_when_the_file_has_no_date(
         self, temp_db, tmp_path
@@ -233,7 +235,8 @@ class TestTimestampsFromVideosAndNames:
             ),
         )
         run(UpdateTimestamps(), Scope.LIBRARY, tmp_path)
-        assert db.get_all_items()[0].date == datetime(2021, 3, 7, 14, 25, 30)
+        expected = datetime(2021, 3, 7, 14, 25, 30, tzinfo=timezone.utc)
+        assert db.get_all_items()[0].date == expected.astimezone().replace(tzinfo=None)
 
     def test_an_undated_unnamed_file_stays_undated(self, temp_db, tmp_path):
         """Better no date than a wrong one."""
