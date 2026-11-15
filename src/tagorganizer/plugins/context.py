@@ -26,7 +26,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 import threading
 from pathlib import Path
 
-from .. import db
+from .. import config, db
 from ..models import ItemTagLink
 from ..scope import Scope
 
@@ -72,6 +72,20 @@ class TaskContext:
             if session.get(ItemTagLink, (item.id, tag_id)) is None:
                 session.add(ItemTagLink(item_id=item.id, tag_id=tag_id))
                 session.commit()
+
+    def items_under_no_date(self):
+        """Items whose file sits in a 'no-date' folder, awaiting a date."""
+        return db.get_items_under_no_date()
+
+    def items_outside_library(self):
+        """Items stored outside the configured photo and video folders."""
+        return db.get_all_items_not_in_dir(
+            [self.photos, self.videos], config.ALL_SUFFIX
+        )
+
+    def has_item(self, path) -> bool:
+        """Whether a file on disk is already recorded as an item."""
+        return db.check_item_in_db(str(path)) is not None
 
     def update(self, items) -> None:
         """Persist items the plugin has changed."""

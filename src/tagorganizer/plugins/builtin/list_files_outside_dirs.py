@@ -9,7 +9,6 @@ License v3 or later. See the LICENSE file for details.
 from pathlib import Path
 
 from tagorganizer.plugins import Plugin
-from tagorganizer import config, db
 
 
 class ListFilesOutsideDirs(Plugin):
@@ -19,7 +18,7 @@ class ListFilesOutsideDirs(Plugin):
     accepts_selection = False
 
     def run(self, ctx):
-        items = db.get_all_items_not_in_dir([ctx.photos, ctx.videos], config.ALL_SUFFIX)
+        items = ctx.items_outside_library()
         total = len(items)
         done = 0
 

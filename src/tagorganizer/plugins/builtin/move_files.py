@@ -9,7 +9,6 @@ License v3 or later. See the LICENSE file for details.
 from pathlib import Path
 
 from tagorganizer.plugins import Plugin
-from tagorganizer import config, db
 from tagorganizer.plugins.builtin._move import destination_for, move_item
 
 CHUNK = 10
@@ -24,7 +23,7 @@ class MoveFiles(Plugin):
     accepts_selection = False
 
     def run(self, ctx):
-        items = db.get_all_items_not_in_dir([ctx.photos, ctx.videos], config.ALL_SUFFIX)
+        items = ctx.items_outside_library()
         total = len(items)
         done = 0
         moved = 0

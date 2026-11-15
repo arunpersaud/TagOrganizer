@@ -134,3 +134,60 @@ class TestPaths:
         ctx = context(Scope.LIBRARY)
         assert ctx.photos == Path("/photos")
         assert ctx.videos == Path("/videos")
+
+
+class TestPluginQueries:
+    """The queries the shipped plugins use, which keep them off the database."""
+
+    def test_items_outside_the_library_are_found(self, items):
+        """The fixture items live under /p, which is neither photos nor videos."""
+        assert len(list(context(Scope.LIBRARY).items_outside_library())) == 4
+
+    def test_items_inside_the_library_are_not(self, temp_db):
+        with Session(temp_db) as session:
+            session.add(Item(uri="/photos/2020/01/01/a.jpg"))
+            session.commit()
+        assert list(context(Scope.LIBRARY).items_outside_library()) == []
+
+    def test_items_under_no_date_are_found(self, temp_db):
+        with Session(temp_db) as session:
+            session.add(Item(uri="/photos/no-date/a.jpg"))
+            session.add(Item(uri="/photos/2020/01/01/b.jpg"))
+            session.commit()
+        found = context(Scope.LIBRARY).items_under_no_date()
+        assert [item.uri for item in found] == ["/photos/no-date/a.jpg"]
+
+    def test_has_item_says_whether_a_path_is_recorded(self, items):
+        ctx = context(Scope.LIBRARY)
+        assert ctx.has_item("/p/0.jpg") is True
+        assert ctx.has_item("/p/not-recorded.jpg") is False
+
+
+class TestBuiltinsStayOffTheDatabase:
+    """Shipped plugins reach data only through TaskContext.
+
+    An AST check rather than a behavioural one: the point is the import, and a
+    plugin that reaches db through a helper would pass a behavioural test.
+    """
+
+    def test_no_builtin_plugin_imports_db(self):
+        import ast
+        from pathlib import Path
+
+        import tagorganizer.plugins.builtin as builtin
+
+        offenders = []
+        for path in sorted(Path(builtin.__file__).parent.glob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text())):
+                if isinstance(node, ast.ImportFrom):
+                    names = [alias.name for alias in node.names]
+                    module = node.module or ""
+                    if module == "tagorganizer.db" or (
+                        module in ("tagorganizer", "..", ".", "..db") and "db" in names
+                    ):
+                        offenders.append(f"{path.name}:{node.lineno}")
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name == "tagorganizer.db":
+                            offenders.append(f"{path.name}:{node.lineno}")
+        assert offenders == []

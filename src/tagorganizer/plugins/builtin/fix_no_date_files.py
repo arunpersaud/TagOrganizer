@@ -9,7 +9,6 @@ License v3 or later. See the LICENSE file for details.
 from pathlib import Path
 
 from tagorganizer.plugins import Plugin
-from tagorganizer import db
 from tagorganizer.plugins.builtin._move import destination_for, move_item
 
 CHUNK = 10
@@ -22,7 +21,7 @@ class FixNoDateFiles(Plugin):
     accepts_selection = False
 
     def run(self, ctx):
-        items = db.get_items_under_no_date()
+        items = ctx.items_under_no_date()
         total = len(items)
         done = 0
         moved = 0

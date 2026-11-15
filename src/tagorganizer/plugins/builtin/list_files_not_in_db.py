@@ -7,7 +7,6 @@ License v3 or later. See the LICENSE file for details.
 """
 
 from tagorganizer.plugins import Plugin
-from tagorganizer import db
 
 # The thumbnail cache lives beside the photos, and .DS_Store is noise: neither
 # is a missing import, and reporting them would bury the real answers.
@@ -40,7 +39,7 @@ class ListFilesNotInDb(Plugin):
                 yield total, done
             if path.is_dir() or any(part in str(path) for part in IGNORED):
                 continue
-            if db.check_item_in_db(str(path)) is not None:
+            if ctx.has_item(path):
                 continue
 
             if label != reported_label:
