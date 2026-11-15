@@ -151,6 +151,59 @@ class TestMessageThread:
         assert threads == [gui_thread]
 
 
+class TestRunIsCalledOnTheWorker:
+    def test_a_plugin_body_runs_off_the_gui_thread(self, temp_db, task_manager):
+        seen = []
+
+        class Worker(Plugin):
+            name = "Worker"
+
+            def run(self, ctx):
+                seen.append(threading.get_ident())
+                yield 1, 1
+
+        task_manager.run_plugin(Worker(), Scope.LIBRARY)
+        assert task_manager.wait_for_idle()
+        assert seen and seen[0] != threading.get_ident()
+
+    def test_a_plain_function_run_is_reported_and_not_called_on_the_gui(
+        self, temp_db, task_manager
+    ):
+        """A run() without yield used to execute in the menu handler, and then
+        the worker raised TypeError on the result. Now it is refused by name,
+        on the worker, and the application keeps going."""
+        seen = []
+
+        class NotAGenerator(Plugin):
+            name = "Plain"
+
+            def run(self, ctx):
+                seen.append(threading.get_ident())
+                return None
+
+        task_manager.run_plugin(NotAGenerator(), Scope.LIBRARY)
+        assert task_manager.wait_for_idle()
+        assert seen and seen[0] != threading.get_ident()
+        assert any(
+            "must be a generator" in m for m in task_manager.main.messages.sent
+        ), task_manager.main.messages.sent
+
+    def test_a_plain_function_that_raises_is_reported_not_fatal(
+        self, temp_db, task_manager
+    ):
+        class Explodes(Plugin):
+            name = "Explodes"
+
+            def run(self, ctx):
+                raise RuntimeError("kaboom")
+
+        task_manager.run_plugin(Explodes(), Scope.LIBRARY)
+        assert task_manager.wait_for_idle()
+        assert any(
+            "kaboom" in m for m in task_manager.main.messages.sent
+        ), task_manager.main.messages.sent
+
+
 class TestFailureIsolation:
     def test_a_plugin_that_raises_is_reported_not_fatal(self, temp_db, task_manager):
         class Explodes(Plugin):

@@ -18,6 +18,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+import inspect
 import logging
 import threading
 from collections import deque
@@ -188,6 +189,24 @@ class TaskRunner(QObject):
             job.gen.close()
 
 
+def _steps(plugin, ctx):
+    """Run a plugin's run() on the worker, as a generator the runner steps.
+
+    Calling run() here, on the GUI thread, would execute the plugin's work in
+    the menu handler and abort the application if it raised. Calling it inside
+    this generator defers the call to the worker's first step, and the runner
+    reports any exception it raises like any other task failure.
+
+    A run() that is not a generator function is refused by name: it has no
+    yields, so it cannot report progress or be cancelled, and the message says
+    what to change rather than leaving a bare TypeError.
+    """
+    result = plugin.run(ctx)
+    if not inspect.isgenerator(result):
+        raise TypeError(f"{plugin.name}: run() must be a generator (use yield)")
+    yield from result
+
+
 class TaskManager:
     """Owns the worker and the status-bar progress widgets.
 
@@ -276,10 +295,7 @@ class TaskManager:
             message_sink=self.runner.message.emit,
         )
         self.main.messages.add(f"{plugin.name}: running on {scope.describe()}")
-        # A plugin whose run() raises immediately produces a generator that
-        # raises on first next(), which the worker catches like any other
-        # failure - so there is no separate error path here.
-        self.register_generator(plugin.run(ctx), ctx)
+        self.register_generator(_steps(plugin, ctx), ctx)
         self.start()
 
     def shutdown(self, timeout_ms=10_000) -> bool:
