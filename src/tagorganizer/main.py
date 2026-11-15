@@ -189,7 +189,6 @@ class MainWindow(QMainWindow):
     def __init__(self, app, config_file=None, profile=None):
         super().__init__()
 
-        self.app = app
         self.filters = None
 
         # Passed straight through: the config has to be chosen before any
@@ -541,7 +540,7 @@ class MainWindow(QMainWindow):
         self.grid.show_images(items)
 
         if filters != self.filters:
-            dates, coords = db.get_times_and_location_from_images(filters)
+            dates, _ = db.get_times_and_location_from_images(filters)
 
             self.timeline.plot_histogram(dates)
             self.map.set_locations(db.get_locations_for_filter(filters))
@@ -1267,7 +1266,6 @@ def main():
         sys.exit(3)
 
     if configfile:
-        window.create_profile_menu()
         logger.info("Starting with config file: %s", configfile)
 
     if commands["--profile"]:
