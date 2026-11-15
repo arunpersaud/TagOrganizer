@@ -225,6 +225,20 @@ def move_items(session: Session, target_path: Path, item_ids: list[int]) -> Move
     if not item_ids:
         return result
 
+    # The guarantee covers every attached database, so the source is checked
+    # as well as the target. prepare_target only sees the target, and a WAL
+    # source would make the move non-atomic all the same. Checked before the
+    # ATTACH, so a refusal leaves both databases as they were.
+    source_mode = str(
+        session.connection().exec_driver_sql("PRAGMA main.journal_mode").scalar()
+    )
+    if source_mode.lower() == "wal":
+        raise TargetUnusable(
+            "The library database is in WAL (write-ahead logging) mode, so a move "
+            "cannot be made atomic. Nothing was moved.\n"
+            f"Journal mode: {source_mode}"
+        )
+
     try:
         # Begin transaction and attach the target database.
         # All operations below occur in this one transaction; if any step fails,

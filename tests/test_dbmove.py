@@ -21,7 +21,7 @@ from sqlmodel import Session, SQLModel, select
 
 from tagorganizer import db
 from tagorganizer.models import Item, ItemTagLink, Tag
-from tagorganizer.dbmove import move_items, prepare_target
+from tagorganizer.dbmove import TargetUnusable, move_items, prepare_target
 
 
 @pytest.fixture
@@ -348,6 +348,24 @@ class TestMoveItemsSuccessful:
         # Should have moved the real ones
         assert len(result.moved_ids) == len(real_ids)
         assert set(result.moved_ids) == set(real_ids)
+
+
+class TestSourceJournalMode:
+    def test_a_wal_source_refuses_the_move_and_keeps_its_rows(self, source_and_target):
+        """The atomic guarantee needs every attached database out of WAL, not only the target."""
+        source_engine = source_and_target["source_engine"]
+        with source_engine.connect() as conn:
+            conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+        with Session(source_engine) as session:
+            item_id = session.exec(select(Item.id).where(Item.uri == "/p/a.jpg")).one()
+
+        with Session(source_engine) as session, pytest.raises(TargetUnusable):
+            move_items(session, source_and_target["target_path"], [item_id])
+
+        with Session(source_engine) as session:
+            assert session.get(Item, item_id) is not None
+        with Session(source_and_target["target_engine"]) as session:
+            assert session.exec(select(Item)).all() == []
 
 
 class TestTargetPathsWithAwkwardCharacters:
