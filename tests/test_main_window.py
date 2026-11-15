@@ -238,3 +238,15 @@ class TestGridAfterAFilterChange:
         window.update_items()  # the library is empty: nothing matches
 
         assert (window.grid.page, window.grid.highlight) == (0, 0)
+
+
+class TestSelectedCount:
+    def test_the_selected_count_follows_the_selection(self, window_for):
+        """The map adds to the selection and then calls update_items; the
+        status line must show the new count without anything else asked."""
+        window = window_for()
+        window.selection.add_many([1, 2, 3])
+
+        window.update_items()
+
+        assert "Selected: 3" in window.numbers_label.text()

@@ -453,6 +453,11 @@ class MainWindow(QMainWindow):
         menu.addAction(tmp)
 
     def update_items(self):
+        """Redraw the grid, and the timeline and map when the filters changed.
+
+        Also the one place the status line is brought up to date: the map adds
+        to the selection and then calls this, so the selected count follows.
+        """
         filters = self.tag_bar.get_filters()
 
         nr_items = db.get_number_of_items(filters)
@@ -460,7 +465,9 @@ class MainWindow(QMainWindow):
         self.grid.highlight, self.grid.page = clamp_grid_position(
             self.grid.highlight, nr_items, self.grid.N
         )
-        self.update_numbers(view=nr_items, total=nr_total_items)
+        self.update_numbers(
+            view=nr_items, selected=len(self.selection), total=nr_total_items
+        )
 
         items = db.get_images(self.grid.page, filters)
         self.grid.show_images(items)
