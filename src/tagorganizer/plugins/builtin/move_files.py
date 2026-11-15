@@ -27,7 +27,6 @@ class MoveFiles(Plugin):
         total = len(items)
         done = 0
         moved = 0
-        pending = []
 
         for item in items:
             if ctx.cancelled:
@@ -44,17 +43,20 @@ class MoveFiles(Plugin):
             if target is None:
                 ctx.message(f"[Error] cannot handle {source.suffix} for {item.uri}")
                 continue
+            # Undated items are filed under no-date/, which FixNoDateFiles
+            # empties once a date is found. That is the intended destination,
+            # so this is a note, not an error.
             if not item.date:
-                ctx.message(f"[Error] item {item.uri} has no date set")
+                ctx.message(
+                    f"[Note] item {item.uri} has no date; filing it under no-date"
+                )
 
             if move_item(item, target, ctx):
-                pending.append(item)
+                # Persisted at once. A failure partway through a batch used to
+                # leave moved files the database did not know about.
+                ctx.update([item])
                 moved += 1
-            if len(pending) >= CHUNK:
-                ctx.update(pending)
-                pending = []
 
-        ctx.update(pending)
         ctx.message(f"items outside the library: {total}")
         ctx.message(f"moved {moved} items")
         yield total, done

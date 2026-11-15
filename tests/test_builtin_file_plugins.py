@@ -147,6 +147,127 @@ class TestMoveFiles:
         assert source.exists(), "the source was removed despite the collision"
 
 
+class TestMoveItemOrdering:
+    """The move is the last step that can fail, so a failure leaves the file and
+    the item agreeing about where it is."""
+
+    def _item(self, temp_db, tmp_path):
+        source = tmp_path / "loose" / "a.jpg"
+        source.parent.mkdir()
+        source.write_bytes(b"photo")
+        with Session(temp_db) as session:
+            session.add(Item(uri=str(source), date=datetime(2021, 3, 7)))
+            session.commit()
+        return (
+            db.get_all_items()[0],
+            source,
+            tmp_path / "lib" / "2021" / "03" / "07" / "a.jpg",
+        )
+
+    def test_a_hash_failure_leaves_the_file_where_the_item_says(
+        self, temp_db, tmp_path, monkeypatch
+    ):
+        from tagorganizer.plugins.builtin import _move
+
+        item, source, target = self._item(temp_db, tmp_path)
+
+        def hashing_fails(path):
+            raise OSError("eio")
+
+        monkeypatch.setattr(_move, "calculate_xxhash", hashing_fails)
+        ctx = TaskContext(
+            Scope.LIBRARY, tmp_path / "lib", tmp_path / "lib", lambda text: None
+        )
+        assert _move.move_item(item, target, ctx) is False
+        assert source.exists(), "the file was moved although the item was not"
+        assert not target.exists()
+        assert item.uri == str(source)
+
+    def test_a_failed_thumbnail_cleanup_does_not_undo_the_move(
+        self, temp_db, tmp_path, monkeypatch
+    ):
+        from tagorganizer.plugins.builtin import _move
+
+        item, source, target = self._item(temp_db, tmp_path)
+
+        def fail(md5, photos):
+            raise OSError("cache busy")
+
+        monkeypatch.setattr(_move, "forget_thumbnail", fail)
+        ctx = TaskContext(
+            Scope.LIBRARY, tmp_path / "lib", tmp_path / "lib", lambda text: None
+        )
+        assert _move.move_item(item, target, ctx) is True
+        assert target.is_file()
+        assert item.uri == str(target)
+
+    def test_a_partial_copy_is_removed_and_the_source_kept(
+        self, temp_db, tmp_path, monkeypatch
+    ):
+        from tagorganizer.plugins.builtin import _move
+
+        item, source, target = self._item(temp_db, tmp_path)
+
+        def partial_copy(src, dst):
+            Path(dst).write_bytes(b"part")
+            raise OSError("no space left")
+
+        monkeypatch.setattr(_move.shutil, "move", partial_copy)
+        ctx = TaskContext(
+            Scope.LIBRARY, tmp_path / "lib", tmp_path / "lib", lambda text: None
+        )
+        assert _move.move_item(item, target, ctx) is False
+        assert source.read_bytes() == b"photo"
+        assert not target.exists()
+
+
+class RecordingContext(TaskContext):
+    """Records each persist, so the tests can see when records were saved."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.saves = []
+
+    def update(self, items):
+        self.saves.append(len(items))
+        super().update(items)
+
+
+class TestPersistsEachMove:
+    def test_each_move_is_saved_as_it_happens(self, temp_db, tmp_path):
+        """A failure partway through a batch used to leave moved files the
+        database did not know about. Each move is recorded straight away."""
+        with Session(temp_db) as session:
+            for i in range(3):
+                source = tmp_path / "loose" / f"p{i}.jpg"
+                source.parent.mkdir(exist_ok=True)
+                source.write_bytes(b"x")
+                session.add(Item(uri=str(source), date=datetime(2021, 3, 7)))
+            session.commit()
+
+        lib = tmp_path / "lib"
+        ctx = RecordingContext(Scope.LIBRARY, lib, lib, lambda text: None)
+        list(MoveFiles().run(ctx))
+        assert ctx.saves == [1, 1, 1]
+
+
+class TestUndatedMoves:
+    def test_an_undated_file_is_filed_without_an_error(self, temp_db, tmp_path):
+        """No-date/ is where undated items are meant to go, so reporting it as
+        an error was wrong about what happened."""
+        source = tmp_path / "loose" / "a.jpg"
+        source.parent.mkdir()
+        source.write_bytes(b"x")
+        with Session(temp_db) as session:
+            session.add(Item(uri=str(source)))
+            session.commit()
+
+        lib = tmp_path / "lib"
+        messages = run(MoveFiles(), tmp_path, photos=lib, videos=lib)
+        assert (lib / "no-date" / "a.jpg").is_file()
+        assert not any("[Error]" in m for m in messages), messages
+
+
 class TestFixNoDateFiles:
     def test_an_item_that_now_has_a_date_is_moved_out(self, temp_db, tmp_path):
         target_root = tmp_path / "library"

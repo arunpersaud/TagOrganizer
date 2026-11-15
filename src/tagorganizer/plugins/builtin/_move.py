@@ -59,27 +59,49 @@ def move_item(item, target: Path, ctx) -> bool:
 
     Never overwrites: two photos taken the same day can share a filename, and
     losing one silently would be unrecoverable.
+
+    The move is the last step that can fail. Everything that might raise is
+    computed first, so a failure leaves the file where the item says it is.
+    Before, the move came first, and a failure afterwards left the file moved
+    while the database still pointed at the old path - an item the library
+    could no longer find on disk.
     """
     source = Path(item.uri)
-
     if target.exists():
         ctx.message(f"File already exists in the correct directory: {target}")
         return False
 
+    old_md5 = item.uri_md5
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        old_md5 = item.uri_md5
+        new_uri = str(target)
+        new_md5 = calculate_md5(new_uri)
+        # Moving does not change the content, so the content hash is taken
+        # from the source before the move and not recomputed afterwards.
+        new_xxhash = calculate_xxhash(source)
         shutil.move(source, target)
-        # The thumbnail cache is keyed on the uri hash, which changes with the
-        # path, so the old entries could never be hit again.
-        forget_thumbnail(old_md5, ctx.photos)
-        item.uri = str(target)
-        item.uri_md5 = calculate_md5(item.uri)
-        item.data_xxhash = calculate_xxhash(target)
     except Exception as error:
         logger.exception("Failed to move %s to %s", source, target)
+        # A copy that failed part way leaves a partial file at the target. The
+        # target did not exist when we started, so removing it while the source
+        # is still in place cannot destroy anything the user had.
+        if target.exists() and source.exists():
+            target.unlink(missing_ok=True)
         ctx.message(f"Failed to move {source} to {target}: {error}")
         return False
+
+    # Nothing below can fail, so the item never disagrees with the disk.
+    item.uri = new_uri
+    item.uri_md5 = new_md5
+    item.data_xxhash = new_xxhash
+
+    try:
+        # The thumbnail cache is keyed on the uri hash, which changed with the
+        # path, so the old entries could never be hit again. Failing to clear
+        # them costs only disk space, so it does not undo the move.
+        forget_thumbnail(old_md5, ctx.photos)
+    except OSError as error:
+        ctx.message(f"Moved, but could not clear the old thumbnails: {error}")
 
     ctx.message(f"Moved {source} to {target}")
     return True

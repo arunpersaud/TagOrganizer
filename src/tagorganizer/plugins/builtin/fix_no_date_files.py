@@ -25,7 +25,6 @@ class FixNoDateFiles(Plugin):
         total = len(items)
         done = 0
         moved = 0
-        pending = []
 
         for item in items:
             if ctx.cancelled:
@@ -47,13 +46,10 @@ class FixNoDateFiles(Plugin):
                 continue
 
             if move_item(item, target, ctx):
-                pending.append(item)
+                # Persisted at once; see MoveFiles.
+                ctx.update([item])
                 moved += 1
-            if len(pending) >= CHUNK:
-                ctx.update(pending)
-                pending = []
 
-        ctx.update(pending)
         ctx.message(f"items in 'no-date': {total}")
         ctx.message(f"moved {moved} items to dated folders")
         yield total, done
