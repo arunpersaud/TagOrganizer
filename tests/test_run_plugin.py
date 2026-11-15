@@ -41,6 +41,9 @@ class _Main:
         self.messages = _Messages()
         self.config = _Config(path)
 
+    def refresh_after_data_change(self):
+        """TaskManager asks the window to redraw when a plugin finishes."""
+
 
 @pytest.fixture
 def task_manager(qapp, tmp_path):

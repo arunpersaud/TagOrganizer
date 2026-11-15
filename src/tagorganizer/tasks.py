@@ -356,3 +356,7 @@ class TaskManager:
     def _on_finished(self):
         self._set_progress_visible(False)
         self.main.messages.add("Task done")
+        # A plugin may have added, changed or removed photos and tags, and the
+        # views were drawn before it ran. Without this they stay stale until
+        # something else happens to redraw them.
+        self.main.refresh_after_data_change()

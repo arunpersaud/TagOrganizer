@@ -207,3 +207,23 @@ class TestLineageActions:
     def test_clearing_lineage_without_a_photo_is_reported_not_fatal(self, window_for):
         window = window_for()
         window.clear_lineage()
+
+
+class TestViewsFollowTheLibrary:
+    def test_a_data_change_redraws_the_timeline_even_when_filters_match(
+        self, window_for, monkeypatch
+    ):
+        """update_items skips the timeline and map when the filters have not
+        changed. After a tag or a delete they have, though the filter did not."""
+        window = window_for()
+        window.update_items()
+
+        drawn = []
+        monkeypatch.setattr(
+            window.timeline, "plot_histogram", lambda dates: drawn.append(dates)
+        )
+        window.update_items()
+        assert drawn == [], "precondition: plain redraw keeps the timeline"
+
+        window.refresh_after_data_change()
+        assert len(drawn) == 1

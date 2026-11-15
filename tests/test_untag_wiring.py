@@ -49,7 +49,11 @@ class TestMainWindowHandler:
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
         }
         assert "remove_tags" in called, "it must call db.remove_tags"
-        assert "update_items" in called, "the grid must refresh afterwards"
+        # refresh_after_data_change is the full redraw; it ends in update_items.
+        assert called & {
+            "update_items",
+            "refresh_after_data_change",
+        }, "the grid must refresh afterwards"
 
     def test_the_handler_reports_what_it_did(self):
         """'Nothing happened' and 'none of them had that tag' look identical."""

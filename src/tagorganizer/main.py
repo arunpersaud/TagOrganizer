@@ -456,6 +456,19 @@ class MainWindow(QMainWindow):
             self.map.set_locations(db.get_locations_for_filter(filters))
             self.filters = filters
 
+    def refresh_after_data_change(self):
+        """Redraw everything that shows the library, after its contents changed.
+
+        update_items redraws the timeline and map only when the filters differ
+        from last time. That is right for paging, but after tagging, deleting,
+        importing or a plugin run the same filter matches different photos, so
+        every view has to be drawn again. Dropping the cached filters forces it.
+        """
+        self.filters = None
+        self.tag_view.update_tags()
+        self.setup_autocomplete()
+        self.update_items()
+
     def create_profile_menu(self):
         if "Profiles" not in self.menu:
             self.messages.add("[ERROR] no 'Profiles' menu")
@@ -637,10 +650,9 @@ class MainWindow(QMainWindow):
         db.set_tags(item_list, tag_list)
 
         self.tag_line_edit.clear()
-        # A tag created just now has to be completable straight away, and the
-        # counts and any active tag filter are stale until the view is redrawn.
-        self.setup_autocomplete()
-        self.update_items()
+        # A tag created just now has to be completable straight away, and under
+        # an active tag filter the photos on show may have just changed.
+        self.refresh_after_data_change()
 
     def edit_tags(self):
         """Open the tag editor: rename a tag, or merge two into one."""
@@ -650,9 +662,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
         # The vocabulary may have changed underneath everything.
-        self.tag_view.update_tags()
-        self.setup_autocomplete()
-        self.update_items()
+        self.refresh_after_data_change()
 
     def _rename_tag(self, dialog):
         chosen = dialog.selected_tag_ids()
@@ -748,7 +758,7 @@ class MainWindow(QMainWindow):
             self.messages.add(f"None of the selected photos had {tag.name!r}")
 
         self.display_common_tags()
-        self.update_items()
+        self.refresh_after_data_change()
 
     def display_common_tags(self):
         if len(self.selection):
@@ -872,7 +882,7 @@ class MainWindow(QMainWindow):
                 db.delete_item(item.id)
 
             self.selection.clear()
-            self.update_items()  # Assuming update_items refreshes the displayed items
+            self.refresh_after_data_change()
 
     def mark_as_derived(self):
         """Record the current photo as made from the selected ones.
@@ -980,8 +990,7 @@ class MainWindow(QMainWindow):
 
             # Clear the selection and update UI
             self.selection.clear()
-            self.update_numbers(selected=0)
-            self.update_items()
+            self.refresh_after_data_change()
 
         except Exception as error:
             QMessageBox.critical(
@@ -1004,7 +1013,7 @@ class MainWindow(QMainWindow):
                 if path.is_file() and path.suffix.lower() in suffixes
             ]
             db.add_images(files)
-            self.update_items()
+            self.refresh_after_data_change()
             self.messages.add(f"finished adding {directory}")
 
             # Run the automatic plugins over anything new straight away, so
