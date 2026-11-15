@@ -20,8 +20,9 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
+from urllib.parse import unquote
 
 from sqlalchemy import create_engine as sa_create_engine, text
 from sqlmodel import Session, select
@@ -105,10 +106,20 @@ def import_f_spot(filename: Path):
     # Set parent relationships
     for tag_row in tags:
         fspot_id, name, category_id = tag_row
-        if category_id and category_id > 0:
-            child_id = tag_lookup[fspot_id]
-            parent_id = tag_lookup[category_id]
-            db.set_parent_tag_by_id(child_id, parent_id)
+        if not category_id or category_id <= 0:
+            continue
+        # A category missing from the tags table would otherwise abort the
+        # import partway through; the tag is kept, just unparented.
+        if category_id not in tag_lookup:
+            logger.warning(
+                "tag %r names a category %s that does not exist", name, category_id
+            )
+            continue
+        try:
+            db.set_parent_tag_by_id(tag_lookup[fspot_id], tag_lookup[category_id])
+        except ValueError as exc:
+            # F-Spot lets categories nest in a loop; the tag stays where it is.
+            logger.warning("not nesting tag %r: %s", name, exc)
 
     logger.info("Importing tags...done")
 
@@ -130,9 +141,9 @@ def import_f_spot(filename: Path):
             filename = f"{base_uri}/{filename_col}"
             filename = filename.removeprefix("file://")
 
-            # fix special characters that f-spot escaped
-            filename = filename.replace("%20", " ")
-            filename = filename.replace("%26", "&")
+            # F-Spot percent-encodes every character that is not safe in a URI,
+            # not only spaces and ampersands, so decode it all.
+            filename = unquote(filename)
 
             file = Path(filename)
             if not file.is_file():
@@ -150,10 +161,10 @@ def import_f_spot(filename: Path):
             item = Item(uri=str(filename))
             if time and time > 0:
                 try:
-                    # Convert Unix timestamp to UTC datetime (naive)
-                    item.date = datetime.fromtimestamp(time, tz=timezone.utc).replace(
-                        tzinfo=None
-                    )
+                    # Naive local time, as EXIF dates are read. A UTC value here
+                    # would show every imported photo hours away from its real
+                    # time, and a photo sorted onto the wrong day.
+                    item.date = datetime.fromtimestamp(time)
                 except (ValueError, OSError):
                     # Handle invalid timestamps - leave date as None
                     item.date = None

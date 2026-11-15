@@ -6,6 +6,7 @@ Tests cover:
 - Transaction efficiency improvements
 """
 
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -123,6 +124,22 @@ def create_fspot_database(db_path, image_dir):
 
 
 @pytest.fixture
+def new_york(monkeypatch):
+    """Pin the local timezone, so the expected local times are fixed.
+
+    F-Spot stores Unix times. The importer reads them as local time, which
+    depends on the machine running the test unless the zone is pinned.
+    """
+    if not hasattr(time, "tzset"):
+        pytest.skip("this platform cannot change the timezone at runtime")
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    yield
+    monkeypatch.delenv("TZ", raising=False)
+    time.tzset()
+
+
+@pytest.fixture
 def fspot_setup(tmp_path):
     """Setup F-Spot database and image files for testing."""
     # Create actual image files so import doesn't skip them
@@ -139,7 +156,7 @@ def fspot_setup(tmp_path):
 class TestImportFSpotTimestamps:
     """Test F18: F-Spot import preserves photo timestamps."""
 
-    def test_import_preserves_unix_timestamps(self, temp_db, fspot_setup):
+    def test_import_preserves_unix_timestamps(self, temp_db, fspot_setup, new_york):
         """Test that Unix timestamps from F-Spot are converted to datetime.
 
         F-Spot stores photo times as Unix timestamps (seconds since 1970-01-01 UTC).
@@ -157,11 +174,12 @@ class TestImportFSpotTimestamps:
 
             assert len(items) == 3
 
-            # photo1: 1577836800 = 2020-01-01 00:00:00 UTC
-            assert items[0].date == datetime(2020, 1, 1, 0, 0, 0)
+            # photo1: 1577836800 = 2020-01-01 00:00:00 UTC = 2019-12-31 19:00 in
+            # New York. Dates are stored as naive local time, like EXIF dates.
+            assert items[0].date == datetime(2019, 12, 31, 19, 0, 0)
 
-            # photo2: 1577923200 = 2020-01-02 00:00:00 UTC
-            assert items[1].date == datetime(2020, 1, 2, 0, 0, 0)
+            # photo2: 1577923200 = 2020-01-02 00:00:00 UTC = 2020-01-01 19:00 local
+            assert items[1].date == datetime(2020, 1, 1, 19, 0, 0)
 
             # photo3: 0 timestamp should result in date=None (not 1970-01-01)
             assert items[2].date is None
@@ -260,7 +278,7 @@ class TestImportFSpotErrors:
 class TestImportFSpotEndToEnd:
     """End-to-end integration test for F-Spot import."""
 
-    def test_complete_import_workflow(self, temp_db, fspot_setup):
+    def test_complete_import_workflow(self, temp_db, fspot_setup, new_york):
         """Test the complete import workflow with all components working together.
 
         This test verifies:
@@ -289,7 +307,7 @@ class TestImportFSpotEndToEnd:
             # Verify we can find specific items
             photo1 = next((i for i in items if "photo1" in i.uri), None)
             assert photo1 is not None
-            assert photo1.date == datetime(2020, 1, 1)
+            assert photo1.date == datetime(2019, 12, 31, 19, 0, 0)
 
             # Verify tags exist with hierarchy
             travel = session.exec(select(Tag).where(Tag.name == "Travel")).first()
@@ -301,3 +319,57 @@ class TestImportFSpotEndToEnd:
             # Verify links exist
             links = session.exec(select(ItemTagLink)).all()
             assert len(links) == 2
+
+
+def _add_fspot_rows(db_path, sql):
+    engine = sa_create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as connection:
+        connection.execute(text(sql))
+    engine.dispose()
+
+
+class TestImportFSpotRobustness:
+    """Malformed or unusual F-Spot data must not abort the whole import."""
+
+    def test_percent_encoded_names_are_decoded_completely(self, temp_db, fspot_setup):
+        """F-Spot escapes every unsafe character, not only spaces and ampersands."""
+        image_dir = fspot_setup.parent
+        (image_dir / "my photo+é.jpg").write_bytes(b"fake")
+        _add_fspot_rows(
+            fspot_setup,
+            f"INSERT INTO photos (id, time, base_uri, filename) VALUES "
+            f"(9, 0, 'file://{image_dir}', 'my%20photo%2B%C3%A9.jpg')",
+        )
+
+        with pytest.raises(SystemExit):
+            import_f_spot(fspot_setup)
+
+        with Session(db.engine) as session:
+            uris = session.exec(select(Item.uri)).all()
+        assert str(image_dir / "my photo+é.jpg") in uris
+
+    def test_a_category_missing_from_the_tags_is_skipped_not_fatal(
+        self, temp_db, fspot_setup
+    ):
+        _add_fspot_rows(
+            fspot_setup,
+            "INSERT INTO tags (id, name, category_id) VALUES (3, 'Orphan', 99)",
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            import_f_spot(fspot_setup)
+
+        assert exc_info.value.code == 0
+        assert db.get_tag("Orphan") is not None
+        assert db.get_tag("Orphan").parent_id is None
+
+    def test_a_category_loop_in_fspot_is_not_nested(self, temp_db, fspot_setup):
+        """Travel under Japan, and Japan under Travel, cannot both hold."""
+        _add_fspot_rows(fspot_setup, "UPDATE tags SET category_id = 2 WHERE id = 1")
+
+        with pytest.raises(SystemExit) as exc_info:
+            import_f_spot(fspot_setup)
+
+        assert exc_info.value.code == 0
+        assert db.get_tag("Japan").parent_id is None
+        assert db.get_tag("Travel").parent_id == db.get_tag("Japan").id
