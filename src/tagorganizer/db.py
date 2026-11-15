@@ -351,32 +351,38 @@ def merge_tags(source_id: int, target_id: int) -> tuple[int, int]:
         return moved, dropped
 
 
+# A statement binds its item ids and its tag ids together, so each chunk has
+# to leave room for both under SQLite's 32766-variable cap.
+_LINK_CHUNK = 15_000
+
+
 def remove_tags(items: list[Item], tags: list[Tag]) -> int:
     """Take tags off photos, returning how many links went.
 
     The tags themselves survive - this is for fixing a mistagged photo, which
     until now could only be done by deleting the tag from the whole library.
-    A link that was not there is not an error.
+    A link that was not there is not an error. A large selection is worked in
+    chunks, since one IN clause per id list would exceed the variable cap.
     """
     item_ids = [item.id for item in items if item.id is not None]
     tag_ids = [tag.id for tag in tags if tag.id is not None]
     if not item_ids or not tag_ids:
         return 0
 
+    removed = 0
     with new_session() as session:
-        existing = session.exec(
-            select(ItemTagLink).where(
-                ItemTagLink.item_id.in_(item_ids), ItemTagLink.tag_id.in_(tag_ids)
-            )
-        ).all()
-        removed = len(existing)
-        session.exec(
-            delete(ItemTagLink).where(
-                ItemTagLink.item_id.in_(item_ids), ItemTagLink.tag_id.in_(tag_ids)
-            )
-        )
+        for item_chunk in chunk_ids(item_ids, size=_LINK_CHUNK):
+            for tag_chunk in chunk_ids(tag_ids, size=_LINK_CHUNK):
+                where = (
+                    ItemTagLink.item_id.in_(item_chunk),
+                    ItemTagLink.tag_id.in_(tag_chunk),
+                )
+                removed += session.exec(
+                    select(func.count()).select_from(ItemTagLink).where(*where)
+                ).one()
+                session.exec(delete(ItemTagLink).where(*where))
         session.commit()
-        return removed
+    return removed
 
 
 def delete_tag(id: int):
@@ -949,15 +955,13 @@ def get_image_range(
 
 def get_common_tags(items: list[Item]) -> list[Tag]:
     with new_session() as session:
-        # Load items and their tags
-        items = session.exec(
-            select(Item)
-            .where(Item.id.in_([item.id for item in items]))
-            .options(selectinload(Item.tags))
-        ).all()
-
-        # Extract sets of tags for each item
-        tag_sets = [set([t.name for t in item.tags]) for item in items]
+        # Load items and their tags, a chunk at a time for large selections
+        tag_sets = []
+        for chunk in chunk_ids([item.id for item in items]):
+            loaded = session.exec(
+                select(Item).where(Item.id.in_(chunk)).options(selectinload(Item.tags))
+            ).all()
+            tag_sets.extend(set(t.name for t in item.tags) for item in loaded)
 
         # Find the intersection of all tag sets
         if tag_sets:
@@ -970,21 +974,23 @@ def get_common_tags(items: list[Item]) -> list[Tag]:
 
 def set_tags(items: list[Item], tags: list[Tag]) -> None:
     with new_session() as session:
-        items = session.exec(
-            select(Item)
-            .where(Item.id.in_([item.id for item in items]))
-            .options(selectinload(Item.tags))
-        ).all()
+        loaded_tags = []
+        for chunk in chunk_ids([tag.id for tag in tags]):
+            loaded_tags.extend(session.exec(select(Tag).where(Tag.id.in_(chunk))).all())
 
-        tags = session.exec(
-            select(Tag).where(Tag.id.in_([tag.id for tag in tags]))
-        ).all()
+        # A large selection is loaded a chunk at a time: one IN clause over all
+        # of it would exceed SQLite's variable cap. The session still holds
+        # every item until the commit below.
+        for chunk in chunk_ids([item.id for item in items]):
+            loaded = session.exec(
+                select(Item).where(Item.id.in_(chunk)).options(selectinload(Item.tags))
+            ).all()
 
-        # Add each tag to each item if not already associated
-        for item in items:
-            for tag in tags:
-                if tag not in item.tags:
-                    item.tags.append(tag)
+            # Add each tag to each item if not already associated
+            for item in loaded:
+                for tag in loaded_tags:
+                    if tag not in item.tags:
+                        item.tags.append(tag)
 
         session.commit()
 
