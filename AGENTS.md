@@ -101,5 +101,9 @@ exactly one worker.
 - **Wait for the thing you assert**, not for the worker to be idle: signals are
   queued, so idle does not mean delivered. Hold a worker open with
   `threading.Event`, never a long loop.
+- **Showing the Map tab under `QT_QPA_PLATFORM=offscreen` segfaults** inside
+  QtWebEngine, on every commit back to before the plugin work. Tests never
+  show it, so the suite is unaffected; smoke-test the real window on the
+  native platform (`QT_QPA_PLATFORM=cocoa` on macOS, `xcb` on Linux).
 - **`tests/synthetic_media.py`** builds real MP4s byte by byte; there is no
   ffmpeg and no committed video.
