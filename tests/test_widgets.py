@@ -2,14 +2,12 @@
 Tests for widget fixes F5, F6, and F9.
 
 Tests cover:
-- F5: delete_confirmation_dialog.py keyword argument fix
-- F6: tag_view.py self.tag_view attribute fix
+- F5: the delete dialog's photo previews
+- F6: tag_view.py's tag menu
 - F9: timeline.py histogram bin calculation fix
 """
 
-import ast
-from datetime import datetime, date
-from pathlib import Path
+from datetime import date, datetime
 
 import matplotlib.dates as mdates
 
@@ -173,123 +171,128 @@ class TestF9HistogramLocatorAndBins:
         assert isinstance(locator, mdates.YearLocator)
 
 
-class TestF5DeleteConfirmationDialogSignature:
-    """Test F5: Verify delete_confirmation_dialog uses correct keyword argument."""
+def _photo_file(path):
+    from qtpy.QtGui import QImage
 
-    def test_load_pixmap_call_uses_correct_keyword(self):
-        """
-        Verify that the load_pixmap call in delete_confirmation_dialog
-        uses the correct keyword argument 'photos_path' not 'photos_dir'.
-        """
-        # Read the delete_confirmation_dialog.py source
-        dialog_path = (
-            Path(__file__).parent.parent
-            / "src/tagorganizer/widgets/delete_confirmation_dialog.py"
+    image = QImage(40, 30, QImage.Format.Format_RGB32)
+    image.fill(0x804020)
+    assert image.save(str(path), "PNG")
+    return str(path)
+
+
+class TestF5DeleteConfirmationPreviews:
+    """Each photo named in the delete dialog is previewed, or named if it cannot be.
+
+    The preview used to be loaded with a keyword the loader does not take, which
+    made the dialog fail to open at all.
+    """
+
+    def test_a_photo_is_previewed_as_a_picture(self, qapp, tmp_path):
+        from types import SimpleNamespace
+
+        from qtpy.QtWidgets import QLabel
+
+        from tagorganizer.models import Item
+        from tagorganizer.widgets.delete_confirmation_dialog import (
+            DeleteConfirmationDialog,
         )
-        with open(dialog_path) as f:
-            source = f.read()
 
-        # Parse and check for load_pixmap call
-        tree = ast.parse(source)
+        photo = _photo_file(tmp_path / "p.png")
+        main = SimpleNamespace(config=SimpleNamespace(photos=tmp_path))
 
-        found_correct_call = False
-        found_incorrect_call = False
+        dialog = DeleteConfirmationDialog([Item(id=1, uri=photo)], main)
 
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                # Check if this is a load_pixmap call
-                if isinstance(node.func, ast.Name) and node.func.id == "load_pixmap":
-                    # Check keyword arguments
-                    for keyword in node.keywords:
-                        if keyword.arg == "photos_path":
-                            found_correct_call = True
-                        if keyword.arg == "photos_dir":
-                            found_incorrect_call = True
+        pictures = [
+            label
+            for label in dialog.findChildren(QLabel)
+            if not label.pixmap().isNull()
+        ]
+        assert len(pictures) == 1
 
-        assert found_correct_call, "load_pixmap should use 'photos_path' keyword"
-        assert (
-            not found_incorrect_call
-        ), "load_pixmap should NOT use 'photos_dir' keyword"
+    def test_a_photo_that_cannot_be_loaded_is_named_instead(self, qapp, tmp_path):
+        from types import SimpleNamespace
 
-    def test_pixmap_none_guard_present(self):
-        """Verify that setPixmap is guarded against None pixmap."""
-        dialog_path = (
-            Path(__file__).parent.parent
-            / "src/tagorganizer/widgets/delete_confirmation_dialog.py"
+        from qtpy.QtWidgets import QLabel
+
+        from tagorganizer.models import Item
+        from tagorganizer.widgets.delete_confirmation_dialog import (
+            DeleteConfirmationDialog,
         )
-        with open(dialog_path) as f:
-            source = f.read()
 
-        # Check that there's a guard for None pixmap
-        assert (
-            "if pixmap:" in source or "if pixmap is not None:" in source
-        ), "setPixmap call should be guarded against None"
+        missing = str(tmp_path / "gone.jpg")
+        main = SimpleNamespace(config=SimpleNamespace(photos=tmp_path))
+
+        dialog = DeleteConfirmationDialog([Item(id=2, uri=missing)], main)
+
+        assert missing in [label.text() for label in dialog.findChildren(QLabel)]
 
 
 class TestF6TagViewMenuFix:
-    """Test F6: Verify tag_view.py no longer references self.tag_view in show_tag_menu."""
+    """The tag menu is opened from the tag tree itself, and kept while it shows.
 
-    def test_show_tag_menu_no_self_tag_view_reference(self):
-        """
-        Verify that show_tag_menu method doesn't reference self.tag_view.
-        TagView IS the QTreeView and should use self directly.
-        """
-        tag_view_path = (
-            Path(__file__).parent.parent / "src/tagorganizer/widgets/tag_view.py"
-        )
-        with open(tag_view_path) as f:
-            source = f.read()
+    The menu used to be looked up through an attribute the tag tree does not
+    have, so right-clicking any tag raised instead of showing its menu.
+    """
 
-        # Parse and find show_tag_menu method
-        tree = ast.parse(source)
+    def _recording_menus(self, monkeypatch):
+        """Replace the menu class so exec records the menu instead of blocking."""
+        import tagorganizer.widgets.tag_view as tag_view_module
+        from qtpy.QtWidgets import QMenu
 
-        show_tag_menu_found = False
-        tag_view_reference_found = False
+        shown = []
 
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "show_tag_menu":
-                show_tag_menu_found = True
+        class RecordingMenu(QMenu):
+            def exec(self, *args):
+                shown.append(self)
 
-                # Check the function body for self.tag_view references
-                for child in ast.walk(node):
-                    if isinstance(child, ast.Attribute):
-                        if isinstance(child.value, ast.Attribute):
-                            # Check for self.tag_view
-                            if (
-                                isinstance(child.value.value, ast.Name)
-                                and child.value.value.id == "self"
-                                and child.value.attr == "tag_view"
-                            ):
-                                tag_view_reference_found = True
+        monkeypatch.setattr(tag_view_module, "QMenu", RecordingMenu)
+        return shown
 
-        assert show_tag_menu_found, "show_tag_menu method should exist"
-        assert (
-            not tag_view_reference_found
-        ), "show_tag_menu should NOT reference self.tag_view"
+    def test_right_clicking_a_tag_shows_its_menu(self, window_for, monkeypatch):
+        from qtpy.QtCore import QPoint
 
-    def test_show_tag_menu_uses_self_directly(self):
-        """Verify that show_tag_menu uses self.indexAt and self.viewport."""
-        tag_view_path = (
-            Path(__file__).parent.parent / "src/tagorganizer/widgets/tag_view.py"
-        )
-        with open(tag_view_path) as f:
-            source = f.read()
+        from tagorganizer import db
 
-        # Simple string check for the correct method calls
-        assert (
-            "self.indexAt(position)" in source
-        ), "show_tag_menu should call self.indexAt(position)"
-        assert "self.viewport()" in source, "show_tag_menu should call self.viewport()"
+        window = window_for()
+        db.add_tag("beach")
+        window.tag_view.update_tags()
+        index = window.tag_view.tag_model.index(0, 0)
+        monkeypatch.setattr(window.tag_view, "indexAt", lambda position: index)
+        shown = self._recording_menus(monkeypatch)
 
-    def test_tag_menu_reference_stored(self):
-        """Verify that QMenu is stored as self.tag_menu to avoid garbage collection."""
-        tag_view_path = (
-            Path(__file__).parent.parent / "src/tagorganizer/widgets/tag_view.py"
-        )
-        with open(tag_view_path) as f:
-            source = f.read()
+        window.tag_view.show_tag_menu(QPoint(3, 3))
 
-        # Check that menu is assigned to self.tag_menu
-        assert (
-            "self.tag_menu = QMenu()" in source
-        ), "QMenu should be assigned to self.tag_menu to keep a reference"
+        assert [action.text() for action in shown[0].actions()] == [
+            "Remove from selected photos",
+            "Delete Tag",
+        ]
+
+    def test_the_menu_is_kept_on_the_tag_view_while_it_is_shown(
+        self, window_for, monkeypatch
+    ):
+        """A menu held only by a local name is freed when the call returns."""
+        from qtpy.QtCore import QPoint
+
+        from tagorganizer import db
+
+        window = window_for()
+        db.add_tag("beach")
+        window.tag_view.update_tags()
+        index = window.tag_view.tag_model.index(0, 0)
+        monkeypatch.setattr(window.tag_view, "indexAt", lambda position: index)
+        shown = self._recording_menus(monkeypatch)
+
+        window.tag_view.show_tag_menu(QPoint(3, 3))
+
+        assert window.tag_view.tag_menu is shown[0]
+
+    def test_a_click_on_no_tag_shows_nothing(self, window_for, monkeypatch):
+        from qtpy.QtCore import QModelIndex, QPoint
+
+        window = window_for()
+        monkeypatch.setattr(window.tag_view, "indexAt", lambda position: QModelIndex())
+        shown = self._recording_menus(monkeypatch)
+
+        window.tag_view.show_tag_menu(QPoint(3, 3))
+
+        assert shown == []
