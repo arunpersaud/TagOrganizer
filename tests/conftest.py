@@ -35,6 +35,26 @@ def qapp():
     )
 
 
+@pytest.fixture(autouse=True)
+def _restore_database_globals():
+    """Put back ``db.engine`` and TAGORGANIZER_DB_URL after every test.
+
+    Many tests repoint the engine inside their bodies, and loading a config
+    (ConfigManager) sets the environment variable as it opens a library. Without
+    this, whichever test ran last decided what the next one's database was. The
+    engine is only re-referenced here, not disposed: a test that made its own
+    engine disposes it, and the fixtures above own their cleanup.
+    """
+    previous_engine = db.engine
+    previous_url = os.environ.get("TAGORGANIZER_DB_URL")
+    yield
+    db.engine = previous_engine
+    if previous_url is None:
+        os.environ.pop("TAGORGANIZER_DB_URL", None)
+    else:
+        os.environ["TAGORGANIZER_DB_URL"] = previous_url
+
+
 @pytest.fixture
 def temp_db(tmp_path):
     """Point ``db.engine`` at an empty database with the current schema."""
