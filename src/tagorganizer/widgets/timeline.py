@@ -107,6 +107,10 @@ class Timeline(FigureCanvas):
 
     def plot_histogram(self, dates):
         self.ax.clear()
+        # ax.clear() takes the selector's artists with it, so its selection state
+        # has to be dropped too rather than left pointing at a rectangle that is
+        # no longer drawn.
+        self.span_selector.clear()
         self.ax.xaxis_date()
         self.dates_plt = np.array([mdates.date2num(d) for d in dates])
 

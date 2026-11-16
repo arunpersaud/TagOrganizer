@@ -142,6 +142,20 @@ class TestDragToSelect:
 
         assert timeline.main.tag_bar.ranges == []
 
+    def test_a_redraw_clears_the_span_selector(self, qapp):
+        """Redrawing removes the artists the selector drew with.
+
+        Its selection state has to go with them, or it keeps a range the plot no
+        longer shows.
+        """
+        timeline = _timeline()
+        timeline.plot_histogram([datetime(2024, 1, 1), datetime(2024, 2, 1)])
+        timeline.span_selector.set_visible(True)
+
+        timeline.plot_histogram([datetime(2024, 1, 1), datetime(2024, 2, 1)])
+
+        assert not timeline.span_selector.get_visible()
+
     def test_right_click_clears_the_range(self, qapp):
         from matplotlib.backend_bases import MouseButton
 
