@@ -562,3 +562,75 @@ class TestStatusLineCounts:
 
         assert window.numbers == [0, 0, 0]
         assert window.numbers_label.text() == "View: 0 Selected: 0 Total: 0"
+
+
+class TestTagsFromTheTagLine:
+    """handle_tags is the tag line: it names the tags, then tags the photos.
+
+    These run the real method and read the database back, so they hold however
+    handle_tags is arranged internally.
+    """
+
+    def _photos(self, window, *names):
+        from tagorganizer import db
+
+        paths = [str(window.config.photos / name) for name in names]
+        db.add_images(paths)
+        return [item.id for item in db.get_all_items() if item.uri in paths]
+
+    def _tags_of(self, item_id):
+        from tagorganizer import db
+        from tagorganizer.models import Item
+
+        with db.new_session() as session:
+            return {tag.name for tag in session.get(Item, item_id).tags}
+
+    def test_the_tags_go_to_every_selected_photo(self, window_for):
+        window = window_for()
+        first, second = self._photos(window, "a.jpg", "b.jpg")
+        window.selection.add_many([first, second])
+        window.tag_line_edit.setText("Beach, Holiday")
+
+        window.handle_tags()
+
+        for item_id in (first, second):
+            assert self._tags_of(item_id) == {"Beach", "Holiday"}
+
+    def test_with_nothing_selected_the_current_photo_gets_them(self, window_for):
+        window = window_for()
+        (only,) = self._photos(window, "c.jpg")
+        window.update_items()
+        assert window.grid.current_item().item.id == only, "precondition"
+        window.tag_line_edit.setText("Beach")
+
+        window.handle_tags()
+
+        assert self._tags_of(only) == {"Beach"}
+
+    def test_a_name_is_stored_as_typed(self, window_for):
+        from tagorganizer import db
+
+        window = window_for()
+        (photo,) = self._photos(window, "d.jpg")
+        window.selection.add(photo)
+        window.tag_line_edit.setText("iPhone")
+
+        window.handle_tags()
+
+        assert db.get_tag("iphone").name == "iPhone"
+        assert self._tags_of(photo) == {"iPhone"}
+
+    @pytest.mark.parametrize("reserved", ["No GPS", "no gps", "Wrong dir"])
+    def test_a_reserved_name_is_refused_and_creates_no_tag(self, window_for, reserved):
+        from tagorganizer import db
+
+        window = window_for()
+        (photo,) = self._photos(window, "e.jpg")
+        window.selection.add(photo)
+        window.tag_line_edit.setText(f"{reserved}, Beach")
+
+        window.handle_tags()
+
+        assert db.get_tag(reserved) is None, "the reserved name became a real tag"
+        assert self._tags_of(photo) == {"Beach"}
+        assert "not allowed" in window.messages.text_edit.toPlainText()

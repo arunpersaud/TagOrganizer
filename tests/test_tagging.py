@@ -66,116 +66,9 @@ class TestF2MultiItemTagging:
                 assert "Tag2" in tag_names
                 assert "Tag3" in tag_names
 
-    def test_handle_tags_db_set_tags_not_in_else_branch(self):
-        """F2 structural test: db.set_tags call must not be inside the else branch.
-
-        This test parses the main.py AST to verify that db.set_tags is not
-        nested inside the else block of the if statement that checks selection
-        status in handle_tags. The guarantee is that tagging applies to the
-        whole selection, not only to the fallback single item.
-        """
-        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
-        with open(main_file) as f:
-            tree = ast.parse(f.read())
-
-        # Find the handle_tags method
-        handle_tags_method = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "handle_tags":
-                handle_tags_method = node
-                break
-
-        assert handle_tags_method is not None, "handle_tags method not found"
-
-        # Check all if statements in handle_tags to ensure db.set_tags is not in any
-        # else branch. This ensures tagging applies to the whole selection, not just
-        # the fallback single item.
-        for if_node in ast.walk(handle_tags_method):
-            if isinstance(if_node, ast.If):
-                # Check if db.set_tags is in the orelse (else branch)
-                for stmt in if_node.orelse:
-                    for child in ast.walk(stmt):
-                        if isinstance(child, ast.Call):
-                            if isinstance(child.func, ast.Attribute):
-                                if (
-                                    isinstance(child.func.value, ast.Name)
-                                    and child.func.value.id == "db"
-                                    and child.func.attr == "set_tags"
-                                ):
-                                    raise AssertionError(
-                                        "FAIL: db.set_tags is inside an else branch; "
-                                        "must be dedented so it runs after both branches"
-                                    )
-
 
 class TestF8ReservedTags:
     """F8: Reserved tag names must be rejected before DB creation."""
-
-    def test_reserved_tag_rejected_no_db_entry(self, temp_db):
-        """Verify that reserved tags are rejected and no Tag row is created."""
-        # Now verify that the check in handle_tags (checking `t in RESERVED_TAGS`)
-        # happens BEFORE the db.get_tag call
-        # This is a structural test similar to F2
-        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
-        with open(main_file) as f:
-            tree = ast.parse(f.read())
-
-        # Find handle_tags method
-        handle_tags_method = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "handle_tags":
-                handle_tags_method = node
-                break
-
-        assert handle_tags_method is not None
-
-        # Find the for loop that iterates over tags
-        tag_for_loop = None
-        for node in ast.walk(handle_tags_method):
-            if isinstance(node, ast.For):
-                if isinstance(node.target, ast.Name) and node.target.id == "t":
-                    tag_for_loop = node
-                    break
-
-        assert tag_for_loop is not None, "Tag iteration loop not found"
-
-        # Verify that RESERVED_TAGS check happens before db.get_tag call
-        reserved_check_line = None
-        get_tag_line = None
-
-        for i, node in enumerate(tag_for_loop.body):
-            # Find the reserved tags check (if statement)
-            if isinstance(node, ast.If):
-                # Check if it's checking `t in RESERVED_TAGS`
-                if isinstance(node.test, ast.Compare):
-                    if (
-                        isinstance(node.test.left, ast.Name)
-                        and node.test.left.id == "t"
-                    ):
-                        if len(node.test.ops) > 0 and isinstance(
-                            node.test.ops[0], ast.In
-                        ):
-                            reserved_check_line = i
-                            break
-
-        # Find the db.get_tag assignment
-        for i, node in enumerate(tag_for_loop.body):
-            if isinstance(node, ast.Assign):
-                if isinstance(node.value, ast.Call):
-                    if (
-                        isinstance(node.value.func, ast.Attribute)
-                        and isinstance(node.value.func.value, ast.Name)
-                        and node.value.func.value.id == "db"
-                        and node.value.func.attr == "get_tag"
-                    ):
-                        get_tag_line = i
-                        break
-
-        # The reserved check should come before the get_tag call
-        if reserved_check_line is not None and get_tag_line is not None:
-            assert (
-                reserved_check_line < get_tag_line
-            ), "Reserved tags check must happen before db.get_tag call"
 
     def test_reserved_tags_constant_matches(self, temp_db):
         """Verify RESERVED_TAGS contains the expected reserved names."""
@@ -456,43 +349,6 @@ class TestChangeProfileResetsViewState:
         assert (
             calls_reset_view_state
         ), "change_profile must call reset_view_state to clear old database ids"
-
-
-class TestHandleTagsStoresNamesAsTyped:
-    """Regression guard: tag names stored as typed, not title-cased.
-
-    handle_tags was mangling "iPhone" into "Iphone", losing the user's
-    spelling. Removing .title() was necessary. This test ensures nothing
-    title-cases tag names anymore; adding the call back would be caught.
-    """
-
-    def test_handle_tags_does_not_call_title(self):
-        """Verify handle_tags does not call .title() on tag names."""
-        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
-        with open(main_file) as f:
-            tree = ast.parse(f.read())
-
-        # Find handle_tags method
-        handle_tags_method = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "handle_tags":
-                handle_tags_method = node
-                break
-
-        assert handle_tags_method is not None, "handle_tags method not found"
-
-        # Search for call to .title() in the method
-        calls_title = False
-        for node in ast.walk(handle_tags_method):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Attribute):
-                    if node.func.attr == "title":
-                        calls_title = True
-                        break
-
-        assert (
-            not calls_title
-        ), "handle_tags must not call .title(); tag names must be stored as typed"
 
 
 class TestShowSelectedOnlyCallsAddSelectionTag:
