@@ -2,8 +2,9 @@
 
 The application keeps its engine in a module-level global (``db.engine``), so
 every fixture here is responsible for pointing that global at a throwaway
-database and restoring it afterwards. Nothing in this file needs a display, so
-the whole pure-logic layer stays testable without Qt.
+database and restoring it afterwards. ``qapp`` is the one QApplication the whole
+suite shares. Only a test that asks for it creates one, so the pure-logic layer
+stays testable without Qt.
 """
 
 import os
