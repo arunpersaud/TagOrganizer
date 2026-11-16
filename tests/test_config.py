@@ -156,7 +156,7 @@ class TestOpeningAnExistingLibrary:
     starting at all, on exactly the databases that hold the user's photos.
     """
 
-    def _library_at_previous_release(self, tmp_path):
+    def _library_at_previous_release(self, tmp_path, monkeypatch):
         """A database exactly as the previous release would have left it.
 
         Migrated up to the revision before head rather than built from today's
@@ -164,7 +164,6 @@ class TestOpeningAnExistingLibrary:
         migration is about to add, and building it with create_all would hide
         the very mismatch this test exists to catch.
         """
-        import os
 
         from alembic.script import ScriptDirectory
         from alembic.config import Config as AlembicConfig
@@ -173,7 +172,7 @@ class TestOpeningAnExistingLibrary:
 
         db_file = tmp_path / "library.db"
         db.set_engine(str(db_file))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{db_file}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_file}")
 
         root = pathlib.Path(migrations.__file__).parent
         alembic_config = AlembicConfig(str(root.parent / "alembic.ini"))
@@ -186,11 +185,11 @@ class TestOpeningAnExistingLibrary:
         db.engine.dispose()
         return db_file
 
-    def test_an_existing_library_still_opens(self, tmp_path):
+    def test_an_existing_library_still_opens(self, tmp_path, monkeypatch):
         from tagorganizer import db
         from tagorganizer.config import ConfigManager
 
-        db_file = self._library_at_previous_release(tmp_path)
+        db_file = self._library_at_previous_release(tmp_path, monkeypatch)
         config_file = tmp_path / "config.ini"
         config_file.write_text(
             f"[DEFAULT]\nprofile = main\n\n[main]\n"

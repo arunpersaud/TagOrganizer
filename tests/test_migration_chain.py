@@ -6,8 +6,6 @@ remain synchronized with the models and can be relied upon for
 database initialization and upgrades.
 """
 
-import os
-
 from sqlalchemy import inspect, text, create_engine as sa_create_engine
 from sqlmodel import Session, SQLModel
 
@@ -81,7 +79,7 @@ class TestMigrationChainIntegrity:
             inspector_sqlmodel
         )
 
-    def test_migration_chain_matches_models(self, tmp_path):
+    def test_migration_chain_matches_models(self, tmp_path, monkeypatch):
         """Test that alembic upgrade matches SQLModel.metadata.create_all().
 
         Runs the migration chain from base on one database and creates the schema
@@ -94,7 +92,7 @@ class TestMigrationChainIntegrity:
 
         # Set up the alembic database
         db.set_engine(str(db_alembic_path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{db_alembic_path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_alembic_path}")
 
         # Create the database file so alembic has something to work with
         engine_alembic = sa_create_engine(f"sqlite:///{db_alembic_path}")
@@ -160,7 +158,7 @@ class TestMigrationChainIntegrity:
 
         print("✓ Alembic migration chain matches SQLModel.metadata.create_all()")
 
-    def test_step_by_step_upgrade(self, tmp_path):
+    def test_step_by_step_upgrade(self, tmp_path, monkeypatch):
         """Test that step-by-step upgrades work correctly.
 
         Verifies that upgrading from base -> c3c22277f560 -> 18ee44c097eb -> 9e42c23d5f4a
@@ -169,7 +167,7 @@ class TestMigrationChainIntegrity:
         db_path = tmp_path / "step_test.db"
 
         db.set_engine(str(db_path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{db_path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_path}")
 
         engine = sa_create_engine(f"sqlite:///{db_path}")
         engine.connect().close()
@@ -234,7 +232,7 @@ class TestMigrationChainIntegrity:
 
         print("✓ Step-by-step upgrade from base to head works")
 
-    def test_downgrade_to_base(self, tmp_path):
+    def test_downgrade_to_base(self, tmp_path, monkeypatch):
         """Test that downgrading back to base works cleanly.
 
         Verifies that downgrading from head to base removes all tables and
@@ -243,7 +241,7 @@ class TestMigrationChainIntegrity:
         db_path = tmp_path / "downgrade_test.db"
 
         db.set_engine(str(db_path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{db_path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_path}")
 
         engine = sa_create_engine(f"sqlite:///{db_path}")
         engine.connect().close()
@@ -271,12 +269,12 @@ class TestMigrationChainIntegrity:
 
         print("✓ Downgrade to base works cleanly")
 
-    def test_alembic_version_tracking(self, tmp_path):
+    def test_alembic_version_tracking(self, tmp_path, monkeypatch):
         """Test that alembic version tracking is correct at each step."""
         db_path = tmp_path / "version_test.db"
 
         db.set_engine(str(db_path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{db_path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_path}")
 
         engine = sa_create_engine(f"sqlite:///{db_path}")
         engine.connect().close()
@@ -311,7 +309,7 @@ class TestMigrationChainIntegrity:
 
         print("✓ Alembic version tracking is correct")
 
-    def test_migration_chain_supports_data_operations(self, tmp_path):
+    def test_migration_chain_supports_data_operations(self, tmp_path, monkeypatch):
         """Test that the migrated schema actually supports data operations.
 
         Creates a database via migrations, inserts some test data, and verifies
@@ -320,7 +318,7 @@ class TestMigrationChainIntegrity:
         db_path = tmp_path / "data_test.db"
 
         db.set_engine(str(db_path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{db_path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_path}")
 
         engine = sa_create_engine(f"sqlite:///{db_path}")
         engine.connect().close()

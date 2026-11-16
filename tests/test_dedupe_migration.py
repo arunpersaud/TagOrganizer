@@ -10,7 +10,6 @@ Migrations use raw SQL against the tables as they were at that revision, never
 the models, because the models keep changing underneath old migrations.
 """
 
-import os
 import pathlib
 import sqlite3
 
@@ -35,7 +34,7 @@ def head_revision():
 
 
 @pytest.fixture
-def dirty_library(tmp_path):
+def dirty_library(tmp_path, monkeypatch):
     """A database at the previous revision, holding duplicates.
 
     Two rows for /p/a.jpg with tags on each and lineage pointing at one of
@@ -43,7 +42,7 @@ def dirty_library(tmp_path):
     """
     path = tmp_path / "library.db"
     db.set_engine(str(path))
-    os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{path}"
+    monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{path}")
     migrations.upgrade_db(DEDUPE_REVISION)
     db.engine.dispose()
 
@@ -184,10 +183,10 @@ class TestMergingTagsCanCloseALoop:
     """
 
     @pytest.fixture
-    def looping_library(self, tmp_path):
+    def looping_library(self, tmp_path, monkeypatch):
         path = tmp_path / "loop.db"
         db.set_engine(str(path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{path}")
         migrations.upgrade_db(DEDUPE_REVISION)
         db.engine.dispose()
 
@@ -265,10 +264,12 @@ class TestTheConstraintsAreEnforced:
 
 
 class TestACleanLibrary:
-    def test_a_library_with_no_duplicates_upgrades_untouched(self, tmp_path):
+    def test_a_library_with_no_duplicates_upgrades_untouched(
+        self, tmp_path, monkeypatch
+    ):
         path = tmp_path / "clean.db"
         db.set_engine(str(path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{path}")
         migrations.upgrade_db(DEDUPE_REVISION)
         db.engine.dispose()
 
@@ -291,10 +292,10 @@ class TestACleanLibrary:
         assert rows(path, "SELECT COUNT(*) FROM item") == [(2,)]
         assert rows(path, "SELECT COUNT(*) FROM itemtaglink") == [(1,)]
 
-    def test_an_empty_library_upgrades(self, tmp_path):
+    def test_an_empty_library_upgrades(self, tmp_path, monkeypatch):
         path = tmp_path / "empty.db"
         db.set_engine(str(path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{path}")
         migrations.upgrade_db()
         db.engine.dispose()
 

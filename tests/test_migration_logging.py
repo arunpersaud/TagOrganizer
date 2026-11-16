@@ -7,20 +7,16 @@ off all tagorganizer.* logging.
 """
 
 import logging
-import os
 
 from tagorganizer import migrations
 
 
-def test_migrations_leave_existing_app_loggers_enabled(tmp_path):
+def test_migrations_leave_existing_app_loggers_enabled(tmp_path, monkeypatch):
     logger = logging.getLogger("tagorganizer.test_probe_logger")
     logger.disabled = False
 
     path = tmp_path / "library.db"
-    os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{path}"
-    try:
-        migrations.upgrade_db()
-    finally:
-        os.environ.pop("TAGORGANIZER_DB_URL", None)
+    monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{path}")
+    migrations.upgrade_db()
 
     assert logger.disabled is False

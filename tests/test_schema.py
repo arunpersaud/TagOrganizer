@@ -3,8 +3,6 @@
 Covers database creation, migrations, and model constraints.
 """
 
-import os
-
 from sqlalchemy import inspect, text, select, create_engine as sa_create_engine
 from sqlmodel import Session, SQLModel
 
@@ -22,7 +20,7 @@ class TestDatabaseCreationF1:
     alembic trying to re-apply migrations on an already-complete schema.
     """
 
-    def test_new_database_creation_succeeds(self, db_path):
+    def test_new_database_creation_succeeds(self, db_path, monkeypatch):
         """Creating a new database from scratch succeeds without errors.
 
         This is the regression test for F1. A new database should:
@@ -37,7 +35,7 @@ class TestDatabaseCreationF1:
         """
         # Set up the database engine and environment
         db.set_engine(str(db_path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{db_path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_path}")
 
         # Verify the database file doesn't exist yet
         assert not db_path.exists()
@@ -69,7 +67,7 @@ class TestDatabaseCreationF1:
             assert result is not None
             assert result[0] == alembic_head()
 
-    def test_upgrade_old_database_without_geolocation(self, db_path):
+    def test_upgrade_old_database_without_geolocation(self, db_path, monkeypatch):
         """An older database that lacks longitude/latitude still upgrades cleanly.
 
         This tests that existing databases created before the geolocation
@@ -77,7 +75,7 @@ class TestDatabaseCreationF1:
         """
         # Set up a fresh database
         db.set_engine(str(db_path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{db_path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_path}")
 
         # Create the basic schema without geolocation columns
         engine = sa_create_engine(f"sqlite:///{db_path}")
@@ -278,11 +276,11 @@ class TestIndexesF17:
             "data_xxhash" in cols for cols in index_columns
         ), f"No index found for data_xxhash column. Existing indexes: {index_columns}"
 
-    def test_fresh_database_has_indexes(self, db_path, tmp_path):
+    def test_fresh_database_has_indexes(self, db_path, tmp_path, monkeypatch):
         """A freshly created database should include the uri and data_xxhash indexes."""
         # Set up a new database
         db.set_engine(str(db_path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{db_path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_path}")
 
         # Create and stamp the database
         SQLModel.metadata.create_all(db.engine)

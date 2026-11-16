@@ -5,7 +5,6 @@ cross-profile move transaction opens. All checks happen before mutating state,
 so a failure leaves both source and target untouched.
 """
 
-import os
 import pytest
 
 from conftest import alembic_head
@@ -20,11 +19,11 @@ from tagorganizer.migrations import stamp_db
 class TestJournalMode:
     """Tests for reading the journal mode of a database file."""
 
-    def test_journal_mode_returns_delete_for_new_database(self, db_path):
+    def test_journal_mode_returns_delete_for_new_database(self, db_path, monkeypatch):
         """journal_mode returns "delete" for a newly created database."""
         # Create a database the way the app does
         db.set_engine(str(db_path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{db_path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_path}")
         db.create_db()
         stamp_db("head")
 
@@ -81,13 +80,15 @@ class TestPrepareTarget:
 
         engine.dispose()
 
-    def test_prepare_target_leaves_current_database_untouched(self, tmp_path):
+    def test_prepare_target_leaves_current_database_untouched(
+        self, tmp_path, monkeypatch
+    ):
         """prepare_target on an existing, current database leaves it unchanged."""
         target_path = tmp_path / "existing-target.db"
 
         # Create and stamp a database
         db.set_engine(str(target_path))
-        os.environ["TAGORGANIZER_DB_URL"] = f"sqlite:///{target_path}"
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{target_path}")
         db.create_db()
         stamp_db("head")
 
