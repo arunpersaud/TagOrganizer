@@ -4,12 +4,27 @@ next_database_name takes an existence predicate rather than touching the disk,
 so the search can be exercised directly.
 """
 
-import configparser
+import logging
 import pathlib
 
 import pytest
+from sqlalchemy import create_engine, text
+
+from conftest import alembic_head
 
 from tagorganizer.config import ProfileNotFoundError, next_database_name
+
+
+def _stored_revision(path):
+    """The migration revision a database file is stamped with."""
+    engine = create_engine(f"sqlite:///{path}")
+    try:
+        with engine.connect() as conn:
+            return conn.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar()
+    finally:
+        engine.dispose()
 
 
 class TestNextDatabaseName:
@@ -45,53 +60,58 @@ class TestReadConfigRaises:
         config_file = tmp_path / "config.ini"
         config_file.write_text("[work]\ndatabase = x\nphoto_path = .\nvideo_path = .\n")
 
-        manager = ConfigManager.__new__(ConfigManager)
-        manager.config = None
-        manager.profile = "default"
-        manager.config_file = config_file
-
         with pytest.raises(ProfileNotFoundError) as caught:
-            manager.read_config()
+            ConfigManager(config_file=config_file, profile="default")
         assert caught.value.profile == "default"
 
     def test_manager_state_unchanged_when_exception_raised(self, tmp_path):
-        """Manager must be coherent after ProfileNotFoundError, to allow
-        keeping the old profile when a new config file is invalid."""
+        """A refused switch must leave the manager on the profile it was showing.
+
+        The switch goes through set_current_profile, which is where the names
+        are put back. Calling read_config directly would only test that it
+        raises before it assigns anything.
+        """
+        from tagorganizer import db
         from tagorganizer.config import ConfigManager
 
         config_file = tmp_path / "config.ini"
         config_file.write_text(
-            "[work]\ndatabase = old_db\nphoto_path = .\nvideo_path = .\n"
+            f"[work]\ndatabase = {tmp_path}/work.db\n"
+            f"photo_path = {tmp_path}\nvideo_path = {tmp_path}\n"
         )
+        manager = ConfigManager(config_file=config_file, profile="work")
+        try:
+            before = (
+                manager.config_file,
+                manager.profile,
+                manager.db,
+                manager.photos,
+                manager.videos,
+            )
+            with pytest.raises(ProfileNotFoundError):
+                manager.set_current_profile("default")
 
-        manager = ConfigManager.__new__(ConfigManager)
-        old_config = {
-            "work": {"database": "old_db", "photo_path": ".", "video_path": "."}
-        }
-        old_db = "old_db_path"
-        old_photos = "old_photos_path"
-        old_videos = "old_videos_path"
-        manager.config = old_config
-        manager.profile = "default"
-        manager.config_file = config_file
-        manager.db = old_db
-        manager.photos = old_photos
-        manager.videos = old_videos
-
-        with pytest.raises(ProfileNotFoundError):
-            manager.read_config()
-        # Manager state unchanged after exception
-        assert manager.config == old_config
-        assert manager.db == old_db
-        assert manager.photos == old_photos
-        assert manager.videos == old_videos
+            after = (
+                manager.config_file,
+                manager.profile,
+                manager.db,
+                manager.photos,
+                manager.videos,
+            )
+            assert after == before
+        finally:
+            db.engine.dispose()
 
 
 class TestCreateNewProfile:
     def test_create_default_profile_succeeds(self, tmp_path, monkeypatch):
-        """First-run scenario with config=None: read_config must initialize
-        config before calling create_default_config."""
+        """First-run scenario: there is no config file yet.
+
+        Building the manager has to write a default config and open the library
+        it names, without the TypeError an unset config used to raise.
+        """
         import tagorganizer.config as config_module
+        from tagorganizer import db
         from tagorganizer.config import ConfigManager
 
         # Sandbox all filesystem lookups to tmp_path
@@ -108,43 +128,50 @@ class TestCreateNewProfile:
         monkeypatch.setattr("platformdirs.user_pictures_dir", lambda: str(photo_dir))
         monkeypatch.setattr("platformdirs.user_videos_dir", lambda: str(video_dir))
 
-        # Simulate real first-run: manager with config=None, calling read_config
-        manager = ConfigManager.__new__(ConfigManager)
-        manager.config = None
-        manager.profile = "default"
-        manager.config_file = config_file
-
-        # This must succeed, not raise TypeError
-        manager.read_config()
-
-        # Config file should be written with the default profile
-        assert config_file.exists()
-        assert "default" in manager.config.sections()
-        # Manager's db, photos, videos should be initialized
-        assert manager.db is not None
-        assert manager.photos is not None
-        assert manager.videos is not None
+        manager = ConfigManager(config_file=config_file, profile="default")
+        try:
+            assert config_file.exists()
+            assert "default" in manager.config.sections()
+            assert manager.db == str(data_dir / "media-default.db")
+            assert (data_dir / "media-default.db").exists()
+            assert manager.photos == photo_dir.resolve()
+            assert manager.videos == video_dir.resolve()
+        finally:
+            db.engine.dispose()
 
     def test_create_DEFAULT_uppercase_is_rejected(self, tmp_path):
-        """The literal [DEFAULT] section is forbidden (configparser's reserved section)."""
+        """The literal [DEFAULT] section is forbidden (configparser's reserved section).
+
+        The name is caught twice: configparser already counts DEFAULT as present,
+        so the "already exists" check would refuse it too. The explicit guard is
+        what gives the reason, so the logged message is what is asserted.
+        """
+        from tagorganizer import db
         from tagorganizer.config import ConfigManager
 
         config_file = tmp_path / "config.ini"
-        data_dir = tmp_path / "data"
+        config_file.write_text(
+            f"[work]\ndatabase = {tmp_path}/work.db\n"
+            f"photo_path = {tmp_path}\nvideo_path = {tmp_path}\n"
+        )
+        manager = ConfigManager(config_file=config_file, profile="work")
+        # caplog is not used: opening the library above ran alembic's
+        # fileConfig, which replaces the root handlers caplog attached to.
+        logger = logging.getLogger("tagorganizer.config")
+        messages = []
+        handler = logging.Handler()
+        handler.emit = lambda record: messages.append(record.getMessage())
+        logger.addHandler(handler)
+        try:
+            before = config_file.read_text()
+            manager.create_new_profile("DEFAULT", tmp_path / "data", ".", ".")
+        finally:
+            logger.removeHandler(handler)
+            db.engine.dispose()
 
-        manager = ConfigManager.__new__(ConfigManager)
-        manager.config = configparser.ConfigParser()
-        manager.config_file = config_file
-
-        # Attempting to create "DEFAULT" (uppercase) should be rejected
-        manager.create_new_profile("DEFAULT", data_dir, ".", ".")
-
-        # Should not appear in config
         assert "DEFAULT" not in manager.config.sections()
-        # And config file should not be written (nothing to write)
-        if config_file.exists():
-            text = config_file.read_text()
-            assert "[DEFAULT]" not in text
+        assert config_file.read_text() == before
+        assert any("'DEFAULT' is reserved" in text for text in messages), messages
 
 
 class TestOpeningAnExistingLibrary:
@@ -186,10 +213,18 @@ class TestOpeningAnExistingLibrary:
         return db_file
 
     def test_an_existing_library_still_opens(self, tmp_path, monkeypatch):
+        """Opening a previous release's library migrates it to head, in place.
+
+        The database is checked before and after: it must start behind the
+        newest migration, and end at it. Asserting only that nothing raised
+        would pass for a library left untouched.
+        """
         from tagorganizer import db
         from tagorganizer.config import ConfigManager
 
         db_file = self._library_at_previous_release(tmp_path, monkeypatch)
+        assert _stored_revision(db_file) != alembic_head(), "precondition"
+
         config_file = tmp_path / "config.ini"
         config_file.write_text(
             f"[DEFAULT]\nprofile = main\n\n[main]\n"
@@ -197,14 +232,12 @@ class TestOpeningAnExistingLibrary:
             f"video_path = {tmp_path}\n"
         )
 
-        manager = ConfigManager.__new__(ConfigManager)
-        manager.config = None
-        manager.profile = "main"
-        manager.config_file = config_file
-
-        manager.read_config()
-
-        db.engine.dispose()
+        manager = ConfigManager(config_file=config_file, profile="main")
+        try:
+            assert manager.db == str(db_file)
+            assert _stored_revision(db_file) == alembic_head()
+        finally:
+            db.engine.dispose()
 
 
 class TestConfigIsChosenBeforeAnyDatabaseOpens:
@@ -419,24 +452,33 @@ class TestAFailedLoadChangesNothing:
 
     def test_the_default_section_is_refused_as_a_profile(self, tmp_path):
         """configparser reports [DEFAULT] as present, and selecting it used to
-        raise KeyError. It is not a profile, so it is a not-found error."""
+        raise KeyError. It is not a profile, so it is a not-found error.
+
+        The DEFAULT section here carries every setting a profile needs. Without
+        the guard it would load and open shared.db. Matching the base class alone
+        would also pass for a DEFAULT that merely failed validation, so the
+        message is checked too.
+        """
         from tagorganizer.config import ConfigManager
 
-        config_file = self._two_profiles(tmp_path)
-        with pytest.raises(ProfileNotFoundError):
+        config_file = tmp_path / "config.ini"
+        config_file.write_text(
+            f"[DEFAULT]\nprofile = a\ndatabase = {tmp_path}/shared.db\n"
+            f"photo_path = {tmp_path}\nvideo_path = {tmp_path}\n\n"
+            f"[a]\ndatabase = {tmp_path}/a.db\nphoto_path = {tmp_path}\n"
+            f"video_path = {tmp_path}\n"
+        )
+        with pytest.raises(ProfileNotFoundError, match="not found") as caught:
             ConfigManager(config_file=config_file, profile="DEFAULT")
+        assert type(caught.value) is ProfileNotFoundError
 
     def test_a_profile_missing_a_setting_is_refused_by_name(self, tmp_path):
         from tagorganizer.config import ConfigManager, InvalidProfileError
 
         config_file = tmp_path / "config.ini"
         config_file.write_text(f"[half]\ndatabase = {tmp_path}/h.db\nphoto_path = .\n")
-        manager = ConfigManager.__new__(ConfigManager)
-        manager.config = None
-        manager.profile = "half"
-        manager.config_file = config_file
         with pytest.raises(InvalidProfileError, match="video_path"):
-            manager.read_config()
+            ConfigManager(config_file=config_file, profile="half")
 
     def test_an_invalid_profile_is_still_a_profile_error_for_callers(self):
         """main.py catches ProfileNotFoundError; a subclass keeps that working."""

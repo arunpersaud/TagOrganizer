@@ -238,52 +238,39 @@ class TestPrepareTarget:
 class TestGetProfileDatabase:
     """Tests for ConfigManager.get_profile_database."""
 
-    def test_get_profile_database_returns_path_for_known_profile(
-        self, tmp_path, monkeypatch
-    ):
+    def test_get_profile_database_returns_path_for_known_profile(self, tmp_path):
         """get_profile_database returns the configured path for a known profile."""
+        from tagorganizer import db
 
-        # Create a config file with multiple profiles
         config_file = tmp_path / "config.ini"
         config_file.write_text(
-            "[work]\ndatabase = /path/to/work.db\nphoto_path = .\nvideo_path = .\n"
-            "[personal]\ndatabase = /path/to/personal.db\nphoto_path = .\nvideo_path = .\n"
+            f"[work]\ndatabase = {tmp_path}/work.db\n"
+            f"photo_path = {tmp_path}\nvideo_path = {tmp_path}\n"
+            f"[personal]\ndatabase = {tmp_path}/personal.db\n"
+            f"photo_path = {tmp_path}\nvideo_path = {tmp_path}\n"
         )
-
-        # Create a manager and load the config
-        manager = ConfigManager.__new__(ConfigManager)
-        manager.config_file = config_file
-        manager.profile = "work"
-
-        import configparser
-
-        manager.config = configparser.ConfigParser()
-        manager.config.read(config_file)
-
-        # Test getting a known profile
-        path = manager.get_profile_database("personal")
-        assert str(path) == "/path/to/personal.db"
+        manager = ConfigManager(config_file=config_file, profile="work")
+        try:
+            assert manager.get_profile_database("personal") == tmp_path / "personal.db"
+        finally:
+            db.engine.dispose()
 
     def test_get_profile_database_raises_for_unknown_profile(self, tmp_path):
         """get_profile_database raises ProfileNotFoundError for an unknown profile."""
-        import configparser
+        from tagorganizer import db
 
         config_file = tmp_path / "config.ini"
         config_file.write_text(
-            "[work]\ndatabase = /path/to/work.db\nphoto_path = .\nvideo_path = .\n"
+            f"[work]\ndatabase = {tmp_path}/work.db\n"
+            f"photo_path = {tmp_path}\nvideo_path = {tmp_path}\n"
         )
-
-        manager = ConfigManager.__new__(ConfigManager)
-        manager.config_file = config_file
-        manager.profile = "work"
-        manager.config = configparser.ConfigParser()
-        manager.config.read(config_file)
-
-        # Try to get a profile that doesn't exist
-        with pytest.raises(ProfileNotFoundError) as exc_info:
-            manager.get_profile_database("unknown")
-
-        assert exc_info.value.profile == "unknown"
+        manager = ConfigManager(config_file=config_file, profile="work")
+        try:
+            with pytest.raises(ProfileNotFoundError) as exc_info:
+                manager.get_profile_database("unknown")
+            assert exc_info.value.profile == "unknown"
+        finally:
+            db.engine.dispose()
 
 
 def _table_names(path):
