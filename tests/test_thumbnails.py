@@ -264,16 +264,17 @@ class TestResultAddressing:
         from tagorganizer.models import Item
         from tagorganizer.widgets.helper import ThumbnailLoader
 
+        loader = ThumbnailLoader(max_threads=1)
         a = Item(id=1, uri="/a.jpg")
         b = Item(id=2, uri="/b.jpg")
 
-        assert ThumbnailLoader.key_for(a, 150) == ThumbnailLoader.key_for(
+        assert loader.key_for(a, 150) == loader.key_for(
             Item(id=1, uri="/renamed.jpg"), 150
         )
-        assert ThumbnailLoader.key_for(a, 150) != ThumbnailLoader.key_for(b, 150)
-        assert ThumbnailLoader.key_for(a, 150) != ThumbnailLoader.key_for(a, 300)
+        assert loader.key_for(a, 150) != loader.key_for(b, 150)
+        assert loader.key_for(a, 150) != loader.key_for(a, 300)
 
-    def test_duplicate_requests_are_dropped_while_in_flight(self):
+    def test_duplicate_requests_are_dropped_while_in_flight(self, tmp_path):
         from tagorganizer.models import Item
         from tagorganizer.widgets.helper import ThumbnailLoader
 
@@ -284,7 +285,7 @@ class TestResultAddressing:
 
         loader._inflight.add(loader.key_for(item, 150))
         before = loader.pending()
-        loader.load(item, 150, Path("/tmp"))
+        loader.load(item, 150, tmp_path)
         assert loader.pending() == before, "duplicate request should be dropped"
 
     def test_preload_and_tile_share_one_decode(self):
@@ -292,12 +293,66 @@ class TestResultAddressing:
         from tagorganizer.models import Item
         from tagorganizer.widgets.helper import ThumbnailLoader
 
+        loader = ThumbnailLoader(max_threads=1)
         item = Item(id=11, uri="/x.jpg")
-        preload_key = ThumbnailLoader.key_for(item, 150)
+        preload_key = loader.key_for(item, 150)
         # the tile asks for the same item at the same size, so it recognises
         # the result the preloader already has coming
-        tile_key = ThumbnailLoader.key_for(Item(id=11, uri="/x.jpg"), 150)
+        tile_key = loader.key_for(Item(id=11, uri="/x.jpg"), 150)
         assert preload_key == tile_key
+
+
+class TestProfileGeneration:
+    """Item ids are only unique within one profile's database.
+
+    Switching profile must not let a decode made for the old database answer a
+    request for the new one, and a decode still running for the old one must not
+    be delivered at all.
+    """
+
+    def test_the_same_item_id_in_another_profile_is_a_different_key(self):
+        from tagorganizer.models import Item
+        from tagorganizer.widgets.helper import ThumbnailLoader
+
+        loader = ThumbnailLoader(max_threads=1)
+        before = loader.key_for(Item(id=5, uri="/profile_a/5.jpg"), 150)
+        loader.new_generation()
+        after = loader.key_for(Item(id=5, uri="/profile_b/5.jpg"), 150)
+        assert before != after
+
+    def test_a_result_from_the_previous_generation_is_dropped(self):
+        from tagorganizer.models import Item
+        from tagorganizer.widgets.helper import ThumbnailLoader
+
+        loader = ThumbnailLoader(max_threads=1)
+        old_key = loader.key_for(Item(id=5, uri="/a/5.jpg"), 150)
+        loader.new_generation()
+        new_key = loader.key_for(Item(id=5, uri="/b/5.jpg"), 150)
+
+        delivered = []
+        loader.thumbnail_ready.connect(lambda key, image: delivered.append(key))
+
+        loader._on_ready(old_key, QImage())
+        assert delivered == []
+
+        loader._on_ready(new_key, QImage())
+        assert delivered == [new_key]
+
+    def test_a_new_generation_forgets_requests_made_for_the_old_one(self, tmp_path):
+        """A request for the new profile must not be dropped as a duplicate."""
+        from tagorganizer.models import Item
+        from tagorganizer.widgets.helper import ThumbnailLoader
+
+        loader = ThumbnailLoader(max_threads=1)
+        item = Item(id=3, uri=str(tmp_path / "missing.jpg"))
+        loader._inflight.add(loader.key_for(item, 150))
+
+        loader.new_generation()
+
+        assert loader.pending() == 0
+        loader.load(item, 150, tmp_path)
+        assert loader.pending() == 1
+        loader.pool.waitForDone(5000)
 
 
 class TestLoadQImageNoQApplication:
@@ -363,3 +418,25 @@ class TestForgetThumbnail:
 
         forget_thumbnail("abcdef0123456789", tmp_path)
         forget_thumbnail("", tmp_path)
+
+
+class TestProfileSwitchWiring:
+    def test_switching_profile_or_config_starts_a_new_generation(self):
+        """Both paths go through reset_view_state, so that is where the loader is told.
+
+        Without it a profile switch keeps the old generation, and the item ids
+        of the new profile are answered from the old one's decodes.
+        """
+        import ast
+        import inspect
+        import textwrap
+
+        from tagorganizer.main import MainWindow
+
+        source = textwrap.dedent(inspect.getsource(MainWindow.reset_view_state))
+        calls = {
+            node.func.attr
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        assert "new_generation" in calls

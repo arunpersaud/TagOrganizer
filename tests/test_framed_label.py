@@ -215,3 +215,33 @@ class TestLineageIndicator:
 
     def test_no_tooltip_without_sources(self, qapp, tmp_path):
         assert self._tile(tmp_path, []).toolTip() == ""
+
+
+def test_a_tile_ignores_a_result_from_the_profile_it_replaced(qapp, tmp_path):
+    """Item ids repeat across profiles, so a result must match what was asked for.
+
+    The tile asked for item 1 under the old profile. After a profile switch an
+    arriving result for id 1 under the new generation names a different photo
+    and must not be shown on this tile.
+    """
+    from qtpy.QtGui import QImage
+    from qtpy.QtWidgets import QLabel
+
+    from tagorganizer.models import Item
+    from tagorganizer.widgets.framed_label import FramedLabel
+    from tagorganizer.widgets.helper import get_thumbnail_loader
+
+    loader = get_thumbnail_loader()
+    item = Item(id=1, uri=str(tmp_path / "old_profile.jpg"), uri_md5="b" * 32)
+    label = FramedLabel(item, tmp_path)
+
+    loader.new_generation()
+    other_profile_key = loader.key_for(
+        Item(id=1, uri=str(tmp_path / "new_profile.jpg"), uri_md5="c" * 32),
+        label.pixmap_width,
+    )
+    image = QImage(150, 150, QImage.Format_RGB32)
+    image.fill(0x203040)
+    label._on_thumbnail_ready(other_profile_key, image)
+
+    assert QLabel.pixmap(label) is None or QLabel.pixmap(label).isNull()

@@ -548,12 +548,16 @@ class ThumbnailLoader(QObject):
     Maintains a QThreadPool and emits signals when thumbnails are ready.
     Allows widgets to request thumbnail decoding without blocking the GUI.
 
-    Results are addressed by (item id, size) rather than by requesting widget.
-    That is what lets the preloader and a visible tile share one decode: a
-    tile takes any result matching the item it is showing, whoever asked for
-    it, and ignores results for the item it used to show. Addressing by widget
-    would mean a tile whose item was already queued by the preloader never
+    Results are addressed by (generation, item id, size) rather than by
+    requesting widget. That is what lets the preloader and a visible tile share
+    one decode: a tile takes any result matching the item it is showing, whoever
+    asked for it, and ignores results for the item it used to show. Addressing by
+    widget would mean a tile whose item was already queued by the preloader never
     heard back, because the result carried somebody else's id.
+
+    Item ids are only unique within one profile's database, so the generation
+    changes whenever the profile does. Results from an earlier generation are
+    dropped on arrival.
 
     Signals:
         thumbnail_ready(key: tuple, qimage: QImage)
@@ -573,20 +577,37 @@ class ThumbnailLoader(QObject):
         # Create emitter to deliver results back to GUI thread
         self.emitter = ThumbnailResultEmitter()
         self.emitter.thumbnail_ready.connect(self._on_ready)
-        # Decodes already queued or running, keyed by (item id, size). The
-        # preloader offers the same items again on every tick, and a page it
+        self._generation = 0
+        # Decodes already queued or running, keyed by (generation, item id, size).
+        # The preloader offers the same items again on every tick, and a page it
         # already asked for is still in the queue - without this the pool
         # accumulates duplicate work faster than three threads can drain it.
         self._inflight = set()
 
+    @property
+    def generation(self) -> int:
+        return self._generation
+
+    def new_generation(self) -> None:
+        """Forget everything requested for the profile that was open before.
+
+        Decodes already running still finish, but their results are dropped when
+        they arrive, and nothing made before this point blocks a new request.
+        """
+        self._generation += 1
+        self._inflight.clear()
+
     def _on_ready(self, key, qimage) -> None:
+        if key[0] != self._generation:
+            # Decoded for a profile that is no longer open. Its item ids may
+            # name different photos now, so it must not reach any tile.
+            return
         self._inflight.discard(key)
         self.thumbnail_ready.emit(key, qimage)
 
-    @staticmethod
-    def key_for(item: Item, size: int):
+    def key_for(self, item: Item, size: int):
         """The key a result for this item and size will carry."""
-        return (item.id, size)
+        return (self._generation, item.id, size)
 
     def load(self, item: Item, size: int, photos_path: Path) -> None:
         """Request a thumbnail to be decoded.

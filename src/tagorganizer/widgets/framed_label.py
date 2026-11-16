@@ -84,21 +84,32 @@ class FramedLabel(QLabel):
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
 
         # Request thumbnail decode asynchronously
+        self._wanted_key = None
         loader = get_thumbnail_loader()
         loader.thumbnail_ready.connect(self._on_thumbnail_ready)
-        loader.load(item, self.pixmap_width, photos_path)
+        self._request_thumbnail()
+
+    def _request_thumbnail(self) -> None:
+        """Ask for the thumbnail at the current size, and remember what it is.
+
+        The key is recorded at the moment of the request. A result for an
+        earlier size, or for an item from a profile that has since been replaced,
+        then cannot match, even though it may still arrive.
+        """
+        loader = get_thumbnail_loader()
+        self._wanted_key = loader.key_for(self.item, self.pixmap_width)
+        loader.load(self.item, self.pixmap_width, self.photos_path)
 
     def _on_thumbnail_ready(self, key, qimage: QImage) -> None:
-        """Take a decode result if it is for what this tile is showing.
+        """Take a decode result if it is the one this tile is waiting for.
 
-        Results are addressed by (item id, size) rather than by widget, so a
-        tile picks up whatever decode matches its current item and requested
-        size - including one the preloader started for that same item. The
-        same check is what stops a stale result painting over a tile that has
-        since been reused for a different photo, or a small thumbnail landing
-        after a resize has already asked for a larger one.
+        Results are addressed by (generation, item id, size) rather than by
+        widget, so a tile picks up whatever decode matches what it asked for -
+        including one the preloader started for that same item. A stale result,
+        from a size the tile has since left or a profile that has been replaced,
+        is recognised by its key and dropped.
         """
-        if key != get_thumbnail_loader().key_for(self.item, self.pixmap_width):
+        if key != self._wanted_key:
             return
 
         if qimage is None or qimage.isNull():
@@ -261,8 +272,7 @@ class FramedLabel(QLabel):
 
         if size_changed:
             # Request new thumbnail at larger size asynchronously
-            loader = get_thumbnail_loader()
-            loader.load(self.item, self.pixmap_width, self.photos_path)
+            self._request_thumbnail()
 
         # Either way, show what we already have, fitted to the new size. A
         # higher-resolution decode, if one was requested, replaces this when it

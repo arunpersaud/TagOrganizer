@@ -71,7 +71,7 @@ from .widgets import (
     Timeline,
     RESERVED_TAGS,
 )
-from .widgets.helper import CommaCompleter, get_thumbnail_path
+from .widgets.helper import CommaCompleter, get_thumbnail_loader, get_thumbnail_path
 
 logger = logging.getLogger(__name__)
 
@@ -602,6 +602,9 @@ class MainWindow(QMainWindow):
         self.tag_bar.reset()
         self.filters = None
         self.update_numbers(selected=0)
+        # Item ids repeat across profiles, so decodes requested for the old
+        # database must not answer requests made for the new one.
+        get_thumbnail_loader().new_generation()
 
     def change_profile(self, name):
         previous = self.config.profile
