@@ -5,11 +5,10 @@ These tests verify:
 - F8: Reserved tag names are rejected before DB creation
 """
 
-import ast
 import logging
-from pathlib import Path
 
 from sqlmodel import Session, select
+from window_fixtures import add_profile, answer_move_dialog, database_uris
 
 from tagorganizer import db
 from tagorganizer.models import Item, Tag
@@ -116,37 +115,22 @@ class TestChangeProfileResetsViewState:
     reset_view_state to clear this state; deleting it would reintroduce the bug.
     """
 
-    def test_change_profile_calls_reset_view_state(self):
-        """Verify change_profile calls reset_view_state()."""
-        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
-        with open(main_file) as f:
-            tree = ast.parse(f.read())
+    def test_switching_profile_forgets_the_selection(self, window_for, tmp_path):
+        """The selected ids name rows of the old database, so none may survive."""
+        from tagorganizer import db
 
-        # Find change_profile method
-        change_profile_method = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "change_profile":
-                change_profile_method = node
-                break
+        window = window_for()
+        add_profile(window, "other", tmp_path)
+        db.add_images([str(window.config.photos / "a.jpg")])
+        (item_id,) = [item.id for item in db.get_all_items()]
+        window.selection.add(item_id)
+        window.update_items()
+        assert len(window.selection) == 1, "precondition"
 
-        assert change_profile_method is not None, "change_profile method not found"
+        window.change_profile("other")
 
-        # Search for call to reset_view_state in the method
-        calls_reset_view_state = False
-        for node in ast.walk(change_profile_method):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Attribute):
-                    if node.func.attr == "reset_view_state":
-                        calls_reset_view_state = True
-                        break
-                elif isinstance(node.func, ast.Name):
-                    if node.func.id == "reset_view_state":
-                        calls_reset_view_state = True
-                        break
-
-        assert (
-            calls_reset_view_state
-        ), "change_profile must call reset_view_state to clear old database ids"
+        assert window.config.profile == "other", "the switch did not happen"
+        assert len(window.selection) == 0
 
 
 class TestQtMessageHandler:
@@ -178,110 +162,71 @@ class TestQtMessageHandler:
 
 
 class TestMoveSelectionToProfile:
-    """Regression guards for move_selection_to_profile implementation.
+    """Moving the selection into another profile's database.
 
-    The move operation must validate everything before the transaction opens,
-    so refusals leave the database untouched. Order matters: prepare_target
-    must run before move_items.
+    The move must validate everything before the transaction opens, so refusals
+    leave the database untouched. Order matters: prepare_target must run before
+    move_items.
     """
 
-    def test_move_selection_calls_prepare_target_before_move_items(self):
-        """Verify prepare_target is called before move_items in move_selection_to_profile.
+    def _select_photos(self, window, *names):
+        from tagorganizer import db
 
-        This ordering is load-bearing: prepare_target checks everything before
-        any transaction opens, so a refusal leaves the source database intact.
+        paths = [str(window.config.photos / name) for name in names]
+        db.add_images(paths)
+        ids = [item.id for item in db.get_all_items() if item.uri in paths]
+        window.selection.add_many(ids)
+        return paths
+
+    def test_an_unusable_target_is_refused_and_the_library_keeps_its_photos(
+        self, window_for, tmp_path, monkeypatch
+    ):
+        """A WAL-mode target cannot take part in an atomic move. The refusal must
+        come from the target check, before any rows are touched, so the
+        'Cannot Move to Target' dialog is the one shown and the library is intact.
         """
-        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
-        with open(main_file) as f:
-            tree = ast.parse(f.read())
+        import sqlite3
 
-        # Find move_selection_to_profile method
-        move_method = None
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.FunctionDef)
-                and node.name == "move_selection_to_profile"
-            ):
-                move_method = node
-                break
+        import tagorganizer.main as main_module
+        from tagorganizer import db
 
-        assert move_method is not None, "move_selection_to_profile method not found"
+        window = window_for()
+        target = add_profile(window, "other", tmp_path)
+        connection = sqlite3.connect(target)
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE placeholder (id INTEGER)")
+        connection.commit()
+        connection.close()
+        paths = self._select_photos(window, "a.jpg", "b.jpg")
+        answer_move_dialog(monkeypatch, "other")
+        titles = []
 
-        # Find the lines where prepare_target and move_items are called
-        prepare_target_line = None
-        move_items_line = None
+        class RecordingBox:
+            @staticmethod
+            def critical(parent, title, text):
+                titles.append(title)
 
-        for node in ast.walk(move_method):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Attribute):
-                    # Check for dbmove.prepare_target
-                    if (
-                        isinstance(node.func.value, ast.Name)
-                        and node.func.value.id == "dbmove"
-                        and node.func.attr == "prepare_target"
-                    ):
-                        if prepare_target_line is None:
-                            prepare_target_line = node.lineno
-                    # Check for dbmove.move_items
-                    if (
-                        isinstance(node.func.value, ast.Name)
-                        and node.func.value.id == "dbmove"
-                        and node.func.attr == "move_items"
-                    ):
-                        if move_items_line is None:
-                            move_items_line = node.lineno
+        monkeypatch.setattr(main_module, "QMessageBox", RecordingBox)
 
-        assert (
-            prepare_target_line is not None
-        ), "dbmove.prepare_target() call not found in move_selection_to_profile"
-        assert (
-            move_items_line is not None
-        ), "dbmove.move_items() call not found in move_selection_to_profile"
+        window.move_selection_to_profile()
 
-        assert (
-            prepare_target_line < move_items_line
-        ), "FAIL: prepare_target must be called before move_items; "
-        "the ordering is what makes a refusal safe"
+        assert titles == ["Cannot Move to Target"]
+        assert db.get_number_of_items() == len(paths)
+        assert len(window.selection) == len(paths)
 
-    def test_move_selection_clears_selection_after_move(self):
-        """Verify selection is cleared after successful move in move_selection_to_profile.
+    def test_a_successful_move_clears_the_selection_and_takes_the_photos(
+        self, window_for, tmp_path, monkeypatch
+    ):
+        """The selected ids belonged to rows that have now left this database."""
+        from tagorganizer import db
 
-        Clearing the selection is essential: the ids belonged to rows that no
-        longer exist in this database. Acting on ids from another database is
-        a bug this project has already shipped once.
-        """
-        main_file = Path(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
-        with open(main_file) as f:
-            tree = ast.parse(f.read())
+        window = window_for()
+        target = add_profile(window, "other", tmp_path)
+        paths = self._select_photos(window, "a.jpg", "b.jpg")
+        answer_move_dialog(monkeypatch, "other")
 
-        # Find move_selection_to_profile method
-        move_method = None
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.FunctionDef)
-                and node.name == "move_selection_to_profile"
-            ):
-                move_method = node
-                break
+        window.move_selection_to_profile()
 
-        assert move_method is not None, "move_selection_to_profile method not found"
-
-        # Look for self.selection.clear() call in the method
-        calls_selection_clear = False
-        for node in ast.walk(move_method):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Attribute):
-                    if (
-                        isinstance(node.func.value, ast.Attribute)
-                        and isinstance(node.func.value.value, ast.Name)
-                        and node.func.value.value.id == "self"
-                        and node.func.value.attr == "selection"
-                        and node.func.attr == "clear"
-                    ):
-                        calls_selection_clear = True
-                        break
-
-        assert (
-            calls_selection_clear
-        ), "move_selection_to_profile must call self.selection.clear() after the move; "
-        "the ids belonged to rows that no longer exist in this database"
+        assert len(window.selection) == 0
+        assert db.get_number_of_items() == 0
+        assert database_uris(target) == sorted(paths)

@@ -89,3 +89,53 @@ def menu_titles(window):
     return [
         menu.title() for menu in window.menu_bar.findChildren(QMenu) if menu.title()
     ]
+
+
+def add_profile(window, name, tmp_path):
+    """Give a window a second profile, and return the path of its database.
+
+    The database itself is not created here; moving into it or switching to it
+    creates it, as it would for a user.
+    """
+    home = tmp_path / f"profile-{name}"
+    home.mkdir(exist_ok=True)
+    window.config.create_new_profile(name, home, str(home), str(home))
+    return window.config.get_profile_database(name)
+
+
+def answer_move_dialog(monkeypatch, profile):
+    """Make the move dialog accept, choosing ``profile``, without showing it."""
+    from qtpy.QtWidgets import QDialog
+
+    from tagorganizer import main as main_module
+
+    class AcceptingDialog:
+        def __init__(self, profiles, count):
+            self.profiles = profiles
+
+        def exec_(self):
+            return QDialog.DialogCode.Accepted
+
+        def selected_profile(self):
+            return profile
+
+    monkeypatch.setattr(main_module, "MoveToProfileDialog", AcceptingDialog)
+
+
+def database_uris(path):
+    """The uri of every photo in the database at ``path``, read on its own engine.
+
+    The window's own engine is left alone, so this reads the other profile the
+    way the move left it.
+    """
+    from sqlalchemy import create_engine
+    from sqlmodel import Session, select
+
+    from tagorganizer.models import Item
+
+    engine = create_engine(f"sqlite:///{path}")
+    try:
+        with Session(engine) as session:
+            return sorted(item.uri for item in session.exec(select(Item)).all())
+    finally:
+        engine.dispose()
