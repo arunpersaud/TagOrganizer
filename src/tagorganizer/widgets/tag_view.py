@@ -1,30 +1,45 @@
+import logging
+
 from qtpy.QtWidgets import QTreeView, QMenu, QSizePolicy
-from qtpy.QtCore import Qt, Signal, QDataStream, QIODevice, QPoint
+from qtpy.QtCore import Qt, Signal, QPoint
 from qtpy.QtGui import QStandardItemModel, QStandardItem
 
 from .. import db
+from ..tag_moves import refuse_move
 from .tag_bar import RESERVED_TAGS
+
+logger = logging.getLogger(__name__)
 
 
 class CustomStandardItemModel(QStandardItemModel):
-    itemsMoved = Signal(object, object)
+    """Reports drops with the tags that were dragged, not Qt's mime encoding.
+
+    Qt encodes a dragged item by its row and column under its own parent, and
+    the model then resolves those numbers at the top level. For a nested tag
+    that picks the wrong tag, so the view records the dragged ids itself.
+    """
+
+    itemsMoved = Signal(object, object, bool)
+
+    def __init__(self):
+        super().__init__()
+        # Set by the view for the length of one drag; empty otherwise.
+        self.drag_ids: list[int | None] = []
 
     def dropMimeData(self, data, action, row, column, parent):
-        result = super().dropMimeData(data, action, row, column, parent)
-        fmt = "application/x-qstandarditemmodeldatalist"
-        if not result:
-            return result
-
-        destination_item = self.itemFromIndex(parent)
-        if data.hasFormat(fmt):
-            d = data.data(fmt)
-            data_stream = QDataStream(d, QIODevice.ReadOnly)
-
-            row = data_stream.readInt32()
-            column = data_stream.readInt32()
-            source_item = self.item(row, column)
-            self.itemsMoved.emit(source_item, destination_item)
-        return result
+        if not self.drag_ids:
+            return False
+        target = self.itemFromIndex(parent) if parent.isValid() else None
+        # A drop onto a reserved button has an item with no id; a drop at the
+        # top level has no item at all. The rules treat them differently.
+        target_is_reserved = target is not None and target.data() is None
+        target_id = target.data() if target is not None else None
+        self.itemsMoved.emit(list(self.drag_ids), target_id, target_is_reserved)
+        # False: the database is the source of truth, so Qt must not also
+        # move the rows. Returning True would make the view remove its own
+        # copy of the source at the end of the drag, using indexes that the
+        # rebuild in on_tag_moved has already invalidated.
+        return False
 
 
 class TagView(QTreeView):
@@ -48,18 +63,55 @@ class TagView(QTreeView):
 
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
 
-    def on_tag_moved(self, src, dest):
-        src_id = None
-        dest_id = None
-        if src:
-            src_id = src.data()
-        if dest:
-            dest_id = dest.data()
+    def startDrag(self, supported_actions):
+        """Record which tags are being dragged, then let Qt run the drag.
 
-        src = db.get_tag_by_id(src_id)
-        dest = db.get_tag_by_id(dest_id)
+        Every selected tag moves, not only the one under the pointer, so the
+        ids are taken from the selection rather than from the drag mime data.
+        """
+        ids: list[int | None] = []
+        for index in self.selectedIndexes():
+            item = self.tag_model.itemFromIndex(index)
+            if item is not None and item.data() not in ids:
+                ids.append(item.data())
+        self.tag_model.drag_ids = ids
+        try:
+            super().startDrag(supported_actions)
+        finally:
+            self.tag_model.drag_ids = []
 
-        db.set_parent_tag(src, dest)
+    def on_tag_moved(self, moving, target_id, target_is_reserved):
+        """Re-parent the dragged tags, or make them top level.
+
+        target_id is None for a drop at the top level. The rules are checked
+        against the whole vocabulary, so a cycle is refused before any row is
+        written.
+        """
+        parents = {tag.id: tag.parent_id for tag in db.get_all_tags()}
+        refusal = refuse_move(moving, target_id, target_is_reserved, parents)
+        if refusal:
+            self.main.messages.add(refusal)
+            self.update_tags()
+            return
+
+        parent = db.get_tag_by_id(target_id) if target_id is not None else None
+        for tag_id in moving:
+            if parents.get(tag_id) == target_id:
+                continue
+            child = db.get_tag_by_id(tag_id)
+            try:
+                db.set_parent_tag(child, parent)
+            except ValueError as error:
+                # The database refuses a placement that would make a tag its own
+                # ancestor. The rules above catch the same case first; this is
+                # the backstop for a stored hierarchy they did not see.
+                self.main.messages.add(f"[ERROR] Could not move tag: {error}")
+            except Exception as error:
+                # Reported rather than raised: an exception here would abort
+                # the drag, and the tree must still be redrawn from the data.
+                logger.exception("could not move tag %s", tag_id)
+                self.main.messages.add(f"[ERROR] Could not move tag: {error}")
+        self.update_tags()
 
     def show_tag_menu(self, position: QPoint):
         index = self.indexAt(position)

@@ -313,3 +313,62 @@ class TestMovingWhileATaskRuns:
         window.move_selection_to_profile()
 
         assert "still running" in window.messages.text_edit.toPlainText()
+
+
+class TestTagTreeChanges:
+    """Drops and deletes from the tag tree, through the real window and database."""
+
+    def _tags(self, window):
+        from tagorganizer import db
+
+        return {t.name: t for t in db.get_all_tags()}
+
+    def test_a_nested_tag_moves_under_the_tag_it_was_dropped_on(self, window_for):
+        from tagorganizer import db
+
+        window = window_for()
+        france = db.add_tag("France")
+        paris = db.add_tag("Paris")
+        animals = db.add_tag("Animals")
+        db.set_parent_tag_by_id(paris, france)
+
+        window.tag_view.on_tag_moved([paris], animals, False)
+
+        assert db.get_tag_by_id(paris).parent_id == animals
+
+    def test_a_tag_dropped_under_itself_is_refused_and_nothing_changes(
+        self, window_for
+    ):
+        from tagorganizer import db
+
+        window = window_for()
+        france = db.add_tag("France")
+        paris = db.add_tag("Paris")
+        db.set_parent_tag_by_id(paris, france)
+
+        window.tag_view.on_tag_moved([france], paris, False)
+
+        assert db.get_tag_by_id(france).parent_id is None
+        assert "ancestor" in window.messages.text_edit.toPlainText()
+
+    def test_a_reserved_button_cannot_be_dragged(self, window_for):
+        from tagorganizer import db
+
+        window = window_for()
+        animals = db.add_tag("Animals")
+
+        window.tag_view.on_tag_moved([None], animals, False)
+
+        assert db.get_tag_by_id(animals).parent_id is None
+
+    def test_a_drop_at_the_top_level_makes_the_tag_top_level(self, window_for):
+        from tagorganizer import db
+
+        window = window_for()
+        france = db.add_tag("France")
+        paris = db.add_tag("Paris")
+        db.set_parent_tag_by_id(paris, france)
+
+        window.tag_view.on_tag_moved([paris], None, False)
+
+        assert db.get_tag_by_id(paris).parent_id is None
