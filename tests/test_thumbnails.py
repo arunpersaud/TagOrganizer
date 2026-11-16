@@ -464,3 +464,111 @@ class TestSnapThumbnailSize:
 
         returned = {snap_thumbnail_size(width) for width in range(1, 1200)}
         assert returned == set(THUMBNAIL_SIZES)
+
+
+class TestByteCache:
+    """The full-size cache is bounded by bytes, because a photo's cost is its
+    pixels, not one entry."""
+
+    def test_evicts_least_recently_used_until_under_budget(self):
+        from tagorganizer.widgets.helper import ByteCache
+
+        cache = ByteCache(budget_bytes=100)
+        cache.put("a", "A", 40)
+        cache.put("b", "B", 40)
+        cache.put("c", "C", 40)
+
+        assert cache.get("a") is None
+        assert cache.get("b") == "B"
+        assert cache.get("c") == "C"
+        assert cache.nbytes <= 100
+
+    def test_a_read_refreshes_recency(self):
+        from tagorganizer.widgets.helper import ByteCache
+
+        cache = ByteCache(budget_bytes=100)
+        cache.put("a", "A", 40)
+        cache.put("b", "B", 40)
+        cache.get("a")
+        cache.put("c", "C", 40)
+
+        assert cache.get("a") == "A"
+        assert cache.get("b") is None
+
+    def test_a_single_entry_larger_than_the_budget_is_kept_alone(self):
+        from tagorganizer.widgets.helper import ByteCache
+
+        cache = ByteCache(budget_bytes=100)
+        cache.put("a", "A", 40)
+        cache.put("huge", "H", 500)
+
+        assert cache.get("a") is None
+        assert cache.get("huge") == "H"
+
+    def test_replacing_a_key_does_not_double_count_it(self):
+        from tagorganizer.widgets.helper import ByteCache
+
+        cache = ByteCache(budget_bytes=100)
+        cache.put("a", "A", 60)
+        cache.put("a", "A2", 60)
+
+        assert cache.nbytes == 60
+        assert cache.get("a") == "A2"
+
+    def test_full_size_photos_are_budgeted_by_bytes_not_count(self):
+        """A count bound of 100 photos at 12 MP is about 4.9 GB."""
+        from tagorganizer.widgets.helper import FULL_IMAGE_CACHE_BYTES
+
+        twelve_megapixels = 4000 * 3000 * 4
+        assert 100 * twelve_megapixels > FULL_IMAGE_CACHE_BYTES
+
+
+class TestFullImageDecode:
+    def _photo(self, path):
+        image = QImage(64, 48, QImage.Format_RGB32)
+        image.fill(0x00FF00)
+        assert image.save(str(path), "PNG")
+        return str(path)
+
+    def test_a_decoded_photo_is_served_from_the_cache_afterwards(self, tmp_path):
+        """The second request must not touch the file again."""
+        import os
+
+        from tagorganizer.widgets.helper import load_full_image
+
+        path = self._photo(tmp_path / "once.png")
+        first = load_full_image(path)
+        assert first is not None
+
+        os.remove(path)
+        second = load_full_image(path)
+
+        assert second is first
+
+    def test_an_undecodable_file_gives_none(self, tmp_path):
+        from tagorganizer.widgets.helper import load_full_image
+
+        broken = tmp_path / "broken.png"
+        broken.write_bytes(b"not an image")
+        assert load_full_image(str(broken)) is None
+
+    def test_warming_decodes_off_the_gui_thread_into_the_cache(self, tmp_path):
+        from tagorganizer.widgets.helper import FullImageLoader, _full_images
+
+        path = self._photo(tmp_path / "warmed.png")
+        loader = FullImageLoader(max_threads=1)
+        loader.warm(path)
+        loader.pool.waitForDone(5000)
+
+        assert _full_images.get(path) is not None
+
+    def test_warming_the_same_photo_twice_queues_one_decode(self, tmp_path):
+        from tagorganizer.widgets.helper import FullImageLoader
+
+        path = self._photo(tmp_path / "twice.png")
+        loader = FullImageLoader(max_threads=1)
+        loader.warm(path)
+        loader.warm(path)
+        loader.pool.waitForDone(5000)
+
+        assert loader._inflight == set()

@@ -18,10 +18,12 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
+from collections import OrderedDict
 from functools import lru_cache
 import hashlib
 import io
 import logging
+import threading
 from pathlib import Path
 
 from qtpy.QtWidgets import QCompleter
@@ -360,13 +362,133 @@ def load_pixmap(item: Item, size: int, photos_path: Path) -> QPixmap | None:
     return QPixmap.fromImage(qimage)
 
 
-@lru_cache(100)
-def load_full_pixmap(file):
-    pixmap = QPixmap(file)
-    orientation = get_orientation(file)
-    pixmap = rotate_pixmap(pixmap, orientation)
+class ByteCache:
+    """A least-recently-used cache bounded by the bytes its values occupy.
 
-    return pixmap
+    Counting entries bounds nothing useful for images: a hundred thumbnails is a
+    few megabytes, a hundred full-size photos is gigabytes. Access is locked
+    because full-size decodes are stored from worker threads.
+    """
+
+    def __init__(self, budget_bytes: int):
+        self._budget = budget_bytes
+        self._entries: OrderedDict = OrderedDict()
+        self._nbytes = 0
+        self._lock = threading.Lock()
+
+    @property
+    def nbytes(self) -> int:
+        return self._nbytes
+
+    def get(self, key):
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            self._entries.move_to_end(key)
+            return entry[0]
+
+    def put(self, key, value, nbytes: int) -> None:
+        with self._lock:
+            replaced = self._entries.pop(key, None)
+            if replaced is not None:
+                self._nbytes -= replaced[1]
+            self._entries[key] = (value, nbytes)
+            self._nbytes += nbytes
+            # The entry just stored is never evicted, so one photo larger than
+            # the whole budget is still kept while it is in use.
+            while self._nbytes > self._budget and len(self._entries) > 1:
+                _, (_, evicted) = self._entries.popitem(last=False)
+                self._nbytes -= evicted
+
+
+# Full-size photos are decoded for the single view and preloaded around it.
+# Sized by bytes: a 12 MP photo is 48 MB decoded, so an entry count bound let a
+# hundred of them take several gigabytes.
+FULL_IMAGE_CACHE_BYTES = 512 * 1024 * 1024
+_full_images = ByteCache(FULL_IMAGE_CACHE_BYTES)
+
+
+def load_full_image(file) -> QImage | None:
+    """Decode a photo at full size, with its EXIF rotation applied.
+
+    Safe off the GUI thread, which is where the preloader runs it. The result
+    is cached by path, so the single view and the preloader share one decode.
+    Returns None for a file that cannot be decoded.
+    """
+    cached = _full_images.get(file)
+    if cached is not None:
+        return cached
+
+    image = QImage(file)
+    if image.isNull():
+        return None
+    image = rotate_qimage(image, get_orientation(file))
+    _full_images.put(file, image, image.sizeInBytes())
+    return image
+
+
+def load_full_pixmap(file) -> QPixmap | None:
+    """The full-size photo as a QPixmap (GUI thread only)."""
+    image = load_full_image(file)
+    if image is None:
+        return None
+    return QPixmap.fromImage(image)
+
+
+class _FullImageRunnable(QRunnable):
+    def __init__(self, loader: "FullImageLoader", file: str):
+        super().__init__()
+        self.loader = loader
+        self.file = file
+
+    def run(self):
+        try:
+            load_full_image(self.file)
+        except Exception:
+            logger.exception("failed to decode full image %s", self.file)
+        finally:
+            self.loader._finished(self.file)
+
+
+class FullImageLoader:
+    """Decodes full-size photos on a pool, so warming them never blocks the GUI.
+
+    Nothing is signalled back: the cache entry is the result. A display request
+    that arrives before its decode finishes decodes for itself, which costs
+    time but is correct, and it is never stuck behind the preloader.
+    """
+
+    def __init__(self, max_threads: int = 2):
+        self.pool = QThreadPool()
+        self.pool.setMaxThreadCount(max_threads)
+        self._lock = threading.Lock()
+        self._inflight: set[str] = set()
+
+    def warm(self, file: str) -> None:
+        """Queue a decode for `file`, unless it is cached or already queued."""
+        if _full_images.get(file) is not None:
+            return
+        with self._lock:
+            if file in self._inflight:
+                return
+            self._inflight.add(file)
+        self.pool.start(_FullImageRunnable(self, file))
+
+    def _finished(self, file: str) -> None:
+        with self._lock:
+            self._inflight.discard(file)
+
+
+_full_image_loader = None
+
+
+def get_full_image_loader() -> FullImageLoader:
+    """Get or create the global full-size image loader."""
+    global _full_image_loader
+    if _full_image_loader is None:
+        _full_image_loader = FullImageLoader()
+    return _full_image_loader
 
 
 @lru_cache(1_000)
