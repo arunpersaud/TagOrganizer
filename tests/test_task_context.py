@@ -160,28 +160,23 @@ class TestPluginQueries:
 class TestBuiltinsStayOffTheDatabase:
     """Shipped plugins reach data only through TaskContext.
 
-    An AST check rather than a behavioural one: the point is the import, and a
-    plugin that reaches db through a helper would pass a behavioural test.
+    Every shipped plugin is loaded with the database module unavailable. A
+    plugin that imports it, in any spelling, fails to load and is reported as
+    broken. Imports are what this guards: a plugin reaching the database through
+    a helper is the context's concern, not this test's.
     """
 
-    def test_no_builtin_plugin_imports_db(self):
-        import ast
-        from pathlib import Path
+    def test_every_shipped_plugin_loads_without_the_database(self, monkeypatch):
+        import sys
 
-        import tagorganizer.plugins.builtin as builtin
+        import tagorganizer
+        from tagorganizer.plugins.discovery import load_plugins, plugin_paths
 
-        offenders = []
-        for path in sorted(Path(builtin.__file__).parent.glob("*.py")):
-            for node in ast.walk(ast.parse(path.read_text())):
-                if isinstance(node, ast.ImportFrom):
-                    names = [alias.name for alias in node.names]
-                    module = node.module or ""
-                    if module == "tagorganizer.db" or (
-                        module in ("tagorganizer", "..", ".", "..db") and "db" in names
-                    ):
-                        offenders.append(f"{path.name}:{node.lineno}")
-                elif isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if alias.name == "tagorganizer.db":
-                            offenders.append(f"{path.name}:{node.lineno}")
-        assert offenders == []
+        # `from tagorganizer import db` returns the package attribute before it
+        # looks at sys.modules, so the attribute has to go as well.
+        monkeypatch.delattr(tagorganizer, "db", raising=False)
+        monkeypatch.setitem(sys.modules, "tagorganizer.db", None)
+
+        _, broken = load_plugins([plugin_paths()[0]])
+
+        assert [b.path.name for b in broken] == [], "a shipped plugin imports db"
