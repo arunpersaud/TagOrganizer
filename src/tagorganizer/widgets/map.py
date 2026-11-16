@@ -9,9 +9,12 @@ from qtpy.QtWidgets import QWidget, QVBoxLayout, QPushButton, QHBoxLayout
 from qtpy.QtCore import QObject, QTimer, QFile, Slot
 from qtpy.QtGui import QPixmap, QCursor
 from tagorganizer.map_cluster import (
-    cell_size_for_zoom,
-    cluster_points,
+    FITTED_ZOOM,
+    ClusterState,
+    ids_in_viewport,
     point_in_polygon,
+    shift_longitude_into,
+    unwrap_longitudes,
 )
 from tagorganizer.widgets.map_overlay import MosaicOverlay, compose_mosaic
 
@@ -20,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LOCATION = [37.7749, -122.4194]
 DEFAULT_ZOOM = 2
-FITTED_ZOOM = 4
 
 
 class MapBridge(QObject):
@@ -34,10 +36,14 @@ class MapBridge(QObject):
         super().__init__()
         self.map_view = map_view
 
-    @Slot(int)
-    def hover(self, cluster_index):
-        """Show the mosaic overlay for a hovered cluster."""
-        self.map_view._on_hover(cluster_index)
+    @Slot(int, int)
+    def hover(self, cluster_index, generation):
+        """Show the mosaic overlay for a hovered cluster.
+
+        The generation names the marker set the hover came from; see
+        MapView.update_clusters for why it has to travel with the index.
+        """
+        self.map_view._on_hover(cluster_index, generation)
 
     @Slot()
     def hover_end(self):
@@ -84,26 +90,25 @@ class MapBridge(QObject):
         if not ring:
             return
 
-        # Extract bounding box from the coordinates (which are [lon, lat])
-        lons = [c[0] for c in ring]
+        # A shape drawn across the antimeridian arrives with longitudes past
+        # 180, so the ring is made continuous before it is tested. Each photo is
+        # then matched against the copy of the world the shape lies on.
+        ring_lons = unwrap_longitudes([c[0] for c in ring])
         lats = [c[1] for c in ring]
-        min_lon, max_lon = min(lons), max(lons)
+        min_lon, max_lon = min(ring_lons), max(ring_lons)
         min_lat, max_lat = min(lats), max(lats)
+        polygon_ring = [(lat, lon) for lon, lat in zip(ring_lons, lats, strict=True)]
 
-        # Filter locations by bounding box
-        box_filtered = [
-            (id_, lat, lon)
-            for id_, lat, lon in self.map_view._locations
-            if min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
-        ]
-
-        # For a polygon (including lasso), apply point_in_polygon to survivors
-        # to exclude concave notches. Convert ring to [lat, lon] format for the test.
+        # Bounding box first, then point_in_polygon on the survivors to exclude
+        # concave notches. Both go through the same wrapped longitude.
         selected_ids = []
-        polygon_ring = [(lat, lon) for lon, lat in ring]
-
-        for id_, lat, lon in box_filtered:
-            if point_in_polygon(lat, lon, polygon_ring):
+        for id_, lat, lon in self.map_view._locations:
+            if not min_lat <= lat <= max_lat:
+                continue
+            shifted = shift_longitude_into(lon, min_lon, max_lon)
+            if shifted is None:
+                continue
+            if point_in_polygon(lat, shifted, polygon_ring):
                 selected_ids.append(id_)
 
         if not selected_ids:
@@ -113,6 +118,7 @@ class MapBridge(QObject):
         # Add to the selection
         self.map_view.main.selection.add_many(selected_ids)
         self.map_view.main.update_items()
+        self.map_view.main.update_numbers(selected=len(self.map_view.main.selection))
         self.map_view.main.messages.add(f"Selected {len(selected_ids)} photos")
 
     @Slot()
@@ -169,9 +175,12 @@ class MapView(QWebEngineView):
         # any tiles - a permanently blank map.
         self._dirty = True
 
-        # For map interaction: locations, clusters, and overlay
-        self._locations = []
+        # For map interaction: locations and the viewport they are clustered in
+        # (ClusterState), the clusters the page is showing, and the overlay.
+        self._state = ClusterState()
         self._clusters = []
+        # Bumped whenever the page's markers are replaced. See update_clusters.
+        self._cluster_generation = 0
         self._overlay = MosaicOverlay(self)
 
         # QWebChannel for communication with the page
@@ -187,8 +196,6 @@ class MapView(QWebEngineView):
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.setInterval(200)
         self._debounce_timer.timeout.connect(self._on_debounce_timeout)
-        self._viewport_zoom = 0
-        self._viewport_bounds = None
 
         # Watchdog timer for QWebChannel handshake. If the handshake does not
         # complete within 5 seconds of the document loading, log an error so the
@@ -200,19 +207,19 @@ class MapView(QWebEngineView):
 
         self.loadFinished.connect(self._on_load_finished)
 
-    def set_location(self, longitude, latitude, zoom):
-        if self.map is None:
-            return
-        self.map.location = [latitude, longitude]
-        self.load_map()
+    @property
+    def _locations(self):
+        """(id, lat, lon) for every photo with a location."""
+        return self._state.locations
 
     def set_locations(self, rows):
         """Accept (id, lat, lon) tuples and trigger re-render if needed.
 
         Stores locations for clustering and selection, and derives centering
-        coordinates from the location data.
+        coordinates from the location data. The clustering state forgets the
+        previous viewport: the map is about to be rebuilt around the new set.
         """
-        self._locations = list(rows)
+        self._state.set_locations(rows)
         # Extract (lat, lon) pairs for centering the map
         self.coords = [(lat, lon) for _, lat, lon in self._locations]
         self._dirty = True
@@ -313,24 +320,23 @@ class MapView(QWebEngineView):
         """Cluster the current locations and push markers to the map.
 
         Only pushes if the channel is ready. Otherwise marks as pending so
-        the update is sent once the handshake completes.
+        the update is sent once the handshake completes. With no locations the
+        empty list is pushed like any other, so the page's markers are cleared.
         """
         if not self._channel_ready:
             self._pending_update = True
             return
 
-        if not self._locations:
-            # No locations, clear the clusters
-            self.page().runJavaScript("updateClusters('[]')")
-            return
+        # Leaflet does not fire mouseout for a marker removed from under the
+        # cursor, so a mosaic left up here would never be hidden. Take it down
+        # with the markers it belongs to.
+        self._overlay.hide_mosaic()
 
-        # Calculate cell size based on current zoom (default to FITTED_ZOOM)
-        zoom = self._viewport_zoom if self._viewport_zoom > 0 else FITTED_ZOOM
-        cell_size = cell_size_for_zoom(zoom)
-        bounds = self._viewport_bounds
-
-        # Cluster the locations
-        self._clusters = cluster_points(self._locations, cell_size, bounds)
+        self._clusters = self._state.cluster()
+        # A hover from the page names a cluster by index, and the page's markers
+        # may have been replaced since it was sent. The generation travels with
+        # each marker so a stale hover is recognised and dropped.
+        self._cluster_generation += 1
 
         # Convert clusters to JSON: only send lat, lon, and index
         clusters_json = json.dumps(
@@ -339,15 +345,16 @@ class MapView(QWebEngineView):
 
         # Push to the page using runJavaScript. Pass JSON directly, not as a
         # quoted string, so the page receives the parsed array.
-        self.page().runJavaScript(f"updateClusters({clusters_json})")
+        self.page().runJavaScript(
+            f"updateClusters({clusters_json}, {self._cluster_generation})"
+        )
 
     def _on_viewport_changed(self, zoom, min_lat, min_lon, max_lat, max_lon):
         """Handle viewport changes from the map.
 
         Debounce to avoid re-clustering too frequently during drag/zoom operations.
         """
-        self._viewport_zoom = zoom
-        self._viewport_bounds = (min_lat, min_lon, max_lat, max_lon)
+        self._state.set_viewport(zoom, min_lat, min_lon, max_lat, max_lon)
 
         # Restart the debounce timer
         self._debounce_timer.stop()
@@ -357,9 +364,12 @@ class MapView(QWebEngineView):
         """Called after the debounce timer expires."""
         self.update_clusters()
 
-    def _on_hover(self, cluster_index):
+    def _on_hover(self, cluster_index, generation):
         """Show the mosaic overlay for a hovered cluster."""
-        # Guard against stale index (clusters may have changed since hover started)
+        # The hover came from markers that have since been replaced, so its
+        # index names a cluster in a list the page no longer shows.
+        if generation != self._cluster_generation:
+            return
         if cluster_index < 0 or cluster_index >= len(self._clusters):
             return
 
@@ -432,6 +442,12 @@ class MapView(QWebEngineView):
         super().showEvent(event)
         self.on_shown()
 
+    def hideEvent(self, event):
+        # Switching tabs does not deliver a mouseout, so a mosaic shown over
+        # this map would otherwise stay on screen over the other tabs.
+        self._overlay.hide_mosaic()
+        super().hideEvent(event)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.invalidate_size()
@@ -488,12 +504,9 @@ class MapView(QWebEngineView):
         min_lon = SW["lng"]
         max_lon = NE["lng"]
 
-        # Filter locations within the current viewport
-        visible_ids = [
-            id_
-            for id_, lat, lon in self._locations
-            if min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
-        ]
+        visible_ids = ids_in_viewport(
+            self._locations, (min_lat, min_lon, max_lat, max_lon)
+        )
 
         if not visible_ids:
             self.main.messages.add("No photos visible in the current viewport")
@@ -502,6 +515,7 @@ class MapView(QWebEngineView):
         # Add to the selection
         self.main.selection.add_many(visible_ids)
         self.main.update_items()
+        self.main.update_numbers(selected=len(self.main.selection))
         self.main.messages.add(f"Selected {len(visible_ids)} photos")
 
     def load_map(self):
@@ -570,12 +584,12 @@ class MapView(QWebEngineView):
 var clustersLayer = L.layerGroup();
 clustersLayer.addTo({map_var});
 
-function updateClusters(clusters) {{
+function updateClusters(clusters, generation) {{
     clustersLayer.clearLayers();
     clusters.forEach(function(cluster, index) {{
         var marker = L.marker([cluster.lat, cluster.lon]);
         marker.on('mouseover', function() {{
-            bridge.hover(index);
+            bridge.hover(index, generation);
         }});
         marker.on('mouseout', function() {{
             bridge.hover_end();

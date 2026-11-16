@@ -8,6 +8,9 @@ name is recovered from a rendered document.
 import ast
 import inspect
 import textwrap
+from types import SimpleNamespace
+
+from tagorganizer.map_cluster import ClusterState
 from tagorganizer.widgets.map import (
     map_center_and_zoom,
     parse_map_name,
@@ -427,3 +430,220 @@ class TestShapeSelection:
         assert (
             add_many_found
         ), "_select_visible_callback must call selection.add_many to add visible photos"
+
+
+class _FakeSelection:
+    def __init__(self):
+        self.ids = set()
+
+    def add_many(self, ids):
+        self.ids.update(ids)
+
+    def __len__(self):
+        return len(self.ids)
+
+
+class _FakeMessages:
+    def __init__(self):
+        self.lines = []
+
+    def add(self, text):
+        self.lines.append(text)
+
+
+class _FakeMain:
+    """The parts of MainWindow the map touches, recording what it was told."""
+
+    def __init__(self):
+        self.selection = _FakeSelection()
+        self.messages = _FakeMessages()
+        self.item_updates = 0
+        self.numbers = []
+
+    def update_items(self):
+        self.item_updates += 1
+
+    def update_numbers(self, view=None, selected=None, total=None):
+        self.numbers.append(selected)
+
+
+class _FakePage:
+    def __init__(self):
+        self.scripts = []
+
+    def runJavaScript(self, script, *callback):
+        self.scripts.append(script)
+
+
+class _FakeOverlay:
+    def __init__(self):
+        self.hidden = 0
+
+    def hide_mosaic(self):
+        self.hidden += 1
+
+
+def _geojson_polygon(ring):
+    import json
+
+    return json.dumps({"type": "Polygon", "coordinates": [ring]})
+
+
+class TestClusterUpdates:
+    """update_clusters and the hover path, driven through the real methods."""
+
+    def _view(self, locations, channel_ready=True):
+        view = SimpleNamespace(
+            _state=ClusterState(),
+            _clusters=[],
+            _cluster_generation=0,
+            _channel_ready=channel_ready,
+            _pending_update=False,
+            _overlay=_FakeOverlay(),
+            _show_calls=[],
+            _debounce_timer=SimpleNamespace(stop=lambda: None, start=lambda: None),
+        )
+        view._state.set_locations(locations)
+        view.page = lambda: view._page
+        view._page = _FakePage()
+        view._show_mosaic_for_photos = lambda ids, index: view._show_calls.append(
+            (ids, index)
+        )
+        return view
+
+    def test_an_empty_location_set_pushes_an_empty_array_not_a_string(self):
+        """updateClusters('[]') handed the page a string, so forEach threw."""
+        view = self._view([])
+        MapView.update_clusters(view)
+        assert view._page.scripts == ["updateClusters([], 1)"]
+
+    def test_each_push_carries_a_new_generation(self):
+        view = self._view([(1, 48.85, 2.35)])
+        MapView.update_clusters(view)
+        MapView.update_clusters(view)
+        assert view._page.scripts[0].endswith(", 1)")
+        assert view._page.scripts[1].endswith(", 2)")
+
+    def test_replacing_the_markers_hides_a_mosaic_left_over_from_them(self):
+        view = self._view([(1, 48.85, 2.35)])
+        MapView.update_clusters(view)
+        assert view._overlay.hidden == 1
+
+    def test_a_hover_from_replaced_markers_is_ignored(self):
+        """The index named a cluster in the previous list, not the current one."""
+        from tagorganizer.map_cluster import Cluster
+
+        view = self._view([(1, 48.85, 2.35)])
+        view._clusters = [Cluster(0.0, 0.0, [1])]
+        view._cluster_generation = 5
+
+        MapView._on_hover(view, 0, 4)
+
+        assert view._show_calls == []
+
+    def test_a_hover_from_the_current_markers_is_shown(self):
+        from tagorganizer.map_cluster import Cluster
+
+        view = self._view([(1, 48.85, 2.35)])
+        view._clusters = [Cluster(0.0, 0.0, [1])]
+        view._cluster_generation = 5
+
+        MapView._on_hover(view, 0, 5)
+
+        assert view._show_calls == [([1], 0)]
+
+    def test_a_viewport_report_is_used_when_clustering(self):
+        view = self._view([(1, 48.85, 2.35), (2, 40.71, -74.0)])
+        MapView._on_viewport_changed(view, 6, 48.0, 1.0, 49.5, 3.5)
+        assert view._state.zoom == 6
+        assert view._state.bounds == (48.0, 1.0, 49.5, 3.5)
+
+
+class TestSelectionCounts:
+    """Selecting by map must refresh the count, and the real callbacks must run."""
+
+    def test_select_visible_reports_the_new_selection_size(self):
+        main = _FakeMain()
+        view = SimpleNamespace(
+            main=main,
+            _locations=[(1, 48.85, 2.35), (2, 40.71, -74.0)],
+        )
+
+        MapView._select_visible_callback(
+            view,
+            {
+                "_southWest": {"lat": 45.0, "lng": 0.0},
+                "_northEast": {"lat": 50.0, "lng": 5.0},
+            },
+        )
+
+        assert main.selection.ids == {1}
+        assert main.numbers == [1]
+
+    def test_select_visible_finds_photos_across_the_antimeridian(self):
+        main = _FakeMain()
+        view = SimpleNamespace(main=main, _locations=[(1, 0.0, -175.0), (2, 0.0, 10.0)])
+
+        MapView._select_visible_callback(
+            view,
+            {
+                "_southWest": {"lat": -10.0, "lng": 170.0},
+                "_northEast": {"lat": 10.0, "lng": 190.0},
+            },
+        )
+
+        assert main.selection.ids == {1}
+
+    def test_a_lasso_across_the_antimeridian_selects_the_far_side(self):
+        """A lasso whose ring crosses the seam: 170 to -170 in raw longitudes.
+
+        Read as written, the ring is a sliver spanning the whole planet. Unwrapped
+        it is a twenty-degree shape from 170 to 190, and the far-side photo at
+        -175 (185 on that shape) is inside while the one at 10 is not.
+        """
+        main = _FakeMain()
+        bridge = SimpleNamespace(
+            map_view=SimpleNamespace(
+                main=main, _locations=[(1, 0.0, -175.0), (2, 0.0, 10.0)]
+            )
+        )
+        ring = [
+            [170.0, -10.0],
+            [-170.0, -10.0],
+            [-170.0, 10.0],
+            [170.0, 10.0],
+            [170.0, -10.0],
+        ]
+
+        MapBridge.shape_drawn(bridge, _geojson_polygon(ring))
+
+        assert main.selection.ids == {1}
+        assert main.numbers == [1]
+
+    def test_a_lasso_that_selects_nothing_leaves_the_count_alone(self):
+        main = _FakeMain()
+        bridge = SimpleNamespace(
+            map_view=SimpleNamespace(main=main, _locations=[(1, 0.0, 10.0)])
+        )
+        ring = [[-5.0, -5.0], [5.0, -5.0], [5.0, 5.0], [-5.0, 5.0], [-5.0, -5.0]]
+
+        MapBridge.shape_drawn(bridge, _geojson_polygon(ring))
+
+        assert main.numbers == []
+        assert main.messages.lines == ["No photos in the selected area"]
+
+
+class TestMapViewWiring:
+    def test_the_unused_set_location_is_gone(self):
+        assert not hasattr(MapView, "set_location")
+
+    def test_the_mosaic_is_hidden_when_the_map_is_hidden(self):
+        """A mosaic over another tab would never receive its mouseout."""
+        source = textwrap.dedent(inspect.getsource(MapView.hideEvent))
+        tree = ast.parse(source)
+        hides = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute) and node.attr == "hide_mosaic"
+        ]
+        assert hides, "hideEvent must hide the mosaic overlay"
