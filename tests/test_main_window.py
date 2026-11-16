@@ -465,3 +465,44 @@ class TestMoveReportsLineage:
         )
         reads = {n.attr for n in ast.walk(move) if isinstance(n, ast.Attribute)}
         assert {"dropped_tags", "dropped_lineage"} <= reads
+
+
+class TestReportingAnError:
+    def test_the_summary_goes_to_messages_and_the_traceback_to_the_dialog(
+        self, window_for, monkeypatch
+    ):
+        import tagorganizer.main as main_module
+
+        shown = []
+
+        class FakeBox:
+            Icon = main_module.QMessageBox.Icon
+
+            def __init__(self, parent=None):
+                shown.append(self)
+                self.details = None
+
+            def setIcon(self, icon):
+                pass
+
+            def setWindowTitle(self, title):
+                pass
+
+            def setText(self, text):
+                self.text = text
+
+            def setDetailedText(self, text):
+                self.details = text
+
+            def exec(self):
+                self.executed = True
+
+        monkeypatch.setattr(main_module, "QMessageBox", FakeBox)
+        window = window_for()
+
+        window.report_unhandled("ValueError: nope", "Traceback (most recent call last)")
+
+        assert "ValueError: nope" in window.messages.text_edit.toPlainText()
+        (box,) = shown
+        assert box.details == "Traceback (most recent call last)"
+        assert box.executed is True
