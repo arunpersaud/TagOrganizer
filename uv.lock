@@ -1042,7 +1042,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.0" },
     { name = "more-itertools", specifier = ">=10.5.0" },
     { name = "numpy", specifier = ">=2.2.1" },
-    { name = "opencv-python-headless", specifier = ">=4.11.0.86" },
+    { name = "opencv-python-headless", specifier = ">=4.11.0.86,<5" },
     { name = "platformdirs", specifier = ">=4.3.6" },
     { name = "pyqt6", specifier = ">=6.8.0" },
     { name = "pyqt6-webengine", specifier = ">=6.8.0" },
