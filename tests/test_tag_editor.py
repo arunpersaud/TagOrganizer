@@ -6,7 +6,6 @@ dialog itself needs a QApplication, guarded as elsewhere.
 
 import os
 
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from tagorganizer.widgets.tag_editor import tag_paths
@@ -109,32 +108,112 @@ class TestDialog:
         assert dialog.selected_tag_ids() == [7, 9]
 
 
+def _menu_action(window, menu_title, text):
+    """The action named ``text`` in the menu titled ``menu_title``."""
+    from qtpy.QtWidgets import QMenu
+
+    for menu in window.menu_bar.findChildren(QMenu):
+        if menu.title() == menu_title:
+            for action in menu.actions():
+                if action.text() == text:
+                    return action
+    raise AssertionError(f"no {text!r} in the {menu_title!r} menu")
+
+
 class TestMenuWiring:
-    def test_the_editor_is_reachable_from_the_edit_menu(self):
-        from pathlib import Path as P
+    def test_the_editor_is_reachable_from_the_edit_menu(self, window_for, monkeypatch):
+        """Choosing Edit Tags... opens the editor over the real tags."""
+        import tagorganizer.main as main_module
+        from tagorganizer.widgets.tag_editor import TagEditorDialog
 
-        source = (
-            P(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
-        ).read_text()
-        assert "Edit Tags..." in source
+        opened = []
 
-    def test_merge_confirms_before_destroying_a_tag(self):
-        """Merging cannot be undone, so it must ask, and name the casualty."""
-        import ast
-        from pathlib import Path as P
+        class RecordingEditor(TagEditorDialog):
+            def exec(self):
+                opened.append(self)
+                return 0
 
-        tree = ast.parse(
-            (P(__file__).parent.parent / "src" / "tagorganizer" / "main.py").read_text()
-        )
-        node = next(
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, ast.FunctionDef) and n.name == "_merge_tags"
-        )
-        called = {
-            n.func.attr
-            for n in ast.walk(node)
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-        }
-        assert "question" in called, "merge must confirm first"
-        assert "merge_tags" in called
+        monkeypatch.setattr(main_module, "TagEditorDialog", RecordingEditor)
+        window = window_for()
+
+        _menu_action(window, "Edit", "Edit Tags...").trigger()
+
+        assert len(opened) == 1
+
+
+class TestMergeConfirmation:
+    """Merging cannot be undone, so it asks first and names the tag it removes."""
+
+    def _editor_with_two_tags(self, window):
+        from tagorganizer import db
+        from tagorganizer.widgets.tag_editor import TagEditorDialog
+
+        db.add_tag("Travel")
+        db.add_tag("Trip")
+        dialog = TagEditorDialog(db.get_all_tags(), window)
+        dialog.tag_list.item(0).setSelected(True)
+        dialog.tag_list.item(1).setSelected(True)
+        return dialog
+
+    def _answer_questions(self, monkeypatch, answer):
+        import tagorganizer.main as main_module
+        from qtpy.QtWidgets import QMessageBox
+
+        asked = []
+
+        class AnsweringBox:
+            StandardButton = QMessageBox.StandardButton
+
+            @staticmethod
+            def question(parent, title, text):
+                asked.append(text)
+                return answer
+
+        monkeypatch.setattr(main_module, "QMessageBox", AnsweringBox)
+        return asked
+
+    def test_declining_the_merge_changes_nothing(self, window_for, monkeypatch):
+        from qtpy.QtWidgets import QMessageBox
+
+        from tagorganizer import db
+
+        window = window_for()
+        dialog = self._editor_with_two_tags(window)
+        self._answer_questions(monkeypatch, QMessageBox.StandardButton.No)
+
+        window._merge_tags(dialog)
+
+        assert db.get_tag("Travel") is not None
+        assert db.get_tag("Trip") is not None
+
+    def test_the_question_names_the_tag_that_will_go(self, window_for, monkeypatch):
+        from qtpy.QtWidgets import QMessageBox
+
+        from tagorganizer import db
+
+        window = window_for()
+        dialog = self._editor_with_two_tags(window)
+        source = db.get_tag_by_id(dialog.selected_tag_ids()[0]).name
+        asked = self._answer_questions(monkeypatch, QMessageBox.StandardButton.No)
+
+        window._merge_tags(dialog)
+
+        assert f"{source!r} will be deleted" in asked[0]
+
+    def test_confirming_the_merge_removes_the_source_and_refreshes_the_list(
+        self, window_for, monkeypatch
+    ):
+        from qtpy.QtWidgets import QMessageBox
+
+        from tagorganizer import db
+
+        window = window_for()
+        dialog = self._editor_with_two_tags(window)
+        source_id, target_id = dialog.selected_tag_ids()
+        self._answer_questions(monkeypatch, QMessageBox.StandardButton.Yes)
+
+        window._merge_tags(dialog)
+
+        assert db.get_tag_by_id(source_id) is None
+        assert db.get_tag_by_id(target_id) is not None
+        assert dialog.tag_list.count() == 1
