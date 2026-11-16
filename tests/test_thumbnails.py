@@ -452,25 +452,33 @@ class TestForgetThumbnail:
 
 
 class TestProfileSwitchWiring:
-    def test_switching_profile_or_config_starts_a_new_generation(self):
-        """Both paths go through reset_view_state, so that is where the loader is told.
-
-        Without it a profile switch keeps the old generation, and the item ids
-        of the new profile are answered from the old one's decodes.
+    def test_switching_profile_starts_a_new_generation(
+        self, window_for, tmp_path, monkeypatch
+    ):
+        """Item ids repeat across profiles, so a profile switch must tell the
+        loader to stop answering requests made for the old one. The real
+        loader is wrapped, not replaced, so the switch still runs as it does.
         """
-        import ast
-        import inspect
-        import textwrap
+        import tagorganizer.main as main_module
+        from tagorganizer.widgets import helper
+        from window_fixtures import add_profile
 
-        from tagorganizer.main import MainWindow
+        window = window_for()
+        add_profile(window, "other", tmp_path)
+        real = helper.get_thumbnail_loader()
+        generations = []
 
-        source = textwrap.dedent(inspect.getsource(MainWindow.reset_view_state))
-        calls = {
-            node.func.attr
-            for node in ast.walk(ast.parse(source))
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-        }
-        assert "new_generation" in calls
+        class CountingLoader:
+            def new_generation(self):
+                generations.append(True)
+                real.new_generation()
+
+        monkeypatch.setattr(main_module, "get_thumbnail_loader", CountingLoader)
+
+        window.change_profile("other")
+
+        assert window.config.profile == "other", "the switch did not happen"
+        assert generations == [True]
 
 
 class TestSnapThumbnailSize:
