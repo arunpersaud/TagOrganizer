@@ -10,6 +10,7 @@ real library when it is not given one, which is not something a test may do.
 """
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -24,7 +25,27 @@ from qtpy.QtWidgets import QMenu  # noqa: E402
 
 
 @pytest.fixture
-def window_for(qapp, tmp_path, monkeypatch):
+def database_opens(monkeypatch):
+    """Every database path the code under test asks to open, in order.
+
+    Each call still goes through to the real set_engine. Recording is what lets
+    a test see a database that was opened on the way to the one it asked for.
+    """
+    from tagorganizer import db
+
+    opened = []
+    real = db.set_engine
+
+    def record(path):
+        opened.append(str(path))
+        real(path)
+
+    monkeypatch.setattr(db, "set_engine", record)
+    return opened
+
+
+@pytest.fixture
+def window_for(qapp, tmp_path, monkeypatch, database_opens):
     """Build MainWindows against a temp config, and shut them down after.
 
     The task worker is a real QThread; one still running when its owner is
@@ -73,11 +94,17 @@ class TestItStarts:
         window = window_for()
         assert str(window.config.db).startswith(str(tmp_path))
 
-    def test_the_real_library_is_never_opened(self, window_for, tmp_path):
+    def test_no_database_outside_the_temp_directory_is_opened(
+        self, window_for, database_opens, tmp_path
+    ):
         """The failure that started all of this: a script that meant to use a
-        temp config migrated the user's actual photo library instead."""
-        window = window_for()
-        assert "Application Support/TagOrganizer/media.db" not in str(window.config.db)
+        temp config migrated the user's actual photo library instead. Checking
+        only the final path missed a database opened on the way, so every open
+        is checked."""
+        window_for()
+        assert database_opens, "the window opened no database at all"
+        for opened in database_opens:
+            assert Path(opened).is_relative_to(tmp_path), opened
 
     def test_the_status_bar_has_the_progress_widgets(self, window_for):
         window = window_for()
