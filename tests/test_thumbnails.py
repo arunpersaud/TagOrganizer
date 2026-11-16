@@ -440,3 +440,27 @@ class TestProfileSwitchWiring:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
         }
         assert "new_generation" in calls
+
+
+class TestSnapThumbnailSize:
+    """Tiles resize continuously, and every distinct width was its own decode and
+    its own directory of cached files. Snapping keeps the set of sizes small."""
+
+    def test_a_width_maps_to_the_smallest_standard_size_that_holds_it(self):
+        from tagorganizer.widgets.helper import snap_thumbnail_size
+
+        assert snap_thumbnail_size(1) == 150
+        assert snap_thumbnail_size(150) == 150
+        assert snap_thumbnail_size(151) == 300
+        assert snap_thumbnail_size(301) == 600
+
+    def test_a_width_beyond_the_largest_size_gets_the_largest(self):
+        from tagorganizer.widgets.helper import THUMBNAIL_SIZES, snap_thumbnail_size
+
+        assert snap_thumbnail_size(5000) == THUMBNAIL_SIZES[-1]
+
+    def test_only_standard_sizes_are_ever_returned(self):
+        from tagorganizer.widgets.helper import THUMBNAIL_SIZES, snap_thumbnail_size
+
+        returned = {snap_thumbnail_size(width) for width in range(1, 1200)}
+        assert returned == set(THUMBNAIL_SIZES)

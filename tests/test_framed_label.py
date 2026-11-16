@@ -245,3 +245,29 @@ def test_a_tile_ignores_a_result_from_the_profile_it_replaced(qapp, tmp_path):
     label._on_thumbnail_ready(other_profile_key, image)
 
     assert QLabel.pixmap(label) is None or QLabel.pixmap(label).isNull()
+
+
+def test_a_tile_ignores_a_result_for_a_size_it_no_longer_shows(qapp, tmp_path):
+    from qtpy.QtGui import QImage
+    from qtpy.QtWidgets import QLabel
+
+    from tagorganizer.models import Item
+    from tagorganizer.widgets.framed_label import FramedLabel
+    from tagorganizer.widgets.helper import get_thumbnail_loader
+
+    item = Item(id=2, uri=str(tmp_path / "resized.jpg"), uri_md5="d" * 32)
+    label = FramedLabel(item, tmp_path)
+    # A hidden widget does not deliver resizeEvent until it is shown, so the
+    # tile has to be on screen for its resize to change what it is waiting for.
+    label.show()
+    qapp.processEvents()
+    stale_key = get_thumbnail_loader().key_for(item, label.pixmap_width)
+    label.resize(400, 400)
+    qapp.processEvents()
+    assert label.pixmap_width == 600
+
+    image = QImage(150, 150, QImage.Format_RGB32)
+    image.fill(0x203040)
+    label._on_thumbnail_ready(stale_key, image)
+
+    assert QLabel.pixmap(label) is None or QLabel.pixmap(label).isNull()

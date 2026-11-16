@@ -30,6 +30,7 @@ from .helper import (
     SPRITE_FRAMES,
     get_thumbnail_loader,
     preview_file,
+    snap_thumbnail_size,
     sprite_frame_rect,
 )
 from ..models import Item
@@ -261,18 +262,17 @@ class FramedLabel(QLabel):
             painter.drawEllipse(10, 10, LINEAGE_DOT_SIZE, LINEAGE_DOT_SIZE)
 
     def resizeEvent(self, event):
-        # reload pixmap if needed to get reasonable resolution
-        size_changed = False
-        if self.width() > 1.5 * self.pixmap_width:
-            self.pixmap_width = self.width()
-            size_changed = True
-        if self.width() < 0.6 * self.pixmap_width:
-            self.pixmap_width = self.width()
-            size_changed = True
-
-        if size_changed:
-            # Request new thumbnail at larger size asynchronously
-            self._request_thumbnail()
+        # Reload at a better resolution when the tile has drifted well away from
+        # the size it decoded at. The new size is one of the standard sizes, so a
+        # tile resized continuously asks for a handful of decodes, not one each.
+        if (
+            self.width() > 1.5 * self.pixmap_width
+            or self.width() < 0.6 * self.pixmap_width
+        ):
+            wanted = snap_thumbnail_size(self.width())
+            if wanted != self.pixmap_width:
+                self.pixmap_width = wanted
+                self._request_thumbnail()
 
         # Either way, show what we already have, fitted to the new size. A
         # higher-resolution decode, if one was requested, replaces this when it

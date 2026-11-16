@@ -39,6 +39,24 @@ from ..models import Item
 logger = logging.getLogger(__name__)
 
 
+# The widths a thumbnail is decoded at. Tiles resize continuously, and every
+# distinct width used to be its own decode and its own directory of cached files;
+# snapping to these keeps the set small enough to warm and to keep on disk.
+THUMBNAIL_SIZES = (150, 300, 600)
+
+
+def snap_thumbnail_size(width: int) -> int:
+    """The smallest standard size at least as wide as `width`.
+
+    A tile wider than the largest size gets the largest, which is scaled down to
+    fit when it is drawn.
+    """
+    for size in THUMBNAIL_SIZES:
+        if size >= width:
+            return size
+    return THUMBNAIL_SIZES[-1]
+
+
 def get_thumbnail_path(photos_path: Path) -> Path:
     """Where cached thumbnails live for this photo directory.
 
