@@ -107,3 +107,118 @@ def test_set_video_does_not_seek_before_playing():
             assert (
                 node.func.attr != "set_position"
             ), "set_video must not seek before playback starts"
+
+
+class _FakeVideo:
+    """Records what the single view asks of its player."""
+
+    def __init__(self):
+        self.stops = 0
+        self.shown = None
+
+    def stopVideo(self):
+        self.stops += 1
+
+    def setVisible(self, visible):
+        self.shown = visible
+
+
+def _single_view(qapp):
+    from types import SimpleNamespace
+
+    from tagorganizer.widgets.single_item import SingleItem
+
+    messages = []
+    main = SimpleNamespace(messages=SimpleNamespace(add=messages.append))
+    return SingleItem(main), messages
+
+
+def _png(path):
+    from qtpy.QtGui import QImage
+
+    image = QImage(40, 30, QImage.Format_RGB32)
+    image.fill(0x804020)
+    assert image.save(str(path), "PNG")
+    return str(path)
+
+
+def test_switching_to_a_photo_stops_a_video_that_was_playing(qapp, tmp_path):
+    """Audio from the previous video must not carry on over a photo."""
+    from tagorganizer.models import Item
+
+    view, _ = _single_view(qapp)
+    video = _FakeVideo()
+    view.video = video
+    view.set_item(Item(id=1, uri=_png(tmp_path / "still.png")))
+
+    assert video.stops == 1
+    assert video.shown is False
+
+
+def test_leaving_the_single_view_stops_the_video(qapp):
+    """Hiding the tab must silence the player, which is otherwise still running."""
+    view, _ = _single_view(qapp)
+    video = _FakeVideo()
+    view.video = video
+    view.show()
+    qapp.processEvents()
+
+    view.hide()
+
+    assert video.stops == 1
+
+
+def test_a_missing_file_replaces_the_previous_photo(qapp, tmp_path):
+    """Keeping the old photo on screen shows the wrong picture under a missing name."""
+    from qtpy.QtWidgets import QLabel
+
+    from tagorganizer.models import Item
+
+    view, messages = _single_view(qapp)
+    view.set_item(Item(id=1, uri=_png(tmp_path / "kept.png")))
+    assert not QLabel.pixmap(view.photo.item).isNull()
+
+    gone = str(tmp_path / "gone.png")
+    view.set_item(Item(id=2, uri=gone))
+
+    assert (
+        QLabel.pixmap(view.photo.item) is None
+        or QLabel.pixmap(view.photo.item).isNull()
+    )
+    assert "gone.png" in view.photo.item.text()
+    assert messages and "does not exist" in messages[-1]
+
+
+def test_a_photo_that_will_not_decode_says_so_rather_than_raising(qapp, tmp_path):
+    from qtpy.QtWidgets import QLabel
+
+    from tagorganizer.models import Item
+
+    broken = tmp_path / "broken.png"
+    broken.write_bytes(b"not an image")
+    view, _ = _single_view(qapp)
+
+    view.set_item(Item(id=3, uri=str(broken)))
+
+    assert (
+        QLabel.pixmap(view.photo.item) is None
+        or QLabel.pixmap(view.photo.item).isNull()
+    )
+    assert "cannot display" in view.photo.item.text()
+
+
+def test_the_single_view_is_wired_to_stop_playback_when_hidden():
+    """Wiring check: hideEvent must reach the player."""
+    tree = ast.parse(SINGLE_ITEM.read_text())
+    hide_event = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "hideEvent":
+            hide_event = node
+            break
+    assert hide_event is not None, "SingleItem must define hideEvent"
+    calls = {
+        node.func.attr
+        for node in ast.walk(hide_event)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    assert "stop_playback" in calls

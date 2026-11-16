@@ -287,8 +287,17 @@ class PhotoItem(QWidget):
             not self.scroll_area_container.isVisible()
         )
 
+    def show_message(self, text: str):
+        """Show a line of text in place of a photo, with no EXIF."""
+        self.item.clear()
+        self.item.setText(text)
+        self.show_exif({})
+
     def set_photo(self, item):
         pixmap = load_full_pixmap(str(item.uri))
+        if pixmap is None:
+            self.show_message(f"cannot display {item.uri}")
+            return
         pixmap = pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
         self.setPixmap(pixmap)
@@ -350,19 +359,35 @@ class SingleItem(QWidget):
         if self.video is not None:
             self.video.stopVideo()
 
+    def hideEvent(self, event):
+        # The player keeps its audio going while hidden, so leaving this tab
+        # would otherwise leave the video playing behind the grid.
+        self.stop_playback()
+        super().hideEvent(event)
+
     def set_item(self, item):
         file_path = Path(item.uri)
 
         if not file_path.is_file():
             self.main.messages.add(f"[ERROR] file {file_path} does not exist")
+            # What is on screen belongs to the item shown before this one. Leaving
+            # it up would present the wrong photo under the name of a file that
+            # is gone, so say what is missing instead.
+            self.stop_playback()
+            if self.video is not None:
+                self.video.setVisible(False)
+            self.photo.setVisible(True)
+            self.photo.show_message(f"file not found:\n{item.uri}")
             return
 
         self.filename.setText(item.uri)
 
         if file_path.suffix.lower() in config.PHOTO_SUFFIX:
-            self.photo.set_photo(item)
+            # A video that is still playing would carry on under the photo.
+            self.stop_playback()
             if self.video is not None:
                 self.video.setVisible(False)
+            self.photo.set_photo(item)
             self.photo.setVisible(True)
         elif file_path.suffix.lower() in config.VIDEO_SUFFIX:
             video = self._ensure_video()
