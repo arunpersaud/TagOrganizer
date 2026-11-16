@@ -19,6 +19,10 @@ from tagorganizer.models import Item, ItemTagLink, Tag
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+# Real-window fixtures (window_for, database_opens) for every module that builds a
+# MainWindow. Registered as a plugin so no test module has to import them.
+pytest_plugins = ["window_fixtures"]
+
 
 @pytest.fixture(scope="session")
 def qapp():
