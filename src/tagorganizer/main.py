@@ -1142,9 +1142,9 @@ class MainWindow(QMainWindow):
             # Run the automatic plugins over anything new straight away, so
             # an imported batch is hashed and animates without being asked
             # for. They are incremental, so this costs nothing for files that
-            # are already done. Registry order matters here: hashing has to
-            # precede preview building, because a preview is cached under the
-            # item's md5.
+            # are already done. The order comes from each plugin's ``after``
+            # declaration, not from registration: a preview is cached under the
+            # item's md5, so the hashing plugin has to be declared before it.
             for plugin in self.tasks.registry.auto_plugins():
                 self.tasks.run_plugin(plugin, Scope.LIBRARY)
 
