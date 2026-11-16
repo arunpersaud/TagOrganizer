@@ -1105,6 +1105,11 @@ class MainWindow(QMainWindow):
             if result.dropped_tags:
                 tags_str = ", ".join(result.dropped_tags)
                 self.messages.add(f"Dropped tags: {tags_str}")
+            if result.dropped_lineage:
+                self.messages.add(
+                    f"Dropped {result.dropped_lineage} derived-from link(s) "
+                    "that cannot survive the move"
+                )
 
             # Clear the selection and update UI
             self.selection.clear()

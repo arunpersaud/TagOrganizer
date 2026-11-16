@@ -444,3 +444,24 @@ class TestTagTreeChanges:
         window.tag_view.delete_tag(beach)
 
         assert db.get_tag_by_id(beach) is not None
+
+
+class TestMoveReportsLineage:
+    def test_dropped_lineage_is_reported_beside_dropped_tags(self):
+        """Lineage links are lost in a move just as tags are, and the user
+        should be told about both. Checked against the source the way the
+        other widget wiring is, since a real move needs a second profile and
+        a dialog."""
+        import ast
+        from pathlib import Path as P
+
+        tree = ast.parse(
+            (P(__file__).parent.parent / "src/tagorganizer/main.py").read_text()
+        )
+        move = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == "move_selection_to_profile"
+        )
+        reads = {n.attr for n in ast.walk(move) if isinstance(n, ast.Attribute)}
+        assert {"dropped_tags", "dropped_lineage"} <= reads
