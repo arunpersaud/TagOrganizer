@@ -18,7 +18,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 
 """
 
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -150,10 +150,14 @@ class Timeline(FigureCanvas):
 
         Both bounds go over in one call so the view is redrawn once. The tag bar
         orders them, so dragging right-to-left means the same span.
+
+        The span includes its last day. The tag bar's upper bound reads as
+        "before", so the day after the span is what it needs; passing the span's
+        own final date would stop at midnight and drop everything taken that day.
         """
-        self.main.tag_bar.set_time_range(
-            mdates.num2date(xmin).date(), mdates.num2date(xmax).date()
-        )
+        start = mdates.num2date(xmin).date()
+        end = mdates.num2date(xmax).date() + timedelta(days=1)
+        self.main.tag_bar.set_time_range(start, end)
 
     def on_click(self, event):
         """Right-click clears the time filter.

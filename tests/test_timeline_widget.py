@@ -100,14 +100,32 @@ class TestDragToSelect:
 
         timeline = _timeline()
         lo = mdates.date2num(datetime(2024, 1, 1))
-        hi = mdates.date2num(datetime(2024, 6, 30))
+        hi = mdates.date2num(datetime(2024, 6, 30, 12))
 
         timeline.on_span_select(lo, hi)
 
         assert len(timeline.main.tag_bar.ranges) == 1
         start, end = timeline.main.tag_bar.ranges[0]
         assert start == date(2024, 1, 1)
-        assert end == date(2024, 6, 30)
+        # The tag bar's upper bound is "before", so the span's last day is
+        # included by passing the day after it.
+        assert end == date(2024, 7, 1)
+
+    def test_the_last_day_of_the_span_is_included(self, qapp):
+        """A span ending on 30 June must still show photos taken on 30 June.
+
+        Ending at midnight of the 30th, as the drag used to, dropped every photo
+        taken during that day.
+        """
+        import matplotlib.dates as mdates
+
+        timeline = _timeline()
+        hi = mdates.date2num(datetime(2024, 6, 30, 23, 59))
+
+        timeline.on_span_select(mdates.date2num(datetime(2024, 6, 1)), hi)
+
+        _, end = timeline.main.tag_bar.ranges[0]
+        assert end > date(2024, 6, 30)
 
     def test_right_click_clears_the_range(self, qapp):
         from matplotlib.backend_bases import MouseButton
