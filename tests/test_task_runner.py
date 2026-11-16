@@ -207,3 +207,27 @@ class TestCancellationReachesThePlugin:
         runner.enqueue(later())
         release.set()
         assert wait_until(lambda: ran == [True]), "the later task was dropped"
+
+
+class TestShutdownIsBounded:
+    def test_shutdown_gives_up_on_a_task_that_will_not_let_go(self, qapp):
+        """Closing the window must not hang on a plugin that is slow to reach a
+        yield. The bounded wait reports the stall instead."""
+        from tagorganizer.tasks import TaskRunner
+
+        made = TaskRunner()
+        started = threading.Event()
+        release = threading.Event()
+
+        def stuck():
+            started.set()
+            release.wait(5)
+            yield 1, 1
+
+        made.enqueue(stuck())
+        assert started.wait(5), "the task never started"
+        try:
+            assert made.shutdown(timeout_ms=200) is False
+        finally:
+            release.set()
+        assert made.shutdown(timeout_ms=5000) is True
