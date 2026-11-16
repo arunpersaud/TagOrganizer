@@ -93,7 +93,9 @@ def create_fspot_database(db_path, image_dir):
         # 2020-01-01 00:00:00 UTC = 1577836800
         # 2020-01-02 00:00:00 UTC = 1577923200
         # Photo 3 has timestamp 0 (should result in date=None)
-        base_uri = f"file://{image_dir}"
+        # F-Spot writes file:// followed by the POSIX path; as_posix() gives that
+        # form on Windows too (file://C:/...), where a backslash path would not.
+        base_uri = "file://" + image_dir.as_posix()
         connection.execute(
             text(
                 f"INSERT INTO photos (id, time, base_uri, filename) VALUES (1, 1577836800, '{base_uri}', 'photo1.jpg')"
@@ -338,7 +340,7 @@ class TestImportFSpotRobustness:
         _add_fspot_rows(
             fspot_setup,
             f"INSERT INTO photos (id, time, base_uri, filename) VALUES "
-            f"(9, 0, 'file://{image_dir}', 'my%20photo%2B%C3%A9.jpg')",
+            f"(9, 0, 'file://{image_dir.as_posix()}', 'my%20photo%2B%C3%A9.jpg')",
         )
 
         with pytest.raises(SystemExit):
