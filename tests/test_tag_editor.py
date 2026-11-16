@@ -8,6 +8,8 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from window_fixtures import menu_action
+
 from tagorganizer.widgets.tag_editor import tag_paths
 
 
@@ -108,18 +110,6 @@ class TestDialog:
         assert dialog.selected_tag_ids() == [7, 9]
 
 
-def _menu_action(window, menu_title, text):
-    """The action named ``text`` in the menu titled ``menu_title``."""
-    from qtpy.QtWidgets import QMenu
-
-    for menu in window.menu_bar.findChildren(QMenu):
-        if menu.title() == menu_title:
-            for action in menu.actions():
-                if action.text() == text:
-                    return action
-    raise AssertionError(f"no {text!r} in the {menu_title!r} menu")
-
-
 class TestMenuWiring:
     def test_the_editor_is_reachable_from_the_edit_menu(self, window_for, monkeypatch):
         """Choosing Edit Tags... opens the editor over the real tags."""
@@ -136,7 +126,7 @@ class TestMenuWiring:
         monkeypatch.setattr(main_module, "TagEditorDialog", RecordingEditor)
         window = window_for()
 
-        _menu_action(window, "Edit", "Edit Tags...").trigger()
+        menu_action(window, "Edit", "Edit Tags...").trigger()
 
         assert len(opened) == 1
 

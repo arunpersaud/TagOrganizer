@@ -51,14 +51,18 @@ def window_for(qapp, tmp_path, monkeypatch, database_opens):
 
     built = []
 
-    def build(plugins_dir=None):
+    def build(plugins_dir=None, disabled_plugins=None):
         from tagorganizer.main import MainWindow
 
         home = tmp_path / f"home{len(built)}"
         home.mkdir()
         config_file = home / "config.ini"
+        # disabled_plugins is a global setting, so it lives in [DEFAULT].
+        disabled_line = (
+            f"disabled_plugins = {disabled_plugins}\n" if disabled_plugins else ""
+        )
         config_file.write_text(
-            f"[DEFAULT]\nprofile = default\n\n[default]\n"
+            f"[DEFAULT]\nprofile = default\n{disabled_line}\n[default]\n"
             f"database = {home}/media.db\nphoto_path = {home}\n"
             f"video_path = {home}\n"
         )
@@ -81,6 +85,18 @@ def window_for(qapp, tmp_path, monkeypatch, database_opens):
             window.tasks.shutdown()
             window.close()
         db.engine = previous
+
+
+def menu_action(window, menu_title, text):
+    """The action named ``text`` in the menu titled ``menu_title``, or None."""
+    from qtpy.QtWidgets import QMenu
+
+    for menu in window.menu_bar.findChildren(QMenu):
+        if menu.title() == menu_title:
+            for action in menu.actions():
+                if action.text() == text:
+                    return action
+    return None
 
 
 def menu_titles(window):
