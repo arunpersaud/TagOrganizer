@@ -72,6 +72,17 @@ class ImageGridWidget(QWidget):
         return min(n, widget_count - 1)
 
     @staticmethod
+    def clamp_highlight(position, count):
+        """Keep a global highlight on a view that holds `count` items.
+
+        An empty view has nothing to point at, so the frame stays at zero rather
+        than moving to -1, which the cursor keys would otherwise do.
+        """
+        if count <= 0:
+            return 0
+        return max(0, min(position, count - 1))
+
+    @staticmethod
     def highlight_for(page, N, index):
         """The global highlight position of tile `index` on `page`.
 
@@ -222,7 +233,7 @@ class ImageGridWidget(QWidget):
     def move_right(self):
         N = self.main.numbers[0]
 
-        self.highlight = min(self.highlight + 1, N - 1)
+        self.highlight = ImageGridWidget.clamp_highlight(self.highlight + 1, N)
 
     @change_highlight
     def move_up(self):
@@ -236,23 +247,32 @@ class ImageGridWidget(QWidget):
     def move_down(self):
         N = self.main.numbers[0]
 
-        self.highlight = min(self.highlight + self.columns, N - 1)
+        self.highlight = ImageGridWidget.clamp_highlight(
+            self.highlight + self.columns, N
+        )
 
     @change_highlight
     def shift_move_down(self):
         N = self.main.numbers[0]
 
-        self.highlight = min(self.highlight + self.N, N - 1)
+        self.highlight = ImageGridWidget.clamp_highlight(self.highlight + self.N, N)
 
     def preload_items(self):
         # Skip if grid tab is not visible
         if self.main.tabs.currentWidget() != self:
             return
 
+        filters = self.main.tag_bar.get_filters()
+
+        # What a pass works on depends on the profile and the filters as well as
+        # the page and the highlight. Leaving them out meant a pass that had
+        # finished for one collection was skipped for another at the same
+        # position, and that collection's neighbours never got warmed.
+        position = (self.page, self.highlight, self.main.config.profile, filters)
+
         # Skip only when the previous pass for this position ran to
         # completion. A pass that stopped on the time budget still has work
         # left, so it has to be resumed on the next tick rather than skipped.
-        position = (self.page, self.highlight)
         if position == self._last_preload_position and self._preload_complete:
             return
 

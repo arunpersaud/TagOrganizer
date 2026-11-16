@@ -331,3 +331,43 @@ class TestLineageWiring:
 
     def test_passes_the_source_names_to_each_tile(self):
         assert self._calls(self._show_images_source(), "set_parent_names")
+
+
+class TestClampHighlight:
+    """Moving the red frame on a page with nothing on it must not go negative."""
+
+    def test_an_empty_view_keeps_the_frame_at_zero(self):
+        assert ImageGridWidget.clamp_highlight(1, 0) == 0
+        assert ImageGridWidget.clamp_highlight(0, 0) == 0
+
+    def test_the_cursor_keys_leave_an_empty_view_at_zero(self):
+        """Through the real decorated move, not just the helper."""
+        from types import SimpleNamespace
+
+        grid = SimpleNamespace(
+            widgets=[],
+            highlight=0,
+            N=25,
+            columns=5,
+            main=SimpleNamespace(
+                numbers=[0, 0, 0],
+                tabs=SimpleNamespace(currentWidget=lambda: "grid"),
+                single_item="single",
+            ),
+        )
+
+        ImageGridWidget.move_right(grid)
+        assert grid.highlight == 0
+        # Checked after each key: a later move can clamp an earlier bad value
+        # back into range, which would hide it.
+        ImageGridWidget.move_down(grid)
+        assert grid.highlight == 0
+
+    def test_a_position_past_the_end_is_brought_back_to_the_last_item(self):
+        assert ImageGridWidget.clamp_highlight(7, 3) == 2
+
+    def test_a_negative_position_is_brought_back_to_zero(self):
+        assert ImageGridWidget.clamp_highlight(-1, 3) == 0
+
+    def test_a_position_inside_the_view_is_unchanged(self):
+        assert ImageGridWidget.clamp_highlight(2, 3) == 2
