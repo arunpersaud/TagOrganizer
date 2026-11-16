@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from window_fixtures import menu_titles
+from window_fixtures import add_profile, answer_move_dialog, menu_titles
 
 
 class TestItStarts:
@@ -497,24 +497,30 @@ class TestTagTreeChanges:
 
 
 class TestMoveReportsLineage:
-    def test_dropped_lineage_is_reported_beside_dropped_tags(self):
-        """Lineage links are lost in a move just as tags are, and the user
-        should be told about both. Checked against the source the way the
-        other widget wiring is, since a real move needs a second profile and
-        a dialog."""
-        import ast
-        from pathlib import Path as P
+    def test_dropped_lineage_is_reported_beside_dropped_tags(
+        self, window_for, tmp_path, monkeypatch
+    ):
+        """Lineage links are lost in a move just as tags are, and the user should
+        be told about both."""
+        from tagorganizer import db
 
-        tree = ast.parse(
-            (P(__file__).parent.parent / "src/tagorganizer/main.py").read_text()
-        )
-        move = next(
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, ast.FunctionDef) and n.name == "move_selection_to_profile"
-        )
-        reads = {n.attr for n in ast.walk(move) if isinstance(n, ast.Attribute)}
-        assert {"dropped_tags", "dropped_lineage"} <= reads
+        window = window_for()
+        add_profile(window, "other", tmp_path)
+        paths = [str(window.config.photos / name) for name in ("a.jpg", "b.jpg")]
+        db.add_images(paths)
+        by_uri = {item.uri: item.id for item in db.get_all_items()}
+        parent, child = by_uri[paths[0]], by_uri[paths[1]]
+        db.set_parents(child, [parent])
+        db.add_tag("Beach")
+        db.set_tags(db.get_items_by_ids([child]), [db.get_tag("Beach")])
+        window.selection.add(child)
+        answer_move_dialog(monkeypatch, "other")
+
+        window.move_selection_to_profile()
+
+        shown = window.messages.text_edit.toPlainText()
+        assert "Dropped tags: Beach" in shown
+        assert "Dropped 1 derived-from link(s)" in shown
 
 
 class TestReportingAnError:
