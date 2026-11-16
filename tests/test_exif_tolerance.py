@@ -7,7 +7,7 @@ lost, and the same file failed again on every rerun.
 
 from datetime import datetime
 
-from exifread.classes import Ratio
+from exifread.utils import Ratio
 from sqlmodel import Session
 
 from synthetic_media import write_mp4

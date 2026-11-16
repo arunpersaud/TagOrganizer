@@ -499,11 +499,11 @@ def load_exif(file):
 
     brand = heif_brand(file)
     if brand is not None and brand != b"heic":
-        # exifread dispatches on the exact bytes b"ftypheic" and returns
-        # nothing for every other HEIF brand, though the reader behind that
-        # check handles them all. Presenting the file under the brand it does
-        # recognise is the smallest honest fix; the alternative is
-        # reimplementing its container walk.
+        # exifread 3.5 dispatches only on the brands heic, avif and mif1, and
+        # returns nothing for the rest of the HEIF family, though the reader
+        # behind that check handles them all. Presenting the file under the
+        # brand it does recognise is the smallest honest fix; the alternative
+        # is reimplementing its container walk.
         data = bytearray(file.read_bytes())
         data[8:12] = b"heic"
         return exif.process_file(io.BytesIO(bytes(data)))
