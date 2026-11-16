@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# The default GITHUB_TOKEN is read-only in this repository; state it anyway so
+# a future change to the repository default cannot silently widen the token.
+permissions:
+  contents: read
+
+# A new push to a branch supersedes the run still going for that branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Qt picks its platform plugin from this; without it the Qt tests try to
+  # open a display and fail on headless runners.
+  QT_QPA_PLATFORM: offscreen
+
+jobs:
+  lint:
+    name: Lint (pre-commit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      # Only the dev group is needed here, so the lint job does not build
+      # PyQt6, QtWebEngine or OpenCV.
+      - name: Install pre-commit
+        run: uv sync --locked --only-dev --no-install-project
+
+      - name: Run pre-commit on all files
+        run: uv run --no-sync pre-commit run --all-files --show-diff-on-failure
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # PyQt6's QtWebEngine loads its shared libraries at import time, and the
+      # runner image does not ship them. Qt's offscreen platform still needs
+      # the EGL/GL, XKB, NSS, fontconfig and D-Bus libraries, and QtWebEngineCore
+      # links image, audio and XML codecs (libwebp, libopus, libevent, ...)
+      # directly. Found by ldd against the installed PyQt6 WebEngine libraries.
+      # The package names are Ubuntu 24.04 (noble) names, where the t64
+      # transition renamed some libraries.
+      # ffmpeg is used only by test_video_preview's fixture, which skips without
+      # it. tzdata is needed because test_dbimport pins TZ to America/New_York;
+      # without the zone database libc silently falls back to UTC.
+      - name: Install Linux system libraries for PyQt6 and QtWebEngine
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2t64 \
+            libdbus-1-3 \
+            libegl1 \
+            libfontconfig1 \
+            libgbm1 \
+            libgl1 \
+            libglib2.0-0t64 \
+            libnss3 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0 \
+            libxcb-xkb1 \
+            libevent-2.1-7t64 \
+            liblcms2-2 \
+            libminizip1t64 \
+            libopus0 \
+            libsnappy1v5 \
+            libtiff6 \
+            libwebp7 \
+            libwebpdemux2 \
+            libwebpmux3 \
+            libxslt1.1 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxkbcommon-x11-0 \
+            libxkbcommon0 \
+            libxkbfile1 \
+            libxrandr2 \
+            libxtst6 \
+            fontconfig \
+            fonts-dejavu-core \
+            ffmpeg \
+            tzdata
+
+      # Chromium's sandbox needs unprivileged user namespaces, which Ubuntu
+      # 24.04 runners restrict through AppArmor, so the renderer cannot start
+      # with the sandbox on. Turning it off is the usual headless workaround.
+      # Only the Linux job needs it, so it is set here, not for every job.
+      - name: Disable the Chromium sandbox for QtWebEngine on Linux
+        if: runner.os == 'Linux'
+        run: echo "QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Run the test suite
+        run: uv run --no-sync python -m pytest -q
