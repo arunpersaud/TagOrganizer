@@ -28,8 +28,6 @@ from qtpy.QtWidgets import QProgressBar, QLabel
 from qtpy.QtCore import (
     QCoreApplication,
     QMetaObject,
-    QMutex,
-    QMutexLocker,
     QObject,
     Qt,
     QThread,
@@ -83,7 +81,13 @@ class TaskRunner(QObject):
         super().__init__()
         self._queue: deque[_Job] = deque()
         self._current: _Job | None = None
-        self._lock = QMutex()
+        # A plain Python lock rather than QMutex. Building a QMutexLocker on one
+        # QMutex from two Python threads at the same time corrupts the reference
+        # count of the QMutex wrapper; explicit lock()/unlock() does not. The
+        # wrapper is then freed while still in use and its memory reused, which
+        # surfaced as aborts and corrupt heap blocks far from this code. The
+        # guarded state is plain Python, so nothing needs QMutex here.
+        self._lock = threading.Lock()
         self._draining = False
 
         self._thread = QThread()
@@ -91,7 +95,7 @@ class TaskRunner(QObject):
         self._thread.start()
 
     def is_idle(self) -> bool:
-        with QMutexLocker(self._lock):
+        with self._lock:
             return not self._draining and not self._queue
 
     def enqueue(self, gen, ctx: TaskContext | None = None) -> None:
@@ -107,7 +111,7 @@ class TaskRunner(QObject):
         that silently never ran. An extra post is free: _drain returns at once
         if it is already running.
         """
-        with QMutexLocker(self._lock):
+        with self._lock:
             self._queue.append(_Job(gen, ctx))
         # Queued, so _drain runs on the worker thread rather than this one.
         QMetaObject.invokeMethod(self, "_drain", Qt.QueuedConnection)
@@ -119,7 +123,7 @@ class TaskRunner(QObject):
         the runner itself stops stepping it, so a plugin that ignores the flag
         still cannot run past its next yield.
         """
-        with QMutexLocker(self._lock):
+        with self._lock:
             self._queue.clear()
             if self._current is not None:
                 self._current.request_stop()
@@ -145,12 +149,12 @@ class TaskRunner(QObject):
         # call on this one worker thread, and the thread's event loop is busy
         # for as long as this method runs, so a second one cannot start until
         # this returns. _draining exists so is_idle can see work in flight.
-        with QMutexLocker(self._lock):
+        with self._lock:
             self._draining = True
 
         ran = False
         while True:
-            with QMutexLocker(self._lock):
+            with self._lock:
                 if not self._queue:
                     self._draining = False
                     self._current = None
@@ -159,7 +163,7 @@ class TaskRunner(QObject):
                 self._current = job
             ran = True
             self._step(job)
-            with QMutexLocker(self._lock):
+            with self._lock:
                 self._current = None
 
         # Only a drain that did work says so. Each enqueue posts a drain, so an

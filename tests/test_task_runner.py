@@ -231,3 +231,28 @@ class TestShutdownIsBounded:
         finally:
             release.set()
         assert made.shutdown(timeout_ms=5000) is True
+
+
+class TestLockIsSafeAcrossThreads:
+    def test_the_lock_refcount_is_unchanged_by_gui_and_worker_contention(self, runner):
+        """The GUI thread and the worker both take the runner's lock. A QMutex
+        taken through PyQt's QMutexLocker from two Python threads at once
+        corrupts the mutex wrapper's reference count, so the wrapper is freed
+        while the runner still uses it. Each enqueue and is_idle here overlaps
+        with the worker's drain, which is the interleaving that did it."""
+        import sys
+
+        def noop():
+            yield 1, 1
+
+        baseline = sys.getrefcount(runner._lock)
+        for _ in range(20000):
+            runner.enqueue(noop())
+            runner.is_idle()
+        assert wait_until(runner.is_idle), "the queued tasks never drained"
+        # A worker still inside its last drain holds a temporary reference to
+        # the lock, so the count is read once it settles. The corruption never
+        # settles: the count stays off by whatever the lost updates left.
+        assert wait_until(
+            lambda: sys.getrefcount(runner._lock) == baseline
+        ), f"lock refcount never returned to {baseline}"
