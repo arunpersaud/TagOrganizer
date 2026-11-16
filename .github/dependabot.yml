@@ -1,0 +1,37 @@
+version: 2
+
+# Weekly updates, one grouped pull request per ecosystem, so a week's worth of
+# bumps lands as one reviewable change. The pre-commit and github-actions
+# ecosystems matter here because the workflow pins every action to a full
+# commit SHA: Dependabot moves the SHA and keeps the trailing "# vX.Y.Z"
+# comment, so the pins stay current without hand edits.
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # Bumps the ruff and other hook revisions in .pre-commit-config.yaml. This
+  # is the only automatic route for those pins, since no one runs
+  # `pre-commit autoupdate` by hand.
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      pre-commit-hooks:
+        patterns:
+          - "*"
