@@ -66,6 +66,20 @@ class TestLogScale:
         timeline = _timeline()
         timeline.plot_histogram([])
 
+    def test_an_empty_library_does_not_bin_or_log_scale_anything(self, qapp):
+        """No dated photos means no histogram.
+
+        Log-scaling an empty histogram is what makes matplotlib warn that the data
+        has no positive values, so the bars are not drawn at all in that case.
+        """
+        timeline = _timeline()
+        calls = []
+        timeline.ax.hist = lambda *args, **kwargs: calls.append((args, kwargs))
+
+        timeline.plot_histogram([])
+
+        assert calls == []
+
     def test_sparse_and_busy_bins_both_survive_binning(self, qapp):
         """Binning must not merge a rare month into its busy neighbour.
 

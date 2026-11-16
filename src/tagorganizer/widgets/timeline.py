@@ -133,7 +133,10 @@ class Timeline(FigureCanvas):
         # Log scale on the counts: a month holding a couple of thousand photos
         # otherwise flattens every quieter month to an invisible sliver, which
         # makes the timeline useless for finding the sparse parts of a library.
-        self.ax.hist(self.dates_plt, bins=bins, log=True)
+        # Nothing to bin for an empty library, and log-scaling an empty histogram
+        # makes matplotlib warn on every redraw.
+        if len(self.dates_plt):
+            self.ax.hist(self.dates_plt, bins=bins, log=True)
 
         self.ax.spines["top"].set_visible(False)
         self.ax.spines["right"].set_visible(False)
