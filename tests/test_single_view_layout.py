@@ -107,7 +107,8 @@ class _FakePlayer:
 
 def test_set_video_does_not_seek_before_playing(qapp, monkeypatch):
     """Opening a video must start it at the beginning, not a tenth of the way in."""
-    import vlc
+    import sys
+    import types
 
     from tagorganizer.models import Item
     from tagorganizer.widgets.single_item import VideoItem
@@ -121,7 +122,11 @@ def test_set_video_does_not_seek_before_playing(qapp, monkeypatch):
         def media_new(self, uri):
             return f"media:{uri}"
 
-    monkeypatch.setattr(vlc, "Instance", FakeInstance)
+    # A stand-in module rather than patching the real one: importing python-vlc
+    # needs libvlc installed, which the CI runners on macOS and Windows lack.
+    monkeypatch.setitem(
+        sys.modules, "vlc", types.SimpleNamespace(Instance=FakeInstance)
+    )
     video = VideoItem()
 
     video.set_video(Item(id=1, uri="/videos/clip.mp4"))
