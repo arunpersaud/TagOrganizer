@@ -245,6 +245,36 @@ class TestFailureIsolation:
         assert ran == [True]
 
 
+class TestMenuScope:
+    """The rule a menu click applies, tested on the real TaskManager."""
+
+    def _scoped(self, task_manager, plugin, selected):
+        task_manager.run_from_menu(plugin, selected)
+        assert task_manager.wait_for_idle()
+        return plugin.seen
+
+    def test_a_selection_aware_plugin_gets_the_selection(self, temp_db, task_manager):
+        plugin = Recorder()
+        seen = self._scoped(task_manager, plugin, [4, 5])
+        assert seen.is_selection is True
+        assert list(seen.item_ids) == [4, 5]
+
+    def test_a_selection_aware_plugin_gets_the_library_with_no_selection(
+        self, temp_db, task_manager
+    ):
+        plugin = Recorder()
+        assert self._scoped(task_manager, plugin, []) == Scope.LIBRARY
+
+    def test_a_library_only_plugin_is_never_given_the_selection(
+        self, temp_db, task_manager
+    ):
+        class LibraryOnly(Recorder):
+            accepts_selection = False
+
+        plugin = LibraryOnly()
+        assert self._scoped(task_manager, plugin, [4, 5]) == Scope.LIBRARY
+
+
 class TestLoadingIntoTheManager:
     def test_broken_plugins_are_reported_once(self, temp_db, task_manager, tmp_path):
         """A plugin that fails to load must say so, not disappear."""

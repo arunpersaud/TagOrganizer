@@ -39,6 +39,7 @@ from qtpy.QtCore import (
 
 from .plugins import Registry
 from .plugins.context import TaskContext
+from .scope import Scope, resolve_scope
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +264,19 @@ class TaskManager:
         if idle:
             self._set_progress_visible(False)
         return idle
+
+    def run_from_menu(self, plugin, selected_ids):
+        """Run a menu entry on the scope its plugin's rule gives.
+
+        A selection-aware plugin acts on the selection when there is one; any
+        other plugin always gets the library. The rule lives here rather than
+        in the menu handler so it can be tested without a window.
+        """
+        if plugin.accepts_selection:
+            scope = resolve_scope(selected_ids)
+        else:
+            scope = Scope.LIBRARY
+        self.run_plugin(plugin, scope)
 
     def load_plugins(self, directories=None):
         """Find the plugins and report any that could not be loaded.

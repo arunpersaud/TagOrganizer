@@ -45,7 +45,7 @@ from qtpy.QtCore import Qt, QEvent, qInstallMessageHandler, QtMsgType
 from docopt import docopt
 
 from . import db
-from .scope import Scope, resolve_scope
+from .scope import Scope
 from . import config
 from . import DBimport
 from . import dbmove
@@ -375,13 +375,11 @@ class MainWindow(QMainWindow):
                     action.setToolTip(plugin.description)
                 # p=plugin binds this iteration's plugin. Without it every
                 # entry would close over the loop variable and run the last
-                # plugin in the category.
+                # plugin in the category. The selection is read at click time,
+                # not here, because it changes constantly.
                 action.triggered.connect(
-                    lambda checked=False, p=plugin: self.tasks.run_plugin(
-                        p,
-                        resolve_scope(self.selection.ids())
-                        if p.accepts_selection
-                        else Scope.LIBRARY,
+                    lambda checked=False, p=plugin: self.tasks.run_from_menu(
+                        p, self.selection.ids()
                     )
                 )
                 menu.addAction(action)

@@ -52,25 +52,74 @@ class TestMenuGeneration:
 
 
 class TestScopeAtClickTime:
-    def test_the_scope_is_resolved_when_the_entry_is_clicked(self):
-        """Resolved at click, not at build: the menu is built once and the
-        selection changes constantly."""
-        tree = source_tree(main_module.MainWindow.build_plugin_menu)
-        assert plain_calls(tree, "resolve_scope")
+    """Which scope a plugin gets is behaviour, checked in test_run_plugin.py
+    against TaskManager.run_from_menu. What is left here is the wiring: that
+    each menu entry hands its own plugin and the live selection to it."""
 
-    def test_a_library_only_plugin_never_gets_a_selection(self):
-        source = inspect.getsource(main_module.MainWindow.build_plugin_menu)
-        assert "accepts_selection" in source
+    def _entry_lambdas(self):
+        tree = source_tree(main_module.MainWindow.build_plugin_menu)
+        return [n for n in ast.walk(tree) if isinstance(n, ast.Lambda)]
+
+    def test_the_entry_passes_the_selection_read_at_click_time(self):
+        """Read inside the lambda, so it is evaluated when clicked. The menu is
+        built once and the selection changes constantly."""
+        lambdas = [
+            lam
+            for lam in self._entry_lambdas()
+            if any(
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "run_from_menu"
+                for call in ast.walk(lam)
+            )
+        ]
+        assert lambdas, "no menu entry calls run_from_menu"
+        selection_reads = [
+            node
+            for node in ast.walk(lambdas[0])
+            if isinstance(node, ast.Attribute) and node.attr == "ids"
+        ]
+        assert selection_reads, "the selection is not read when the entry runs"
 
     def test_the_plugin_is_bound_per_entry(self):
         """Without a default argument every entry would run the last plugin,
-        because the lambda would close over the loop variable."""
-        tree = source_tree(main_module.MainWindow.build_plugin_menu)
-        lambdas = [n for n in ast.walk(tree) if isinstance(n, ast.Lambda)]
-        assert lambdas, "the entries are not connected through a lambda"
-        assert any(
-            lam.args.defaults for lam in lambdas
-        ), "no lambda binds its plugin as a default argument"
+        because the lambda would close over the loop variable. The default must
+        be named for the plugin the loop is on, not just any default at all:
+        the click handler already has ``checked=False`` as a default."""
+        bound = []
+        for lam in self._entry_lambdas():
+            args = lam.args
+            defaults = (
+                dict(
+                    zip(
+                        [a.arg for a in args.args][-len(args.defaults) :],
+                        args.defaults,
+                        strict=False,
+                    )
+                )
+                if args.defaults
+                else {}
+            )
+            if "p" in defaults and isinstance(defaults["p"], ast.Name):
+                bound.append(defaults["p"].id)
+        assert bound == ["plugin"], f"entries bind {bound!r}, not the plugin"
+
+    def test_the_entry_runs_the_bound_plugin_not_the_loop_variable(self):
+        """Binding the default is not enough if the body then reads the loop
+        variable: every entry would still run the last plugin."""
+        for lam in self._entry_lambdas():
+            for node in ast.walk(lam):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "run_from_menu"
+                ):
+                    first = node.args[0]
+                    assert (
+                        isinstance(first, ast.Name) and first.id == "p"
+                    ), "run_from_menu is not given the bound plugin"
+                    return
+        raise AssertionError("no menu entry calls run_from_menu")
 
 
 class TestAutoRun:
