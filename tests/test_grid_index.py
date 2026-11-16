@@ -8,9 +8,6 @@ The index calculation is a staticmethod on the widget, so it can be called
 directly without a GUI.
 """
 
-import ast
-import textwrap
-
 import pytest
 
 from tagorganizer.widgets.image_grid_widget import ImageGridWidget
@@ -290,48 +287,118 @@ class TestRangeBounds:
 
 
 class TestLineageWiring:
-    """show_images must feed the indicator, once per page rather than per tile."""
+    """show_images marks derived photos, asking the database once per page.
 
-    def _show_images_source(self):
-        import ast
-        import inspect
+    These run a real grid over a real database: the marks are read off the tiles
+    the grid actually built.
+    """
 
-        from tagorganizer.widgets import image_grid_widget
+    @pytest.fixture
+    def grid(self, qapp, temp_db, tmp_path):
+        from types import SimpleNamespace
 
-        source = inspect.getsource(image_grid_widget.ImageGridWidget.show_images)
-        return ast.parse(textwrap.dedent(source))
+        from tagorganizer.widgets.image_grid_widget import ImageGridWidget
 
-    def _calls(self, tree, name):
-        import ast
+        main = SimpleNamespace(
+            config=SimpleNamespace(photos=tmp_path, profile="A"),
+            selection=set(),
+            single_item=object(),
+        )
+        grid = ImageGridWidget(main)
+        main.tabs = SimpleNamespace(currentWidget=lambda: None)
+        yield grid
+        grid.preloader.stop()
 
-        return [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == name
-        ]
+    @pytest.fixture
+    def library(self, temp_db):
+        """A parent, a photo derived from it, and an unrelated photo."""
+        from tagorganizer import db
+        from tagorganizer.widgets.tag_bar import Filters
 
-    def test_asks_the_database_which_photos_are_derived(self):
-        assert self._calls(self._show_images_source(), "get_parent_summary")
+        db.add_images(["/p/parent.jpg", "/p/child.jpg", "/p/plain.jpg"])
+        ids = {item.uri: item.id for item in db.get_all_items()}
+        db.set_parents(ids["/p/child.jpg"], [ids["/p/parent.jpg"]])
+        return db.get_images(0, Filters())
 
-    def test_asks_once_per_page_not_once_per_tile(self):
-        """A query per tile would be 25 round trips a page."""
-        import ast
+    def test_a_derived_photo_is_marked_and_names_its_source(self, grid, library):
+        grid.show_images(library)
+        tiles = {tile.item.uri: tile for tile in grid.widgets}
 
-        tree = self._show_images_source()
-        loops = [n for n in ast.walk(tree) if isinstance(n, ast.For)]
-        in_loop = [
-            call
-            for loop in loops
-            for call in self._calls(
-                ast.Module(body=loop.body, type_ignores=[]), "get_parent_summary"
-            )
-        ]
-        assert in_loop == []
+        assert tiles["/p/child.jpg"].has_parents()
+        assert "parent.jpg" in tiles["/p/child.jpg"].toolTip()
+        assert not tiles["/p/plain.jpg"].has_parents()
 
-    def test_passes_the_source_names_to_each_tile(self):
-        assert self._calls(self._show_images_source(), "set_parent_names")
+    def test_the_database_is_asked_once_for_the_whole_page(
+        self, grid, library, monkeypatch
+    ):
+        """A query per tile would be a round trip for each of the 25 on a page."""
+        from tagorganizer import db
+
+        asked = []
+        real = db.get_parent_summary
+
+        def counting(item_ids):
+            asked.append(list(item_ids))
+            return real(item_ids)
+
+        monkeypatch.setattr(db, "get_parent_summary", counting)
+
+        grid.show_images(library)
+
+        assert len(asked) == 1
+        assert sorted(asked[0]) == sorted(item.id for item in library)
+
+
+class TestPreloadNeverDecodesOnTheGuiThread:
+    def test_the_full_size_decode_runs_on_a_pool_thread(
+        self, qapp, temp_db, tmp_path, monkeypatch
+    ):
+        """A decode on the GUI thread is what used to stall the window while the
+        preloader ran. The decode is recorded where it happens, and the loader
+        is waited on: a decode that never arrives fails the test, rather than
+        passing for want of one.
+        """
+        import threading
+        import time
+        from types import SimpleNamespace
+
+        from tagorganizer import db
+        from tagorganizer.widgets import helper, image_grid_widget
+        from tagorganizer.widgets.image_grid_widget import ImageGridWidget
+        from tagorganizer.widgets.tag_bar import Filters
+
+        on_gui_thread = []
+
+        def record_decode(file):
+            on_gui_thread.append(threading.current_thread() is threading.main_thread())
+            return None
+
+        monkeypatch.setattr(helper, "load_full_image", record_decode)
+        monkeypatch.setattr(
+            image_grid_widget,
+            "get_thumbnail_loader",
+            lambda: SimpleNamespace(load=lambda *args: None),
+        )
+        db.add_images([str(tmp_path / "a.jpg")])
+        main = SimpleNamespace(
+            config=SimpleNamespace(photos=tmp_path, profile="A"),
+            selection=set(),
+            single_item=object(),
+            tag_bar=SimpleNamespace(get_filters=lambda: Filters()),
+        )
+        grid = ImageGridWidget(main)
+        main.tabs = SimpleNamespace(currentWidget=lambda: grid)
+
+        try:
+            grid.preload_items()
+
+            deadline = time.monotonic() + 5
+            while not on_gui_thread and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert on_gui_thread, "the full-size photo was never decoded"
+            assert on_gui_thread == [False], "a decode ran on the GUI thread"
+        finally:
+            grid.preloader.stop()
 
 
 class TestClampHighlight:
@@ -525,17 +592,3 @@ class TestPreloadWork:
         ImageGridWidget.preload_items(grid)
 
         assert set(recorder.sizes) == {150, 300}
-
-    def test_the_preloader_no_longer_decodes_on_the_gui_thread(self):
-        """Guard against the synchronous decode coming back into the preloader."""
-        import inspect
-        import textwrap
-
-        source = textwrap.dedent(inspect.getsource(ImageGridWidget.preload_items))
-        tree = ast.parse(source)
-        called = {
-            node.func.id
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-        }
-        assert "load_full_pixmap" not in called
