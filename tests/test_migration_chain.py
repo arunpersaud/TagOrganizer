@@ -116,9 +116,9 @@ class TestMigrationChainIntegrity:
         )
 
         # Compare table names
-        assert (
-            norm_alembic["tables"] == norm_sqlmodel["tables"]
-        ), f"Table mismatch. Alembic: {norm_alembic['tables']}, SQLModel: {norm_sqlmodel['tables']}"
+        assert norm_alembic["tables"] == norm_sqlmodel["tables"], (
+            f"Table mismatch. Alembic: {norm_alembic['tables']}, SQLModel: {norm_sqlmodel['tables']}"
+        )
 
         # Compare columns for each table
         for table in norm_sqlmodel["tables"]:
@@ -126,9 +126,9 @@ class TestMigrationChainIntegrity:
             if table == "alembic_version":
                 continue
 
-            assert (
-                table in norm_alembic["columns"]
-            ), f"Table {table} missing in alembic schema"
+            assert table in norm_alembic["columns"], (
+                f"Table {table} missing in alembic schema"
+            )
             assert norm_alembic["columns"][table] == norm_sqlmodel["columns"][table], (
                 f"Column mismatch in table {table}. "
                 f"Alembic: {norm_alembic['columns'][table]}, "

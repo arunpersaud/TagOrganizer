@@ -261,9 +261,9 @@ class TestIndexesF17:
         index_columns = [idx["column_names"] for idx in indexes]
 
         # Check that at least one index includes 'uri'
-        assert any(
-            "uri" in cols for cols in index_columns
-        ), f"No index found for uri column. Existing indexes: {index_columns}"
+        assert any("uri" in cols for cols in index_columns), (
+            f"No index found for uri column. Existing indexes: {index_columns}"
+        )
 
     def test_data_xxhash_index_exists(self, temp_db):
         """The data_xxhash column should have an index."""
@@ -272,9 +272,9 @@ class TestIndexesF17:
         index_columns = [idx["column_names"] for idx in indexes]
 
         # Check that at least one index includes 'data_xxhash'
-        assert any(
-            "data_xxhash" in cols for cols in index_columns
-        ), f"No index found for data_xxhash column. Existing indexes: {index_columns}"
+        assert any("data_xxhash" in cols for cols in index_columns), (
+            f"No index found for data_xxhash column. Existing indexes: {index_columns}"
+        )
 
     def test_fresh_database_has_indexes(self, db_path, tmp_path, monkeypatch):
         """A freshly created database should include the uri and data_xxhash indexes."""

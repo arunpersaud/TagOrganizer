@@ -244,7 +244,7 @@ class TestImportFSpotHierarchy:
             assert parent is not None, "Parent tag 'Travel' not imported"
             assert child is not None, "Child tag 'Japan' not imported"
             assert child.parent_id == parent.id, (
-                f"Child tag parent_id={child.parent_id}, " f"expected {parent.id}"
+                f"Child tag parent_id={child.parent_id}, expected {parent.id}"
             )
 
 

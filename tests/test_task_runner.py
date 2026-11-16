@@ -94,9 +94,9 @@ class TestFailingTasks:
         messages = []
         runner.message.connect(messages.append)
         runner.enqueue(work())
-        assert wait_until(
-            lambda: any("boom" in m for m in messages)
-        ), f"the failure was never reported; got {messages}"
+        assert wait_until(lambda: any("boom" in m for m in messages)), (
+            f"the failure was never reported; got {messages}"
+        )
 
     def test_a_failing_task_does_not_stop_the_next_one(self, runner):
         """One bad plugin must not silently kill the queue behind it."""
@@ -253,6 +253,6 @@ class TestLockIsSafeAcrossThreads:
         # A worker still inside its last drain holds a temporary reference to
         # the lock, so the count is read once it settles. The corruption never
         # settles: the count stays off by whatever the lost updates left.
-        assert wait_until(
-            lambda: sys.getrefcount(runner._lock) == baseline
-        ), f"lock refcount never returned to {baseline}"
+        assert wait_until(lambda: sys.getrefcount(runner._lock) == baseline), (
+            f"lock refcount never returned to {baseline}"
+        )

@@ -91,9 +91,9 @@ class TestReporting:
         message has to say which it just did."""
         task_manager.run_plugin(Recorder(), resolve_scope([1, 2, 3]))
         assert task_manager.wait_for_idle()
-        assert any(
-            "3 selected items" in m for m in task_manager.main.messages.sent
-        ), task_manager.main.messages.sent
+        assert any("3 selected items" in m for m in task_manager.main.messages.sent), (
+            task_manager.main.messages.sent
+        )
 
     def test_the_message_names_the_plugin(self, temp_db, task_manager):
         task_manager.run_plugin(Recorder(), Scope.LIBRARY)
@@ -205,9 +205,9 @@ class TestRunIsCalledOnTheWorker:
 
         task_manager.run_plugin(Explodes(), Scope.LIBRARY)
         assert task_manager.wait_for_idle()
-        assert any(
-            "kaboom" in m for m in task_manager.main.messages.sent
-        ), task_manager.main.messages.sent
+        assert any("kaboom" in m for m in task_manager.main.messages.sent), (
+            task_manager.main.messages.sent
+        )
 
 
 class TestFailureIsolation:
@@ -221,9 +221,9 @@ class TestFailureIsolation:
 
         task_manager.run_plugin(Explodes(), Scope.LIBRARY)
         assert task_manager.wait_for_idle()
-        assert any(
-            "kaboom" in m for m in task_manager.main.messages.sent
-        ), task_manager.main.messages.sent
+        assert any("kaboom" in m for m in task_manager.main.messages.sent), (
+            task_manager.main.messages.sent
+        )
 
     def test_a_failing_plugin_does_not_stop_the_next(self, temp_db, task_manager):
         ran = []

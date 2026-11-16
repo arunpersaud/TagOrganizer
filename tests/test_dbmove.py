@@ -524,14 +524,14 @@ class TestMoveItemsAtomicity:
             target_ids_after = {(item.id, item.uri) for item in target_items_after}
             target_count_after = len(target_items_after)
 
-        assert (
-            source_ids_before == source_ids_after
-        ), "Source database was modified despite transaction failure"
+        assert source_ids_before == source_ids_after, (
+            "Source database was modified despite transaction failure"
+        )
         assert source_count_before == source_count_after
 
-        assert (
-            target_ids_before == target_ids_after
-        ), "Target database was modified despite transaction failure"
+        assert target_ids_before == target_ids_after, (
+            "Target database was modified despite transaction failure"
+        )
         assert target_count_before == target_count_after
 
 

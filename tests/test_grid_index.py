@@ -45,9 +45,9 @@ class TestWidgetIndexCalculation:
         for local_idx in range(25):
             highlight = 25 + local_idx
             result = get_widget_index(highlight, N, widget_count)
-            assert (
-                result == local_idx
-            ), f"highlight={highlight}, expected {local_idx}, got {result}"
+            assert result == local_idx, (
+                f"highlight={highlight}, expected {local_idx}, got {result}"
+            )
 
     def test_get_widget_index_short_page(self):
         """Test on a short final page (12 items shown, 25 item page size).
@@ -80,9 +80,9 @@ class TestWidgetIndexCalculation:
         ]
         for highlight, expected_idx in cases:
             result = get_widget_index(highlight, N, widget_count)
-            assert (
-                result == expected_idx
-            ), f"highlight={highlight}: expected widget[{expected_idx}], got widget[{result}]"
+            assert result == expected_idx, (
+                f"highlight={highlight}: expected widget[{expected_idx}], got widget[{result}]"
+            )
 
     def test_get_widget_index_clamping(self):
         """Test that indices are clamped to available widgets."""

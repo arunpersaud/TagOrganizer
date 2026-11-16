@@ -119,9 +119,9 @@ class TestOrderingAgreement:
         for i, (img, rng) in enumerate(
             zip(items_from_get_images, items_from_range, strict=False)
         ):
-            assert (
-                img.id == rng.id
-            ), f"Mismatch at index {i}: get_images has {img.id}, get_image_range has {rng.id}"
+            assert img.id == rng.id, (
+                f"Mismatch at index {i}: get_images has {img.id}, get_image_range has {rng.id}"
+            )
 
     def test_get_images_and_get_image_range_agree_on_order_with_id_filter(
         self, temp_db
@@ -143,9 +143,9 @@ class TestOrderingAgreement:
         for i, (img, rng) in enumerate(
             zip(items_from_get_images, items_from_range, strict=False)
         ):
-            assert (
-                img.id == rng.id
-            ), f"Mismatch at index {i}: get_images has {img.id}, get_image_range has {rng.id}"
+            assert img.id == rng.id, (
+                f"Mismatch at index {i}: get_images has {img.id}, get_image_range has {rng.id}"
+            )
 
 
 class TestFilterQueryContractEnforcement:

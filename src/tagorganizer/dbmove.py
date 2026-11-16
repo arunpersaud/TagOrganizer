@@ -175,8 +175,7 @@ def prepare_target(path: Path) -> None:
             upgrade_db()
         except Exception as exc:
             raise TargetUnusable(
-                f"Could not bring the target database up to date: {exc}\n"
-                f"Target: {path}"
+                f"Could not bring the target database up to date: {exc}\nTarget: {path}"
             ) from exc
         finally:
             if old_env is not None:

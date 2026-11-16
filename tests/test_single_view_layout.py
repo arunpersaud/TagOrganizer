@@ -67,9 +67,9 @@ def test_photo_item_does_not_grow_when_reshown(qapp):
         min_hint_widths.append(window.minimumSizeHint().width())
 
     assert len(set(sizes)) == 1, f"window size drifted across redraws: {sizes}"
-    assert (
-        len(set(min_hint_widths)) == 1
-    ), f"window minimumSizeHint().width() ratcheted: {min_hint_widths}"
+    assert len(set(min_hint_widths)) == 1, (
+        f"window minimumSizeHint().width() ratcheted: {min_hint_widths}"
+    )
 
 
 def test_the_application_starts_without_libvlc():
