@@ -1315,7 +1315,7 @@ requires-dist = [
     { name = "python-dateutil", specifier = ">=2.9.0.post0" },
     { name = "python-vlc", specifier = ">=3.0.21203" },
     { name = "qtpy", specifier = ">=2.4.2" },
-    { name = "sqlmodel", specifier = ">=0.0.22" },
+    { name = "sqlmodel", specifier = ">=0.0.50" },
     { name = "xxhash", specifier = ">=3.5.0" },
 ]
 

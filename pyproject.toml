@@ -34,7 +34,8 @@ dependencies = [
     "python-dateutil>=2.9.0.post0",
     "python-vlc>=3.0.21203",
     "qtpy>=2.4.2",
-    "sqlmodel>=0.0.22",
+    # models.py types Item.date as NaiveDatetime, which 0.0.22 cannot map.
+    "sqlmodel>=0.0.50",
     "xxhash>=3.5.0",
 ]
 classifiers = [
