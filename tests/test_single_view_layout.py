@@ -5,16 +5,12 @@ cannot be observed without one. They run under the offscreen Qt platform and
 skip when Qt cannot start.
 """
 
-import ast
 import os
-from pathlib import Path
+import subprocess
+import sys
 
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-SINGLE_ITEM = (
-    Path(__file__).parent.parent / "src" / "tagorganizer" / "widgets" / "single_item.py"
-)
 
 
 def test_photo_item_does_not_grow_when_reshown(qapp):
@@ -76,37 +72,63 @@ def test_photo_item_does_not_grow_when_reshown(qapp):
     ), f"window minimumSizeHint().width() ratcheted: {min_hint_widths}"
 
 
-def test_vlc_is_not_imported_at_module_scope():
+def test_the_application_starts_without_libvlc():
     """A missing libvlc must not stop the application from starting.
 
     python-vlc resolves the shared library during import and raises when it is
     absent, so a module-scope import makes VLC a hard requirement for viewing
-    photos.
+    photos. A subprocess is used so the import is really the first one: with
+    ``vlc`` set to None in sys.modules, any import of it raises.
     """
-    tree = ast.parse(SINGLE_ITEM.read_text())
-    for node in tree.body:
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            names = [alias.name for alias in node.names]
-            assert (
-                "vlc" not in names
-            ), "vlc must be imported lazily, not at module scope"
+    code = (
+        "import sys\n"
+        "sys.modules['vlc'] = None\n"
+        "import tagorganizer.widgets.single_item\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
 
 
-def test_set_video_does_not_seek_before_playing():
+class _FakePlayer:
+    """Stands in for a libvlc media player, recording every call made on it."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, name):
+        def record(*args):
+            self.calls.append(name)
+            return 0
+
+        return record
+
+
+def test_set_video_does_not_seek_before_playing(qapp, monkeypatch):
     """Opening a video must start it at the beginning, not a tenth of the way in."""
-    tree = ast.parse(SINGLE_ITEM.read_text())
-    set_video = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "set_video":
-            set_video = node
-            break
-    assert set_video is not None, "set_video not found"
+    import vlc
 
-    for node in ast.walk(set_video):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            assert (
-                node.func.attr != "set_position"
-            ), "set_video must not seek before playback starts"
+    from tagorganizer.models import Item
+    from tagorganizer.widgets.single_item import VideoItem
+
+    player = _FakePlayer()
+
+    class FakeInstance:
+        def media_player_new(self):
+            return player
+
+        def media_new(self, uri):
+            return f"media:{uri}"
+
+    monkeypatch.setattr(vlc, "Instance", FakeInstance)
+    video = VideoItem()
+
+    video.set_video(Item(id=1, uri="/videos/clip.mp4"))
+
+    assert "set_media" in player.calls
+    assert "set_position" not in player.calls
+    assert "set_time" not in player.calls
 
 
 class _FakeVideo:
@@ -205,20 +227,3 @@ def test_a_photo_that_will_not_decode_says_so_rather_than_raising(qapp, tmp_path
         or QLabel.pixmap(view.photo.item).isNull()
     )
     assert "cannot display" in view.photo.item.text()
-
-
-def test_the_single_view_is_wired_to_stop_playback_when_hidden():
-    """Wiring check: hideEvent must reach the player."""
-    tree = ast.parse(SINGLE_ITEM.read_text())
-    hide_event = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "hideEvent":
-            hide_event = node
-            break
-    assert hide_event is not None, "SingleItem must define hideEvent"
-    calls = {
-        node.func.attr
-        for node in ast.walk(hide_event)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-    }
-    assert "stop_playback" in calls
