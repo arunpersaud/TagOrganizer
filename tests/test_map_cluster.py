@@ -9,9 +9,14 @@ from typing import ClassVar
 import pytest
 
 from tagorganizer.map_cluster import (
+    FITTED_ZOOM,
+    ClusterState,
     cell_size_for_zoom,
     cluster_points,
+    ids_in_viewport,
     point_in_polygon,
+    shift_longitude_into,
+    unwrap_longitudes,
 )
 
 
@@ -128,3 +133,86 @@ class TestPointInPolygon:
 
     def test_degenerate_polygon_is_never_inside(self):
         assert point_in_polygon(1.0, 1.0, [(0.0, 0.0), (1.0, 1.0)]) is False
+
+
+class TestAntimeridian:
+    """Leaflet reports longitudes past +/-180 once the view has crossed the seam.
+
+    A photo at -175 is on screen at 185 in such a view, so a test on the raw
+    longitude alone hides every photo on the far side of the date line.
+    """
+
+    def test_a_point_on_the_far_side_of_the_seam_is_shifted_into_view(self):
+        assert shift_longitude_into(-175.0, 170.0, 190.0) == pytest.approx(185.0)
+
+    def test_a_point_outside_the_span_stays_outside(self):
+        assert shift_longitude_into(10.0, 170.0, 190.0) is None
+
+    def test_a_point_already_inside_is_returned_unchanged(self):
+        assert shift_longitude_into(175.0, 170.0, 190.0) == pytest.approx(175.0)
+
+    def test_a_span_of_a_full_world_always_finds_a_representative(self):
+        for lon in (-179.0, 0.0, 179.0):
+            shifted = shift_longitude_into(lon, -200.0, 170.0)
+            assert shifted is not None
+            assert -200.0 <= shifted <= 170.0
+            assert (shifted - lon) % 360 == pytest.approx(0.0)
+
+    def test_inverted_span_contains_nothing(self):
+        assert shift_longitude_into(0.0, 10.0, -10.0) is None
+
+    def test_unwrapping_keeps_a_ring_continuous_across_the_seam(self):
+        assert unwrap_longitudes([170.0, -175.0, -170.0]) == pytest.approx(
+            [170.0, 185.0, 190.0]
+        )
+
+    def test_clusters_on_the_far_side_are_kept_in_a_wrapped_view(self):
+        """A cluster centroid is placed where the viewport shows it."""
+        points = [(1, 0.0, -175.0), (2, 0.0, -174.0)]
+        clusters = cluster_points(points, cell_size=100.0, bounds=(-60, 170, 60, 190))
+        assert len(clusters) == 1
+        assert clusters[0].lon == pytest.approx(185.5)
+
+    def test_viewport_selection_includes_the_wrapped_side(self):
+        locations = [(1, 0.0, -175.0), (2, 0.0, 10.0), (3, 80.0, -175.0)]
+        assert ids_in_viewport(locations, (-10, 170, 10, 190)) == [1]
+
+
+class TestClusterState:
+    """The map's clustering inputs, with the viewport they are seen through."""
+
+    def test_no_locations_gives_no_clusters(self):
+        """The empty case used to send the string '[]' to the page."""
+        assert ClusterState().cluster() == []
+
+    def test_before_the_page_reports_a_viewport_everything_is_clustered(self):
+        state = ClusterState()
+        state.set_locations([(1, 48.85, 2.35), (2, 40.71, -74.0)])
+        assert sorted(i for c in state.cluster() for i in c.ids) == [1, 2]
+
+    def test_a_new_location_set_is_not_clipped_by_the_old_viewport(self):
+        """Filtering re-renders the map, so the old viewport no longer applies.
+
+        Paris was on screen when the filter changed. The new set is New York,
+        which lies outside that viewport: it must still be clustered.
+        """
+        state = ClusterState()
+        state.set_locations([(1, 48.85, 2.35)])
+        state.set_viewport(6, 48.0, 1.0, 49.5, 3.5)
+
+        state.set_locations([(2, 40.71, -74.0)])
+
+        assert [i for c in state.cluster() for i in c.ids] == [2]
+
+    def test_a_reported_viewport_restricts_clustering(self):
+        state = ClusterState()
+        state.set_locations([(1, 48.85, 2.35), (2, 40.71, -74.0)])
+        state.set_viewport(6, 48.0, 1.0, 49.5, 3.5)
+        assert [i for c in state.cluster() for i in c.ids] == [1]
+
+    def test_an_unreported_zoom_falls_back_to_the_fitted_zoom(self):
+        state = ClusterState()
+        state.set_locations([(1, 0.0, 0.0)])
+        assert state.zoom == 0
+        assert state.cluster()[0].ids == [1]
+        assert FITTED_ZOOM == 4
