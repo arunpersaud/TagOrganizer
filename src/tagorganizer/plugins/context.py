@@ -63,10 +63,6 @@ class TaskContext:
         """
         return iter(db.get_all_items(self.scope))
 
-    def count(self) -> int:
-        """How many items are in scope, for a progress total."""
-        return len(db.get_all_items(self.scope))
-
     def add_tag(self, item, name: str) -> None:
         """Tag an item, creating the tag if it is new.
 

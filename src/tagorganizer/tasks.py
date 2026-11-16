@@ -42,10 +42,6 @@ from .plugins.context import TaskContext
 
 logger = logging.getLogger(__name__)
 
-# Previews are built at the grid's default tile width; a hover shows them
-# scaled to whatever the tile currently is.
-PREVIEW_WIDTH = 150
-
 
 @dataclass(eq=False)
 class _Job:

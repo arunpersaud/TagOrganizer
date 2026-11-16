@@ -44,13 +44,6 @@ class TestItems:
         found = list(context(resolve_scope(items[:2])).items())
         assert sorted(i.id for i in found) == sorted(items[:2])
 
-    def test_count_matches_what_items_yields(self, items):
-        ctx = context(resolve_scope(items[:3]))
-        assert ctx.count() == len(list(ctx.items()))
-
-    def test_count_of_the_whole_library(self, items):
-        assert context(Scope.LIBRARY).count() == 4
-
 
 class TestTagging:
     def test_add_tag_creates_the_tag_and_links_it(self, items):
