@@ -784,7 +784,10 @@ def filter_query(query, filter: Filters, session: Session):
     if filter.start_date:
         query = query.where(Item.date >= filter.start_date)
     if filter.end_date:
-        query = query.where(Item.date <= filter.end_date)
+        # Exclusive. The tag bar labels this bound "<" and the timeline passes the
+        # day after a dragged span, so a photo at midnight of that day is not
+        # part of the span.
+        query = query.where(Item.date < filter.end_date)
 
     # Filter by geographical bounding box
     if filter.min_longitude is not None:
