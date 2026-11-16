@@ -8,6 +8,7 @@ import os
 from datetime import date
 from pathlib import Path
 
+import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -170,39 +171,6 @@ class TestChipSelection:
         bar.remove_selected()
 
         assert bar.selected_chips() == []
-
-
-class TestDeleteKeyBinding:
-    def test_delete_is_bound_to_removing_chips_not_photos(self):
-        """Delete must reach TagBar.remove_selected, never delete_items.
-
-        remove_selected is itself inert with nothing selected, so the two
-        together are what keep a stray Delete from touching the library.
-        """
-        import ast
-        from pathlib import Path as P
-
-        source = (
-            P(__file__).parent.parent / "src" / "tagorganizer" / "main.py"
-        ).read_text()
-        tree = ast.parse(source)
-
-        init = next(
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, ast.FunctionDef) and n.name == "__init__"
-        )
-        bound = {
-            ast.unparse(k): ast.unparse(v)
-            for n in ast.walk(init)
-            if isinstance(n, ast.Dict)
-            for k, v in zip(n.keys, n.values, strict=False)
-            if k is not None
-        }
-        delete_targets = [v for k, v in bound.items() if "Key_Delete" in k]
-        assert delete_targets, "Delete is not bound at all"
-        assert "remove_selected" in delete_targets[0]
-        assert "delete_items" not in delete_targets[0]
 
 
 class TestClickWiring:
@@ -384,35 +352,45 @@ class TestGroupIsVisible:
         ]
 
 
-class TestDeleteKeyOnMac:
-    def test_backspace_also_removes_chips(self):
-        """On macOS the key labelled 'delete' sends Backspace.
+class TestDeleteKeysInTheWindow:
+    """Delete and Backspace are bound in the window, to the tag bar's remove.
 
-        Key_Delete is the forward-delete, which a Mac keyboard only produces
-        with fn held. Binding Backspace as well is what makes the key the user
-        actually presses work.
-        """
-        import ast
-        from pathlib import Path as P
+    Sent to the real window as key presses. The delete dialog for photos must
+    never open from them: with a photo highlighted it is what a wrong binding
+    would reach.
+    """
 
-        tree = ast.parse(
-            (P(__file__).parent.parent / "src" / "tagorganizer" / "main.py").read_text()
+    @pytest.mark.parametrize("key_name", ["Key_Delete", "Key_Backspace"])
+    def test_the_key_removes_the_selected_chip_and_never_asks_about_photos(
+        self, window_for, monkeypatch, key_name
+    ):
+        from qtpy.QtCore import QEvent, Qt
+        from qtpy.QtGui import QKeyEvent
+
+        import tagorganizer.main as main_module
+        from tagorganizer import db
+
+        def no_photo_dialog(*args, **kwargs):
+            raise AssertionError("the delete-photos dialog opened")
+
+        monkeypatch.setattr(main_module, "DeleteConfirmationDialog", no_photo_dialog)
+        window = window_for()
+        db.add_images([str(window.config.photos / "a.jpg")])
+        window.update_items()
+        assert window.grid.current_item() is not None, "precondition"
+        window.tag_bar.add_tag("beach")
+        window.tag_bar.toggle_chip(window.tag_bar.selected_tags[0].widget)
+
+        window.keyPressEvent(
+            QKeyEvent(
+                QEvent.Type.KeyPress,
+                getattr(Qt.Key, key_name),
+                Qt.KeyboardModifier.NoModifier,
+            )
         )
-        init = next(
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, ast.FunctionDef) and n.name == "__init__"
-        )
-        bound = {
-            ast.unparse(k): ast.unparse(v)
-            for n in ast.walk(init)
-            if isinstance(n, ast.Dict)
-            for k, v in zip(n.keys, n.values, strict=False)
-            if k is not None
-        }
-        backspace = [v for k, v in bound.items() if "Key_Backspace" in k]
-        assert backspace, "Backspace is not bound; the Mac delete key does nothing"
-        assert "remove_selected" in backspace[0]
+
+        assert window.tag_bar.get_all_names() == []
+        assert db.get_number_of_items() == 1, "the photo must survive the key"
 
 
 class TestDeleteButton:
