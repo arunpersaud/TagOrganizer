@@ -17,6 +17,25 @@ from qtpy.QtGui import QImage
 from tagorganizer.widgets.helper import load_qimage
 
 
+def _photo(folder, name="photo.png"):
+    """A real image on disk, so a decode has something to read."""
+    image = QImage(10, 10, QImage.Format_RGB32)
+    image.fill(0xFF0000)
+    path = Path(folder) / name
+    image.save(str(path))
+    return path
+
+
+def _settle(qapp, loader, timeout_ms=5000):
+    """Wait for the pool to finish, then let its results reach this thread.
+
+    A result crosses from the worker to the GUI thread as a queued signal, so
+    it only arrives once the event loop has run after the worker is done.
+    """
+    loader.pool.waitForDone(timeout_ms)
+    qapp.processEvents()
+
+
 class TestLoadQImageOffThread:
     """Test load_qimage() which is safe to call off-thread."""
 
@@ -211,35 +230,31 @@ class TestThumbnailLoaderThreadSafety:
         loader = ThumbnailLoader(max_threads=2)
         assert loader is not None
 
-    def test_thumbnail_loader_submits_work(self):
-        """Test that ThumbnailLoader can submit work to thread pool."""
-        from tagorganizer.widgets.helper import ThumbnailLoader
+    def test_thumbnail_loader_submits_work(self, qapp, tmp_path):
+        """A request made with load() comes back through thumbnail_ready.
+
+        Checking only that the pool drained passes when load() does nothing at
+        all, so the delivered key and image are asserted too.
+        """
         from tagorganizer.models import Item
-        from pathlib import Path
+        from tagorganizer.widgets.helper import ThumbnailLoader
 
         loader = ThumbnailLoader(max_threads=1)
+        item = Item(id=42, uri=str(_photo(tmp_path)))
+        delivered = []
+        loader.thumbnail_ready.connect(
+            lambda key, image: delivered.append((key, image))
+        )
 
-        # Create a test image
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            qimage = QImage(10, 10, QImage.Format_RGB32)
-            qimage.fill(0xFF0000)
-            test_file = tmpdir / "test.png"
-            qimage.save(str(test_file))
+        loader.load(item=item, size=150, photos_path=tmp_path)
+        assert loader.pending() == 1
 
-            item = Item(id=42, uri=str(test_file))
-
-            # Submit load request (should not raise)
-            loader.load(item=item, size=150, photos_path=tmpdir)
-
-            # Wait for thread pool to finish
-            loader.pool.waitForDone(5000)  # 5 second timeout
-
-            # Verify pool finished
-            assert loader.pool.activeThreadCount() == 0
-            # Note: Signal emission is tested in the actual GUI where Qt eventloop
-            # is running. In tests without an eventloop, signals may not be delivered,
-            # but the threading infrastructure is verified to work.
+        _settle(qapp, loader)
+        assert len(delivered) == 1
+        key, image = delivered[0]
+        assert key == loader.key_for(item, 150)
+        assert not image.isNull()
+        assert loader.pending() == 0
 
     def test_get_thumbnail_loader_singleton(self):
         """Test that get_thumbnail_loader() returns a singleton."""
@@ -274,32 +289,48 @@ class TestResultAddressing:
         assert loader.key_for(a, 150) != loader.key_for(b, 150)
         assert loader.key_for(a, 150) != loader.key_for(a, 300)
 
-    def test_duplicate_requests_are_dropped_while_in_flight(self, tmp_path):
+    def test_duplicate_requests_are_dropped_while_in_flight(self, qapp, tmp_path):
+        """A second request for an item already queued starts no second decode.
+
+        Two decodes would each deliver a result, so the number of deliveries is
+        what is asserted rather than the bookkeeping set.
+        """
         from tagorganizer.models import Item
         from tagorganizer.widgets.helper import ThumbnailLoader
 
         loader = ThumbnailLoader(max_threads=1)
-        # a path that does not exist: the runnable returns quickly, but we
-        # inspect the in-flight bookkeeping before draining the pool
-        item = Item(id=7, uri="/does/not/exist.jpg")
+        item = Item(id=7, uri=str(_photo(tmp_path)))
+        delivered = []
+        loader.thumbnail_ready.connect(lambda key, image: delivered.append(key))
 
-        loader._inflight.add(loader.key_for(item, 150))
-        before = loader.pending()
         loader.load(item, 150, tmp_path)
-        assert loader.pending() == before, "duplicate request should be dropped"
+        loader.load(item, 150, tmp_path)
+        assert loader.pending() == 1, "duplicate request should be dropped"
 
-    def test_preload_and_tile_share_one_decode(self):
-        """The preloader's request must satisfy the tile that follows it."""
+        _settle(qapp, loader)
+        assert delivered == [loader.key_for(item, 150)]
+
+    def test_preload_and_tile_share_one_decode(self, qapp, tmp_path):
+        """The preloader's request must satisfy the tile that follows it.
+
+        The tile asks with its own Item object for the same photo. The key
+        comparison alone would pass even if load() never queued anything, so one
+        decode is queued and exactly one result is delivered.
+        """
         from tagorganizer.models import Item
         from tagorganizer.widgets.helper import ThumbnailLoader
 
         loader = ThumbnailLoader(max_threads=1)
-        item = Item(id=11, uri="/x.jpg")
-        preload_key = loader.key_for(item, 150)
-        # the tile asks for the same item at the same size, so it recognises
-        # the result the preloader already has coming
-        tile_key = loader.key_for(Item(id=11, uri="/x.jpg"), 150)
-        assert preload_key == tile_key
+        photo = _photo(tmp_path)
+        delivered = []
+        loader.thumbnail_ready.connect(lambda key, image: delivered.append(key))
+
+        loader.load(Item(id=11, uri=str(photo)), 150, tmp_path)  # the preloader
+        loader.load(Item(id=11, uri=str(photo)), 150, tmp_path)  # the tile after it
+        assert loader.pending() == 1
+
+        _settle(qapp, loader)
+        assert delivered == [loader.key_for(Item(id=11, uri=str(photo)), 150)]
 
 
 class TestProfileGeneration:
