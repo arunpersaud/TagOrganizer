@@ -1,6 +1,6 @@
 import logging
 
-from qtpy.QtWidgets import QTreeView, QMenu, QSizePolicy
+from qtpy.QtWidgets import QTreeView, QMenu, QMessageBox, QSizePolicy
 from qtpy.QtCore import Qt, Signal, QPoint
 from qtpy.QtGui import QStandardItemModel, QStandardItem
 
@@ -136,8 +136,51 @@ class TagView(QTreeView):
         self.main.tag_bar.add_tag(tag_name)
 
     def delete_tag(self, tag_id: int):
+        """Delete a tag from the whole library, after saying so and checking it.
+
+        Deleting is not undoable and touches every photo carrying the tag, so
+        the user confirms first. A tag with subtags is refused here with the
+        reason, because the database quietly declines that case.
+        """
+        tag = db.get_tag_by_id(tag_id)
+        if tag is None:
+            self.update_tags()
+            return
+
+        subtags = [t.name for t in db.get_all_tags() if t.parent_id == tag_id]
+        if subtags:
+            QMessageBox.warning(
+                self,
+                "Cannot delete tag",
+                f"{tag.name!r} still has {len(subtags)} subtag(s): "
+                f"{', '.join(sorted(subtags))}.\n\n"
+                "Move or delete them first.",
+            )
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Delete Tag",
+            f"Delete {tag.name!r} from the whole library?\n\n"
+            "It is removed from every photo that has it. This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
         db.delete_tag(tag_id)
-        self.update_tags()
+        if db.get_tag_by_id(tag_id) is not None:
+            QMessageBox.warning(
+                self, "Cannot delete tag", f"{tag.name!r} was not deleted."
+            )
+            self.update_tags()
+            return
+
+        # A filter chip naming the deleted tag would keep filtering on a name
+        # that no longer exists, so it goes too.
+        self.main.tag_bar.forget_tag(tag.name)
+        self.main.refresh_after_data_change()
 
     def add_tag(self, name: str, id: int | None = None, background=None):
         """Add a tag at the top level of the hierachy."""

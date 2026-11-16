@@ -776,7 +776,7 @@ class TestOneAreaChip:
         assert bar.get_filters().min_longitude is None
 
 
-class TestReset:
+class TestResetAndForget:
     def test_reset_forgets_selected_chips(self, qapp):
         """A chip that was selected before a profile switch must not be grouped after it."""
         bar = _tag_bar()
@@ -795,3 +795,23 @@ class TestReset:
         bar.reset()
 
         assert bar.main.update_items_calls == calls
+
+    def test_forget_removes_a_loose_chip_and_a_grouped_member(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("beach")
+        bar.add_tag("surf")
+        bar.add_tag("lake")
+        for entry in list(bar.selected_tags):
+            if entry.name in ("surf", "lake"):
+                bar.toggle_chip(entry.widget)
+        bar.group_selected()
+
+        assert bar.forget_tag("surf") is True
+        assert bar.forget_tag("beach") is True
+
+        # Removing surf leaves (lake) alone, which is no longer a disjunction,
+        # so lake comes back as an ordinary chip.
+        filters = bar.get_filters()
+        assert filters.tags == ["lake"]
+        assert filters.groups == []
+        assert bar.forget_tag("missing") is False

@@ -372,3 +372,75 @@ class TestTagTreeChanges:
         window.tag_view.on_tag_moved([paris], None, False)
 
         assert db.get_tag_by_id(paris).parent_id is None
+
+    def test_deleting_a_tag_with_subtags_is_refused_with_a_reason(
+        self, window_for, monkeypatch
+    ):
+        from tagorganizer import db
+        import tagorganizer.widgets.tag_view as tag_view_module
+
+        warnings = []
+
+        class FakeBox:
+            StandardButton = tag_view_module.QMessageBox.StandardButton
+
+            @staticmethod
+            def warning(*args):
+                warnings.append(args)
+
+            @staticmethod
+            def question(*args):
+                raise AssertionError("a refused delete must not ask")
+
+        monkeypatch.setattr(tag_view_module, "QMessageBox", FakeBox)
+        window = window_for()
+        france = db.add_tag("France")
+        paris = db.add_tag("Paris")
+        db.set_parent_tag_by_id(paris, france)
+
+        window.tag_view.delete_tag(france)
+
+        assert db.get_tag_by_id(france) is not None
+        assert warnings and "subtag" in warnings[0][2]
+
+    def test_a_confirmed_delete_removes_the_tag_and_its_filter_chip(
+        self, window_for, monkeypatch
+    ):
+        from tagorganizer import db
+        import tagorganizer.widgets.tag_view as tag_view_module
+
+        class FakeBox:
+            StandardButton = tag_view_module.QMessageBox.StandardButton
+
+            @staticmethod
+            def question(*args):
+                return FakeBox.StandardButton.Yes
+
+        monkeypatch.setattr(tag_view_module, "QMessageBox", FakeBox)
+        window = window_for()
+        beach = db.add_tag("beach")
+        window.tag_bar.add_tag("beach")
+
+        window.tag_view.delete_tag(beach)
+
+        assert db.get_tag_by_id(beach) is None
+        assert "beach" not in window.tag_bar.get_all_names()
+
+    def test_a_declined_delete_changes_nothing(self, window_for, monkeypatch):
+        from tagorganizer import db
+        import tagorganizer.widgets.tag_view as tag_view_module
+
+        class FakeBox:
+            StandardButton = tag_view_module.QMessageBox.StandardButton
+
+            @staticmethod
+            def question(*args):
+                return FakeBox.StandardButton.No
+
+        monkeypatch.setattr(tag_view_module, "QMessageBox", FakeBox)
+        window = window_for()
+        beach = db.add_tag("beach")
+
+        window.tag_view.delete_tag(beach)
+
+        assert db.get_tag_by_id(beach) is not None

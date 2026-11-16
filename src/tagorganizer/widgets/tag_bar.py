@@ -553,6 +553,32 @@ class TagBar(QHBoxLayout):
         for condition in dissolved:
             self._restore_condition(condition)
 
+    def forget_tag(self, name: str) -> bool:
+        """Remove every chip, loose or grouped, that filters on this tag.
+
+        Returns whether anything went. The caller redraws: this is used when
+        the tag itself was deleted, and that redraw is the caller's to do.
+        """
+        loose = [entry.widget for entry in self.selected_tags if entry.name == name]
+        removals = [
+            (group_index, member_index)
+            for group_index, group in enumerate(self._groups)
+            for member_index, condition in enumerate(group)
+            if condition.kind == "tag" and condition.value == name
+        ]
+        if not loose and not removals:
+            return False
+
+        self._suppress_refresh = True
+        try:
+            for widget in loose:
+                self.remove_tag_button(widget)
+            if removals:
+                self._remove_members(removals)
+        finally:
+            self._suppress_refresh = False
+        return True
+
     @staticmethod
     def _condition_label(condition) -> str:
         if condition.kind == "tag":
