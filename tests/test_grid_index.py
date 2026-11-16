@@ -8,6 +8,7 @@ The index calculation is a staticmethod on the widget, so it can be called
 directly without a GUI.
 """
 
+import ast
 import textwrap
 
 import pytest
@@ -371,3 +372,170 @@ class TestClampHighlight:
 
     def test_a_position_inside_the_view_is_unchanged(self):
         assert ImageGridWidget.clamp_highlight(2, 3) == 2
+
+
+class _PreloadTabs:
+    def __init__(self, grid):
+        self.grid = grid
+
+    def currentWidget(self):
+        return self.grid
+
+
+class _PreloadRecorder:
+    """Stands in for the database and both decoders, and records what is asked."""
+
+    def __init__(self, monkeypatch, grid_module):
+        from types import SimpleNamespace
+
+        from tagorganizer.models import Item
+
+        self.full = []
+        self.sizes = []
+        self.items = [Item(id=1, uri="/photos/a.jpg")]
+        self.grid_module = grid_module
+        monkeypatch.setattr(
+            grid_module,
+            "db",
+            SimpleNamespace(
+                get_number_of_items=lambda filters: 1,
+                get_images=lambda page, filters: self.items,
+                get_image_range=lambda start, count, filters: self.items,
+            ),
+        )
+        monkeypatch.setattr(
+            grid_module,
+            "get_full_image_loader",
+            lambda: SimpleNamespace(warm=lambda file: self.full.append(file)),
+        )
+        monkeypatch.setattr(
+            grid_module,
+            "get_thumbnail_loader",
+            lambda: SimpleNamespace(
+                load=lambda item, size, photos: self.sizes.append(size)
+            ),
+        )
+
+    def reset(self):
+        self.full.clear()
+        self.sizes.clear()
+
+
+def _preloading_grid(recorder_filters, profile):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    grid = SimpleNamespace(
+        page=0,
+        highlight=0,
+        N=25,
+        widgets=[],
+        _last_preload_position=None,
+        _preload_complete=False,
+    )
+    grid.main = SimpleNamespace(
+        tabs=_PreloadTabs(grid),
+        tag_bar=SimpleNamespace(get_filters=lambda: recorder_filters),
+        config=SimpleNamespace(profile=profile, photos=Path("/photos")),
+    )
+    return grid
+
+
+class TestPreloadPosition:
+    """The preloader skips a pass that finished for the same position.
+
+    The position has to include everything the pass depends on. Otherwise a
+    pass that finished for one collection is skipped for another that happens to
+    sit at the same page and highlight, and the photos around it are never warmed.
+    """
+
+    def test_a_finished_pass_is_not_repeated_for_the_same_position(self, monkeypatch):
+        from tagorganizer.widgets import image_grid_widget
+
+        recorder = _PreloadRecorder(monkeypatch, image_grid_widget)
+        grid = _preloading_grid(None, "A")
+
+        ImageGridWidget.preload_items(grid)
+        recorder.reset()
+        ImageGridWidget.preload_items(grid)
+
+        assert recorder.full == []
+
+    def test_a_profile_switch_at_the_same_position_is_preloaded_again(
+        self, monkeypatch
+    ):
+        from tagorganizer.widgets import image_grid_widget
+
+        recorder = _PreloadRecorder(monkeypatch, image_grid_widget)
+        grid = _preloading_grid(None, "A")
+        ImageGridWidget.preload_items(grid)
+
+        grid.main.config.profile = "B"
+        recorder.reset()
+        ImageGridWidget.preload_items(grid)
+
+        assert recorder.full == ["/photos/a.jpg"]
+
+    def test_a_filter_change_at_the_same_position_is_preloaded_again(self, monkeypatch):
+        from tagorganizer.widgets import image_grid_widget
+        from tagorganizer.widgets.tag_bar import Filters
+
+        recorder = _PreloadRecorder(monkeypatch, image_grid_widget)
+        grid = _preloading_grid(Filters(tags=["x"]), "A")
+        ImageGridWidget.preload_items(grid)
+
+        grid.main.tag_bar.get_filters = lambda: Filters(tags=["y"])
+        recorder.reset()
+        ImageGridWidget.preload_items(grid)
+
+        assert recorder.full == ["/photos/a.jpg"]
+
+
+class TestPreloadWork:
+    def test_full_size_photos_are_warmed_by_the_background_loader(self, monkeypatch):
+        """A decode on the GUI thread per tick is what the preloader used to do."""
+        from tagorganizer.widgets import image_grid_widget
+
+        recorder = _PreloadRecorder(monkeypatch, image_grid_widget)
+        grid = _preloading_grid(None, "A")
+
+        ImageGridWidget.preload_items(grid)
+
+        assert recorder.full == ["/photos/a.jpg"]
+
+    def test_thumbnails_are_warmed_at_the_standard_size(self, monkeypatch):
+        from tagorganizer.widgets import image_grid_widget
+
+        recorder = _PreloadRecorder(monkeypatch, image_grid_widget)
+        grid = _preloading_grid(None, "A")
+
+        ImageGridWidget.preload_items(grid)
+
+        assert 150 in recorder.sizes
+
+    def test_the_size_the_tiles_are_showing_is_warmed_too(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from tagorganizer.widgets import image_grid_widget
+
+        recorder = _PreloadRecorder(monkeypatch, image_grid_widget)
+        grid = _preloading_grid(None, "A")
+        grid.widgets = [SimpleNamespace(pixmap_width=300)]
+
+        ImageGridWidget.preload_items(grid)
+
+        assert set(recorder.sizes) == {150, 300}
+
+    def test_the_preloader_no_longer_decodes_on_the_gui_thread(self):
+        """Guard against the synchronous decode coming back into the preloader."""
+        import inspect
+        import textwrap
+
+        source = textwrap.dedent(inspect.getsource(ImageGridWidget.preload_items))
+        tree = ast.parse(source)
+        called = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert "load_full_pixmap" not in called

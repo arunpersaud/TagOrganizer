@@ -25,7 +25,7 @@ from qtpy.QtWidgets import QWidget, QGridLayout
 from qtpy.QtCore import QTimer
 
 from .framed_label import FramedLabel
-from .helper import load_full_pixmap, get_thumbnail_loader
+from .helper import THUMBNAIL_SIZES, get_full_image_loader, get_thumbnail_loader
 from .. import db
 
 
@@ -257,6 +257,18 @@ class ImageGridWidget(QWidget):
 
         self.highlight = ImageGridWidget.clamp_highlight(self.highlight + self.N, N)
 
+    @staticmethod
+    def preload_sizes(widgets):
+        """The thumbnail sizes worth warming.
+
+        The standard size, and the size the tiles on screen are showing if that
+        is different. Warming any other size would be decoding for nobody.
+        """
+        sizes = {THUMBNAIL_SIZES[0]}
+        if widgets:
+            sizes.add(widgets[0].pixmap_width)
+        return sorted(sizes)
+
     def preload_items(self):
         # Skip if grid tab is not visible
         if self.main.tabs.currentWidget() != self:
@@ -283,9 +295,9 @@ class ImageGridWidget(QWidget):
         start = time.time()
         budget = 0.01  # 10 ms budget (mostly DB queries now, decode is async)
 
-        filters = self.main.tag_bar.get_filters()
         N = db.get_number_of_items(filters)
         loader = get_thumbnail_loader()
+        sizes = ImageGridWidget.preload_sizes(self.widgets)
 
         # thumbnails +- 2 pages, handed to the pool rather than decoded here.
         # The worker writes the disk cache entry, so this is worth doing even
@@ -301,15 +313,19 @@ class ImageGridWidget(QWidget):
             items = db.get_images(i, filters)
             for item in items:
                 # Submit to thread pool but don't block waiting for result
-                loader.load(item, 150, self.main.config.photos)
+                for size in sizes:
+                    loader.load(item, size, self.main.config.photos)
                 if time.time() - start > budget:
                     return
 
         # full files +- 5 from current image. One ranged query, not eleven
         # single-row ones: each of those opens its own session and sorts the
-        # whole table, which costs more than this method's entire budget.
+        # whole table, which costs more than this method's entire budget. The
+        # decodes run on the full-image loader's pool: decoding a 12 MP photo
+        # takes long enough to stall the window if it happens here.
+        full_images = get_full_image_loader()
         for item in db.get_image_range(self.highlight - 5, 11, filters):
-            load_full_pixmap(str(item.uri))
+            full_images.warm(str(item.uri))
             if time.time() - start > budget:
                 return
 
