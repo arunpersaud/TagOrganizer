@@ -1,131 +1,106 @@
 """The Tasks menu is generated, and the scope rule is applied at click time.
 
 The menu, the post-import chain and the settings page all read one registry,
-so they cannot drift apart the way three hand-maintained lists did.
+so they cannot drift apart the way three hand-maintained lists did. These
+drive a real window: the menu entries are the actions on it, and choosing one
+is triggering the action.
 """
 
-import ast
-import inspect
-import textwrap
-
-from tagorganizer import main as main_module
 from tagorganizer.plugins.discovery import load_plugins, plugin_paths
-
-
-def source_tree(func):
-    return ast.parse(textwrap.dedent(inspect.getsource(func)))
-
-
-def attribute_calls(tree, name):
-    return [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == name
-    ]
-
-
-def plain_calls(tree, name):
-    return [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == name
-    ]
+from window_fixtures import menu_action
 
 
 class TestMenuGeneration:
-    def test_the_tasks_menu_is_no_longer_hand_written(self):
-        source = inspect.getsource(main_module.MainWindow.__init__)
-        assert '"Tasks": [' not in source
+    def test_the_menu_entries_are_exactly_the_enabled_plugins(self, window_for):
+        """Hand-written menus drift from the registry; this compares them."""
+        window = window_for()
+        entries = {
+            action.text() for menu in window._plugin_menus for action in menu.actions()
+        }
 
-    def test_the_menu_is_built_from_the_registry(self):
-        tree = source_tree(main_module.MainWindow.build_plugin_menu)
-        assert attribute_calls(tree, "by_category")
+        assert entries == {plugin.name for plugin in window.tasks.registry.all()}
 
-    def test_the_plugins_are_loaded_before_the_menu_is_built(self):
-        source = inspect.getsource(main_module.MainWindow.__init__)
-        assert "load_plugins" in source
-        assert source.index("load_plugins") < source.index("build_plugin_menu")
+    def test_each_category_is_a_menu_holding_its_own_plugins(self, window_for):
+        window = window_for()
+        by_category = window.tasks.registry.by_category()
+
+        for category, plugins in by_category.items():
+            menu = window.menu[category]
+            assert menu.title() == category
+            assert {action.text() for action in menu.actions()} == {
+                plugin.name for plugin in plugins
+            }
 
 
 class TestScopeAtClickTime:
     """Which scope a plugin gets is behaviour, checked in test_run_plugin.py
     against TaskManager.run_from_menu. What is left here is the wiring: that
-    each menu entry hands its own plugin and the live selection to it."""
+    each menu entry hands its own plugin and the live selection to it.
+    """
 
-    def _entry_lambdas(self):
-        tree = source_tree(main_module.MainWindow.build_plugin_menu)
-        return [n for n in ast.walk(tree) if isinstance(n, ast.Lambda)]
+    def test_each_entry_runs_its_own_plugin_with_the_selection_at_click_time(
+        self, window_for, monkeypatch
+    ):
+        """The menu is built once and the selection changes constantly, so the
+        selection must be read when the entry is chosen, and each entry must
+        name its own plugin rather than the last one built.
+        """
+        window = window_for()
+        runs = []
+        monkeypatch.setattr(
+            window.tasks,
+            "run_from_menu",
+            lambda plugin, ids: runs.append((plugin.name, sorted(ids))),
+        )
+        window.selection.add_many([5, 7])
+        actions = [action for menu in window._plugin_menus for action in menu.actions()]
+        assert len(actions) >= 8, "precondition: the shipped plugins are in the menu"
 
-    def test_the_entry_passes_the_selection_read_at_click_time(self):
-        """Read inside the lambda, so it is evaluated when clicked. The menu is
-        built once and the selection changes constantly."""
-        lambdas = [
-            lam
-            for lam in self._entry_lambdas()
-            if any(
-                isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Attribute)
-                and call.func.attr == "run_from_menu"
-                for call in ast.walk(lam)
-            )
-        ]
-        assert lambdas, "no menu entry calls run_from_menu"
-        selection_reads = [
-            node
-            for node in ast.walk(lambdas[0])
-            if isinstance(node, ast.Attribute) and node.attr == "ids"
-        ]
-        assert selection_reads, "the selection is not read when the entry runs"
+        for action in actions:
+            action.trigger()
 
-    def test_the_plugin_is_bound_per_entry(self):
-        """Without a default argument every entry would run the last plugin,
-        because the lambda would close over the loop variable. The default must
-        be named for the plugin the loop is on, not just any default at all:
-        the click handler already has ``checked=False`` as a default."""
-        bound = []
-        for lam in self._entry_lambdas():
-            args = lam.args
-            defaults = (
-                dict(
-                    zip(
-                        [a.arg for a in args.args][-len(args.defaults) :],
-                        args.defaults,
-                        strict=False,
-                    )
-                )
-                if args.defaults
-                else {}
-            )
-            if "p" in defaults and isinstance(defaults["p"], ast.Name):
-                bound.append(defaults["p"].id)
-        assert bound == ["plugin"], f"entries bind {bound!r}, not the plugin"
-
-    def test_the_entry_runs_the_bound_plugin_not_the_loop_variable(self):
-        """Binding the default is not enough if the body then reads the loop
-        variable: every entry would still run the last plugin."""
-        for lam in self._entry_lambdas():
-            for node in ast.walk(lam):
-                if (
-                    isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "run_from_menu"
-                ):
-                    first = node.args[0]
-                    assert (
-                        isinstance(first, ast.Name) and first.id == "p"
-                    ), "run_from_menu is not given the bound plugin"
-                    return
-        raise AssertionError("no menu entry calls run_from_menu")
+        assert [name for name, _ in runs] == [action.text() for action in actions]
+        assert all(ids == [5, 7] for _, ids in runs)
 
 
 class TestAutoRun:
-    def test_importing_images_queues_the_auto_plugins(self):
-        tree = source_tree(main_module.MainWindow.add_directory)
-        assert attribute_calls(tree, "auto_plugins")
+    def test_importing_images_runs_the_auto_plugins(
+        self, window_for, tmp_path, monkeypatch
+    ):
+        """A plugin marked auto runs itself after an import, without being asked."""
+        import tagorganizer.main as main_module
+
+        home = tmp_path / "auto"
+        (home / "plugins").mkdir(parents=True)
+        marker = tmp_path / "ran.txt"
+        (home / "plugins" / "auto.py").write_text(
+            "from tagorganizer.plugins import Plugin\n"
+            "\n"
+            "class AutoMarker(Plugin):\n"
+            '    name = "Auto marker"\n'
+            '    category = "Tags"\n'
+            "    auto = True\n"
+            "\n"
+            "    def run(self, ctx):\n"
+            f"        open({str(marker)!r}, 'w').write('ran')\n"
+            "        yield 1, 1\n"
+        )
+        photos = tmp_path / "photos-to-import"
+        photos.mkdir()
+        (photos / "a.jpg").write_bytes(b"not really a jpeg")
+
+        class ChosenDirectory:
+            @staticmethod
+            def getExistingDirectory(*args, **kwargs):
+                return str(photos)
+
+        monkeypatch.setattr(main_module, "QFileDialog", ChosenDirectory)
+        window = window_for(plugins_dir=home)
+
+        window.add_directory()
+
+        assert window.tasks.wait_for_idle(), "the auto task never finished"
+        assert marker.read_text() == "ran"
 
 
 class TestShippedPlugins:
@@ -182,40 +157,65 @@ class TestShippedPlugins:
 
 
 class TestSettingsWiring:
-    def test_the_edit_menu_offers_settings(self):
-        source = inspect.getsource(main_module.MainWindow.__init__)
-        assert "Settings" in source
+    def test_the_edit_menu_offers_settings(self, window_for):
+        assert menu_action(window_for(), "Edit", "Settings...") is not None
 
-    def test_opening_settings_passes_the_plugin_directories(self):
-        """The window exists largely to answer 'where do I put a plugin'."""
-        tree = source_tree(main_module.MainWindow.open_settings)
-        assert plain_calls(tree, "plugin_paths")
+    def test_opening_settings_offers_every_plugin_and_the_plugin_directories(
+        self, window_for, monkeypatch
+    ):
+        """all() hides disabled plugins, so the window must be given every one,
+        and it is told where user plugins live."""
+        import tagorganizer.widgets.settings as settings_module
 
-    def test_it_lists_every_plugin_including_disabled_ones(self):
-        """all() hides disabled plugins, so the window would not show them."""
-        tree = source_tree(main_module.MainWindow.open_settings)
-        assert attribute_calls(tree, "every")
+        opened = []
 
-    def test_the_choice_is_persisted(self):
-        tree = source_tree(main_module.MainWindow.open_settings)
-        assert attribute_calls(tree, "set_disabled_plugins")
+        class RecordingSettings:
+            def __init__(self, *args):
+                opened.append(args)
 
-    def test_the_menus_are_rebuilt_so_the_change_shows_at_once(self):
-        tree = source_tree(main_module.MainWindow.open_settings)
-        assert attribute_calls(tree, "build_plugin_menu")
+            def exec(self):
+                return 0
 
-    def test_disabled_plugins_are_applied_at_startup(self):
-        source = inspect.getsource(main_module.MainWindow.__init__)
-        assert "get_disabled_plugins" in source
+        monkeypatch.setattr(settings_module, "SettingsDialog", RecordingSettings)
+        window = window_for(disabled_plugins="Update Hashes in DB")
 
-    def test_rebuilding_removes_the_previous_menus(self):
-        """Otherwise every visit to Settings adds another Maintenance menu.
+        window.open_settings()
 
-        removeAction alone is not enough and this test used to accept it:
-        unhooking the action leaves the menu still parented to the bar, and
-        the duplicates came back. Only a real window caught that, so this now
-        insists the widget is disposed of as well.
-        """
-        source = inspect.getsource(main_module.MainWindow.build_plugin_menu)
-        assert "removeAction" in source
-        assert "deleteLater" in source or "setParent(None)" in source
+        _, plugins, _, disabled, paths, _ = opened[0]
+        assert "Update Hashes in DB" in {plugin.name for plugin in plugins}
+        assert disabled == {"Update Hashes in DB"}
+        assert paths == plugin_paths()
+
+    def test_a_plugin_switched_off_is_saved_and_leaves_the_menus_at_once(
+        self, window_for, monkeypatch
+    ):
+        """The change must show without a restart, and survive one."""
+        import tagorganizer.widgets.settings as settings_module
+
+        class SwitchingOff:
+            def __init__(self, *args):
+                pass
+
+            def exec(self):
+                return 1
+
+            def disabled_plugins(self):
+                return {"Update Hashes in DB"}
+
+        monkeypatch.setattr(settings_module, "SettingsDialog", SwitchingOff)
+        window = window_for()
+        assert menu_action(window, "Maintenance", "Update Hashes in DB") is not None
+
+        window.open_settings()
+
+        assert menu_action(window, "Maintenance", "Update Hashes in DB") is None
+        saved = window.config.config_file.read_text()
+        assert "disabled_plugins = Update Hashes in DB" in saved
+
+    def test_a_plugin_switched_off_in_the_config_is_not_in_the_menus_at_startup(
+        self, window_for
+    ):
+        window = window_for(disabled_plugins="Update Hashes in DB")
+
+        assert menu_action(window, "Maintenance", "Update Hashes in DB") is None
+        assert menu_action(window, "Files", "Move Files to Default Dirs") is not None
