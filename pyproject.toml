@@ -27,7 +27,7 @@ dependencies = [
     # Capped below 5: OpenCV 5 removed cv2.CascadeClassifier and its wheel ships
     # no Haar cascade files, which detect_faces.py needs. count_faces swallows
     # that error and reports zero faces, so nothing else would show it.
-    "opencv-python-headless>=4.11.0.86,<5",
+    "opencv-python-headless>=4.11.0.86,<6",
     "platformdirs>=4.3.6",
     "pyqt6>=6.8.0",
     "pyqt6-webengine>=6.8.0",
