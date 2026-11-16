@@ -69,6 +69,11 @@ exactly one worker.
 - **Menu and wiring breakage used to be invisible to the suite.** Smoke-testing
   the real window in a scratch script caught a startup crash and an unwired map
   pipeline; `tests/test_main_window.py` now builds real windows (see below).
+- **Never share a `QMutex` through `QMutexLocker` across Python threads.**
+  In PyQt6 6.8, two threads building `QMutexLocker` on one mutex corrupt the
+  wrapper's reference count; it is freed while in use and the crash surfaces
+  far away (an intermittent segfault in the stuck-task test). State touched by
+  the GUI thread and the worker is guarded with `threading.Lock`.
 - **`ConfigManager` opens the real library** unless you pass `config_file=`.
   Never build one in a scratch script without it.
 
