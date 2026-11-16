@@ -188,7 +188,7 @@ class TestMoveItemOrdering:
     ):
         from tagorganizer.plugins.builtin import _move
 
-        item, source, target = self._item(temp_db, tmp_path)
+        item, _source, target = self._item(temp_db, tmp_path)
 
         def fail(md5, photos):
             raise OSError("cache busy")

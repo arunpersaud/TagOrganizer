@@ -315,7 +315,7 @@ def load_qimage(item: Item, size: int, photos_path: Path) -> QImage | None:
             return None
 
         # Convert the frame to a QImage
-        height, width, channel = frame.shape
+        height, width, _channel = frame.shape
         bytes_per_line = 3 * width
         qimage = QImage(
             frame.data, width, height, bytes_per_line, QImage.Format_RGB888

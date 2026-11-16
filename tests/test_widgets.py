@@ -103,7 +103,7 @@ class TestF9HistogramLocatorAndBins:
         start = datetime(2025, 1, 1)
         end = datetime(2025, 1, 1)
 
-        locator, bins = get_histogram_locator_and_bins(start, end)
+        _locator, bins = get_histogram_locator_and_bins(start, end)
 
         assert bins >= 1
 
@@ -112,7 +112,7 @@ class TestF9HistogramLocatorAndBins:
         start = datetime(1900, 1, 1)
         end = datetime(2025, 1, 1)
 
-        locator, bins = get_histogram_locator_and_bins(start, end)
+        _locator, bins = get_histogram_locator_and_bins(start, end)
 
         assert bins <= 365
 
@@ -121,7 +121,7 @@ class TestF9HistogramLocatorAndBins:
         start = datetime(2025, 1, 1)
         end = datetime(2025, 1, 31)
 
-        locator, bins = get_histogram_locator_and_bins(start, end)
+        locator, _bins = get_histogram_locator_and_bins(start, end)
 
         assert isinstance(locator, mdates.DayLocator)
 
@@ -130,7 +130,7 @@ class TestF9HistogramLocatorAndBins:
         start = datetime(2025, 1, 1)
         end = datetime(2025, 2, 1)
 
-        locator, bins = get_histogram_locator_and_bins(start, end)
+        locator, _bins = get_histogram_locator_and_bins(start, end)
 
         assert isinstance(locator, mdates.MonthLocator)
 
@@ -139,7 +139,7 @@ class TestF9HistogramLocatorAndBins:
         start = datetime(2024, 1, 1)
         end = datetime(2025, 1, 1)
 
-        locator, bins = get_histogram_locator_and_bins(start, end)
+        locator, _bins = get_histogram_locator_and_bins(start, end)
 
         assert isinstance(locator, mdates.MonthLocator)
 
@@ -148,7 +148,7 @@ class TestF9HistogramLocatorAndBins:
         start = datetime(2024, 1, 1)
         end = datetime(2025, 1, 2)
 
-        locator, bins = get_histogram_locator_and_bins(start, end)
+        locator, _bins = get_histogram_locator_and_bins(start, end)
 
         assert isinstance(locator, mdates.MonthLocator)
 
@@ -157,7 +157,7 @@ class TestF9HistogramLocatorAndBins:
         start = datetime(2020, 6, 1)
         end = datetime(2025, 1, 1)
 
-        locator, bins = get_histogram_locator_and_bins(start, end)
+        locator, _bins = get_histogram_locator_and_bins(start, end)
 
         assert isinstance(locator, mdates.MonthLocator)
 
@@ -166,7 +166,7 @@ class TestF9HistogramLocatorAndBins:
         start = datetime(2020, 1, 1)
         end = datetime(2025, 1, 2)
 
-        locator, bins = get_histogram_locator_and_bins(start, end)
+        locator, _bins = get_histogram_locator_and_bins(start, end)
 
         assert isinstance(locator, mdates.YearLocator)
 

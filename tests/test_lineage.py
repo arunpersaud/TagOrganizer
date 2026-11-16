@@ -69,13 +69,13 @@ class TestCycles:
         'where did this come from' unanswerable.
         """
         db.set_parents(photos[1], [photos[0]])
-        with pytest.raises(ValueError, match="ancestor|descendant|cycle"):
+        with pytest.raises(ValueError, match=r"ancestor|descendant|cycle"):
             db.set_parents(photos[0], [photos[1]])
 
     def test_a_deeper_cycle_is_refused(self, photos):
         db.set_parents(photos[1], [photos[0]])
         db.set_parents(photos[2], [photos[1]])
-        with pytest.raises(ValueError, match="ancestor|descendant|cycle"):
+        with pytest.raises(ValueError, match=r"ancestor|descendant|cycle"):
             db.set_parents(photos[0], [photos[2]])
 
     def test_a_refused_link_changes_nothing(self, photos):
