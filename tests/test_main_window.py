@@ -730,3 +730,70 @@ class TestTagsFromTheTagLine:
         assert db.get_tag(reserved) is None, "the reserved name became a real tag"
         assert self._tags_of(photo) == {"Beach"}
         assert "not allowed" in window.messages.text_edit.toPlainText()
+
+
+class TestWindowWiring:
+    """What the window does when a tab, a button or a selection changes.
+
+    These used to read main.py and look for a call by name. They now trigger
+    the real signal or method, so they fail if the call is removed or the
+    wiring is broken.
+    """
+
+    def test_switching_to_the_single_view_populates_it(self, window_for, monkeypatch):
+        window = window_for()
+        calls = []
+        monkeypatch.setattr(window, "update_single_item", lambda: calls.append(1))
+        assert window.tabs.currentWidget() is not window.single_item, "precondition"
+
+        window.tabs.setCurrentWidget(window.single_item)
+
+        assert calls == [1]
+
+    def test_switching_to_the_map_tells_it_it_is_shown(self, window_for, monkeypatch):
+        window = window_for()
+        shown = []
+        monkeypatch.setattr(window.map, "on_shown", lambda: shown.append(1))
+        assert window.tabs.currentWidget() is not window.map, "precondition"
+
+        window.tabs.setCurrentWidget(window.map)
+
+        assert shown == [1]
+
+    def test_show_selected_only_restricts_the_view_to_the_selection(self, window_for):
+        window = window_for()
+        window.selection.add_many([1, 2, 3])
+
+        window.show_selected_only()
+
+        assert window.tag_bar.selected_ids.item_ids == [1, 2, 3]
+
+    def test_show_selected_only_with_nothing_selected_says_so(self, window_for):
+        window = window_for()
+
+        window.show_selected_only()
+
+        assert "Nothing is selected." in window.messages.text_edit.toPlainText()
+        assert window.tag_bar.selected_ids.item_ids is None
+
+    def test_the_applied_filters_follow_the_chips(self, window_for):
+        """update_items remembers the filters it drew, so a later change to them
+        is noticed and the timeline and map are redrawn."""
+        window = window_for()
+        window.update_items()
+        before = window.filters
+        window.selection.add_many([1])
+        window.show_selected_only()
+
+        window.update_items()
+
+        assert window.filters != before
+
+    def test_deleting_with_nothing_current_does_nothing(self, window_for):
+        """With no photo highlighted there is nothing to delete, and no
+        confirmation dialog may open: the call returns at once."""
+        window = window_for()
+
+        window.delete_items()
+
+        assert window.messages.text_edit.toPlainText() == ""
