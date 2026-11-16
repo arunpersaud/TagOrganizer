@@ -14,6 +14,11 @@ updates:
       python-dependencies:
         patterns:
           - "*"
+    ignore:
+      # pyproject.toml caps opencv below 5: OpenCV 5 dropped the Haar cascade
+      # face detector that detect_faces.py uses. Lift this with the port.
+      - dependency-name: "opencv-python-headless"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
