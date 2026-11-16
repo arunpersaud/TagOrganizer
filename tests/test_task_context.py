@@ -138,7 +138,8 @@ class TestPluginQueries:
 
     def test_items_inside_the_library_are_not(self, temp_db):
         with Session(temp_db) as session:
-            session.add(Item(uri="/photos/2020/01/01/a.jpg"))
+            # A native path, as add_directory stores it: backslashes on Windows.
+            session.add(Item(uri=str(Path("/photos/2020/01/01/a.jpg"))))
             session.commit()
         assert list(context(Scope.LIBRARY).items_outside_library()) == []
 

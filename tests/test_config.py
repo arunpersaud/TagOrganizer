@@ -48,7 +48,7 @@ class TestProfileNotFoundError:
     def test_carries_the_profile_and_the_file(self):
         error = ProfileNotFoundError("holidays", "/tmp/config.ini")
         assert error.profile == "holidays"
-        assert str(error.config_file) == "/tmp/config.ini"
+        assert pathlib.Path(error.config_file) == pathlib.Path("/tmp/config.ini")
         assert "holidays" in str(error)
 
 
@@ -508,7 +508,7 @@ class TestAFailedLoadChangesNothing:
                 manager.set_current_profile("b")
 
             assert manager.profile == "a"
-            assert manager.db == str(tmp_path / "a.db")
+            assert pathlib.Path(manager.db) == tmp_path / "a.db"
             assert str(db.engine.url) == before
         finally:
             db.engine.dispose()
