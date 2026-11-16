@@ -19,7 +19,7 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
 from sqlmodel import SQLModel, Field, Relationship
-from datetime import datetime
+from pydantic import NaiveDatetime
 
 from typing import Optional
 
@@ -74,7 +74,9 @@ class Item(SQLModel, table=True):
     uri_md5: str = Field(default="")
     data_xxhash: str = Field(default="", index=True)
     camera: str | None = Field(default=None, index=True)
-    date: datetime | None = Field(default=None, index=True)
+    # Naive local time, which is what metadata.py produces. sqlmodel rejects
+    # naive values in a plain datetime column, so the type has to say naive.
+    date: NaiveDatetime | None = Field(default=None, index=True)
 
     # location
     longitude: float | None = Field(default=None, index=True)
