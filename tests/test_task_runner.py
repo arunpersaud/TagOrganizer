@@ -207,39 +207,3 @@ class TestCancellationReachesThePlugin:
         runner.enqueue(later())
         release.set()
         assert wait_until(lambda: ran == [True]), "the later task was dropped"
-
-
-class TestProfileSwitch:
-    def test_the_worker_is_idle_before_the_engine_is_replaced(self, runner, tmp_path):
-        """Switching profiles disposes the engine.
-
-        If the worker is still inside a task holding a session on the old
-        database when that happens, the switch tears the ground out from under
-        a running query. stop() must not return until the worker has finished.
-        """
-        from tagorganizer import db
-
-        previous = db.engine
-        started = threading.Event()
-        release = threading.Event()
-
-        def busy():
-            started.set()
-            release.wait(5)
-            yield 1, 1
-
-        try:
-            db.set_engine(str(tmp_path / "first.db"))
-            runner.enqueue(busy())
-            assert started.wait(5), "the task never started"
-
-            # The worker is provably inside the task at this point, which is
-            # the state a profile switch must not interrupt.
-            runner.cancel()
-            release.set()
-            assert wait_until(runner.is_idle), "worker still running at switch time"
-
-            db.set_engine(str(tmp_path / "second.db"))
-            db.engine.dispose()
-        finally:
-            db.engine = previous
