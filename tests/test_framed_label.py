@@ -257,6 +257,10 @@ def test_a_tile_ignores_a_result_for_a_size_it_no_longer_shows(qapp, tmp_path):
 
     item = Item(id=2, uri=str(tmp_path / "resized.jpg"), uri_md5="d" * 32)
     label = FramedLabel(item, tmp_path)
+    # Start at the size the tile decodes for. Left alone, the platform picks a
+    # default window size on show, and on Windows that is already past the
+    # reload threshold, so the later resize changed nothing.
+    label.resize(150, 150)
     # A hidden widget does not deliver resizeEvent until it is shown, so the
     # tile has to be on screen for its resize to change what it is waiting for.
     label.show()
