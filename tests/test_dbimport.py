@@ -8,14 +8,14 @@ Tests cover:
 
 import time
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 from sqlalchemy import create_engine as sa_create_engine, text
 from sqlmodel import Session, select, SQLModel
 
 from tagorganizer import db
-from tagorganizer.DBimport import import_f_spot
+from tagorganizer.DBimport import fspot_uri_to_path, import_f_spot
 from tagorganizer.models import Item, ItemTagLink, Tag
 
 
@@ -93,9 +93,8 @@ def create_fspot_database(db_path, image_dir):
         # 2020-01-01 00:00:00 UTC = 1577836800
         # 2020-01-02 00:00:00 UTC = 1577923200
         # Photo 3 has timestamp 0 (should result in date=None)
-        # F-Spot writes file:// followed by the POSIX path; as_posix() gives that
-        # form on Windows too (file://C:/...), where a backslash path would not.
-        base_uri = "file://" + image_dir.as_posix()
+        # as_uri() writes what F-Spot writes: file:///C:/... on Windows.
+        base_uri = image_dir.as_uri()
         connection.execute(
             text(
                 f"INSERT INTO photos (id, time, base_uri, filename) VALUES (1, 1577836800, '{base_uri}', 'photo1.jpg')"
@@ -340,7 +339,7 @@ class TestImportFSpotRobustness:
         _add_fspot_rows(
             fspot_setup,
             f"INSERT INTO photos (id, time, base_uri, filename) VALUES "
-            f"(9, 0, 'file://{image_dir.as_posix()}', 'my%20photo%2B%C3%A9.jpg')",
+            f"(9, 0, '{image_dir.as_uri()}', 'my%20photo%2B%C3%A9.jpg')",
         )
 
         with pytest.raises(SystemExit):
@@ -375,3 +374,24 @@ class TestImportFSpotRobustness:
         assert exc_info.value.code == 0
         assert db.get_tag("Japan").parent_id is None
         assert db.get_tag("Travel").parent_id == db.get_tag("Japan").id
+
+
+class TestFspotUriToPath:
+    """Both platforms are checked here, whichever one runs the suite."""
+
+    def test_posix_uri_is_decoded(self):
+        uri = "file:///home/me/Photos/my%20photo%2B%C3%A9.jpg"
+        assert fspot_uri_to_path(uri, windows=False) == "/home/me/Photos/my photo+é.jpg"
+
+    def test_windows_uri_loses_the_slash_before_the_drive(self):
+        uri = "file:///C:/Users/me/Pictures/my%20photo.jpg"
+        assert (
+            fspot_uri_to_path(uri, windows=True) == r"C:\Users\me\Pictures\my photo.jpg"
+        )
+
+    def test_windows_path_matches_what_add_directory_stores(self):
+        # add_directory stores str(Path), which uses backslashes on Windows.
+        uri = "file:///D:/a/b.jpg"
+        assert fspot_uri_to_path(uri, windows=True) == str(
+            PureWindowsPath("D:/a/b.jpg")
+        )

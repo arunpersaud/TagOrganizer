@@ -19,9 +19,11 @@ along with TagOrganizer. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import logging
+import os
+import re
 import sys
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from urllib.parse import unquote
 
 from sqlalchemy import create_engine as sa_create_engine, text
@@ -31,6 +33,23 @@ from . import db
 from .models import Item, ItemTagLink
 
 logger = logging.getLogger(__name__)
+
+
+def fspot_uri_to_path(uri: str, windows: bool = os.name == "nt") -> str:
+    """Turn an F-Spot ``file://`` URI into the path string the library stores.
+
+    F-Spot percent-encodes every character that is not safe in a URI, not only
+    spaces and ampersands, so decode it all. A Windows URI keeps a slash before
+    the drive (``file:///C:/x``), which must go; and ``add_directory`` stores
+    Windows paths with backslashes, so an imported photo must too, or importing
+    the same file both ways would create two items.
+    """
+    path = unquote(uri.removeprefix("file://"))
+    if windows:
+        if re.match(r"/[A-Za-z]:", path):
+            path = path[1:]
+        return str(PureWindowsPath(path))
+    return path
 
 
 def import_f_spot(filename: Path):
@@ -138,12 +157,7 @@ def import_f_spot(filename: Path):
         for photo_row in photos:
             fspot_id, time, base_uri, filename_col = photo_row
 
-            filename = f"{base_uri}/{filename_col}"
-            filename = filename.removeprefix("file://")
-
-            # F-Spot percent-encodes every character that is not safe in a URI,
-            # not only spaces and ampersands, so decode it all.
-            filename = unquote(filename)
+            filename = fspot_uri_to_path(f"{base_uri}/{filename_col}")
 
             file = Path(filename)
             if not file.is_file():
