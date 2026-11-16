@@ -3,13 +3,11 @@
 These tests verify:
 - F2: Multi-item tagging works correctly (tags applied to all selected items)
 - F8: Reserved tag names are rejected before DB creation
-- F14: Status bar update_numbers accepts 0 for all fields
 """
 
 import ast
 import logging
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from sqlmodel import Session, select
 
@@ -187,109 +185,6 @@ class TestF8ReservedTags:
         assert (
             expected == RESERVED_TAGS
         ), f"RESERVED_TAGS mismatch: {RESERVED_TAGS} != {expected}"
-
-
-class TestF14StatusBarZeroValues:
-    """F14: update_numbers must accept 0 for all fields."""
-
-    def test_update_numbers_accepts_zero_view(self):
-        """Verify update_numbers accepts view=0."""
-        # Create a mock MainWindow-like object with just the needed attributes
-        mock_window = MagicMock()
-        mock_window.numbers = [1, 1, 1]
-        mock_label = MagicMock()
-        mock_window.numbers_label = mock_label
-
-        # Call the actual update_numbers logic
-        # We extract the logic to avoid needing QApplication
-        def update_numbers(obj, view=None, selected=None, total=None):
-            if view is not None:
-                obj.numbers[0] = view
-            if selected is not None:
-                obj.numbers[1] = selected
-            if total is not None:
-                obj.numbers[2] = total
-            view, selected, total = obj.numbers
-            obj.numbers_label.setText(
-                f"View: {view} Selected: {selected} Total: {total}"
-            )
-
-        # Test with view=0
-        update_numbers(mock_window, view=0)
-        assert mock_window.numbers[0] == 0
-        mock_label.setText.assert_called_with("View: 0 Selected: 1 Total: 1")
-
-    def test_update_numbers_accepts_zero_selected(self):
-        """Verify update_numbers accepts selected=0."""
-        mock_window = MagicMock()
-        mock_window.numbers = [1, 1, 1]
-        mock_label = MagicMock()
-        mock_window.numbers_label = mock_label
-
-        def update_numbers(obj, view=None, selected=None, total=None):
-            if view is not None:
-                obj.numbers[0] = view
-            if selected is not None:
-                obj.numbers[1] = selected
-            if total is not None:
-                obj.numbers[2] = total
-            view, selected, total = obj.numbers
-            obj.numbers_label.setText(
-                f"View: {view} Selected: {selected} Total: {total}"
-            )
-
-        # Test with selected=0
-        update_numbers(mock_window, selected=0)
-        assert mock_window.numbers[1] == 0
-        mock_label.setText.assert_called_with("View: 1 Selected: 0 Total: 1")
-
-    def test_update_numbers_accepts_zero_total(self):
-        """Verify update_numbers accepts total=0."""
-        mock_window = MagicMock()
-        mock_window.numbers = [1, 1, 1]
-        mock_label = MagicMock()
-        mock_window.numbers_label = mock_label
-
-        def update_numbers(obj, view=None, selected=None, total=None):
-            if view is not None:
-                obj.numbers[0] = view
-            if selected is not None:
-                obj.numbers[1] = selected
-            if total is not None:
-                obj.numbers[2] = total
-            view, selected, total = obj.numbers
-            obj.numbers_label.setText(
-                f"View: {view} Selected: {selected} Total: {total}"
-            )
-
-        # Test with total=0
-        update_numbers(mock_window, total=0)
-        assert mock_window.numbers[2] == 0
-        mock_label.setText.assert_called_with("View: 1 Selected: 1 Total: 0")
-
-    def test_update_numbers_accepts_all_zeros(self):
-        """Verify update_numbers accepts all parameters as 0."""
-        mock_window = MagicMock()
-        mock_window.numbers = [1, 1, 1]
-        mock_label = MagicMock()
-        mock_window.numbers_label = mock_label
-
-        def update_numbers(obj, view=None, selected=None, total=None):
-            if view is not None:
-                obj.numbers[0] = view
-            if selected is not None:
-                obj.numbers[1] = selected
-            if total is not None:
-                obj.numbers[2] = total
-            view, selected, total = obj.numbers
-            obj.numbers_label.setText(
-                f"View: {view} Selected: {selected} Total: {total}"
-            )
-
-        # Test with all zeros
-        update_numbers(mock_window, view=0, selected=0, total=0)
-        assert mock_window.numbers == [0, 0, 0]
-        mock_label.setText.assert_called_with("View: 0 Selected: 0 Total: 0")
 
 
 class TestF11FiltersAttribute:

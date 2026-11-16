@@ -533,3 +533,32 @@ class TestReportingAnError:
         (box,) = shown
         assert box.details == "Traceback (most recent call last)"
         assert box.executed is True
+
+
+class TestStatusLineCounts:
+    """The status line shows what it was last given, and zero is a value.
+
+    update_numbers used to be tested on a copy of itself. These run the real
+    method, so a change to `is not None` checks shows up here.
+    """
+
+    @pytest.mark.parametrize(
+        "field, index", [("view", 0), ("selected", 1), ("total", 2)]
+    )
+    def test_zero_is_shown_for_each_count(self, window_for, field, index):
+        window = window_for()
+        window.update_numbers(view=5, selected=5, total=5)
+
+        window.update_numbers(**{field: 0})
+
+        assert window.numbers[index] == 0
+        assert f"{field.capitalize()}: 0" in window.numbers_label.text()
+
+    def test_all_zeros_are_shown(self, window_for):
+        window = window_for()
+        window.update_numbers(view=5, selected=5, total=5)
+
+        window.update_numbers(view=0, selected=0, total=0)
+
+        assert window.numbers == [0, 0, 0]
+        assert window.numbers_label.text() == "View: 0 Selected: 0 Total: 0"
