@@ -647,3 +647,17 @@ class TestMapViewWiring:
             if isinstance(node, ast.Attribute) and node.attr == "hide_mosaic"
         ]
         assert hides, "hideEvent must hide the mosaic overlay"
+
+
+class TestInvalidateSize:
+    """Only the generated script can be checked here; whether the guard keeps
+    the page quiet was confirmed against a live QWebEngineView, not in the suite.
+    """
+
+    def test_the_resize_call_is_skipped_while_the_map_is_not_defined(self):
+        view = SimpleNamespace(map_name="map_abc", _page=_FakePage())
+        view.page = lambda: view._page
+
+        MapView.invalidate_size(view)
+
+        assert view._page.scripts == ["window.map_abc && map_abc.invalidateSize()"]

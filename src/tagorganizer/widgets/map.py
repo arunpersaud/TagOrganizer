@@ -270,15 +270,20 @@ class MapView(QWebEngineView):
 
     def invalidate_size(self):
         if self.map_name:
-            self.page().runJavaScript(f"{self.map_name}.invalidateSize()")
+            # Showing the tab while a re-rendered page is still loading names a
+            # map variable the new document has not defined yet. Unguarded,
+            # that logs "ReferenceError: map_... is not defined" on every such
+            # show; the load-finished handler re-measures once it exists.
+            name = self.map_name
+            self.page().runJavaScript(f"window.{name} && {name}.invalidateSize()")
 
     def _on_load_finished(self, ok):
         """Re-measure once the document is actually live.
 
         setHtml loads asynchronously, so any invalidate_size() issued between
         load_map() and this signal names a Leaflet variable that does not exist
-        yet and is silently dropped. This is the one call guaranteed to land
-        after the map object exists.
+        yet and does nothing. This is the one call guaranteed to land after the
+        map object exists.
 
         Start the channel handshake watchdog: if the handshake does not complete
         within 5 seconds, it is undiagnosable unless we log it explicitly.
