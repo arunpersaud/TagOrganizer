@@ -151,10 +151,16 @@ class Timeline(FigureCanvas):
         Both bounds go over in one call so the view is redrawn once. The tag bar
         orders them, so dragging right-to-left means the same span.
 
+        A click without a drag arrives as a span of no width. That is not a range
+        the user asked for, and applying it would empty the view, so it is
+        ignored.
+
         The span includes its last day. The tag bar's upper bound reads as
         "before", so the day after the span is what it needs; passing the span's
         own final date would stop at midnight and drop everything taken that day.
         """
+        if xmax <= xmin:
+            return
         start = mdates.num2date(xmin).date()
         end = mdates.num2date(xmax).date() + timedelta(days=1)
         self.main.tag_bar.set_time_range(start, end)

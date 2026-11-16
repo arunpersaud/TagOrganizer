@@ -127,6 +127,21 @@ class TestDragToSelect:
         _, end = timeline.main.tag_bar.ranges[0]
         assert end > date(2024, 6, 30)
 
+    def test_a_zero_width_click_selects_nothing(self, qapp):
+        """A click without a drag arrives as a span of no width.
+
+        Applying it would filter the view down to nothing, which the user never
+        asked for.
+        """
+        import matplotlib.dates as mdates
+
+        timeline = _timeline()
+        at = mdates.date2num(datetime(2024, 3, 3))
+
+        timeline.on_span_select(at, at)
+
+        assert timeline.main.tag_bar.ranges == []
+
     def test_right_click_clears_the_range(self, qapp):
         from matplotlib.backend_bases import MouseButton
 
