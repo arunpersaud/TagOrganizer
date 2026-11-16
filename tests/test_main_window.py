@@ -225,15 +225,111 @@ class TestRunningATask:
 
 
 class TestLineageActions:
-    def test_marking_as_derived_without_a_selection_is_reported_not_fatal(
-        self, window_for
-    ):
+    """The derived-from actions: refusals say why, and the link is what they say.
+
+    The refusal tests used to assert nothing, so a refusal that wrote a link
+    anyway would still pass. Each one checks the message and that the database
+    is unchanged.
+    """
+
+    def _two_photos(self, window):
+        from tagorganizer import db
+
+        paths = [str(window.config.photos / name) for name in ("a.jpg", "b.jpg")]
+        db.add_images(paths)
+        by_uri = {item.uri: item.id for item in db.get_all_items()}
+        return by_uri[paths[0]], by_uri[paths[1]]
+
+    def _highlight(self, window, item_id):
+        """Put the red frame on one photo, as a click on it would."""
+        window.grid.highlight = next(
+            index
+            for index, widget in enumerate(window.grid.widgets)
+            if widget.item.id == item_id
+        )
+
+    def _shown(self, window):
+        return window.messages.text_edit.toPlainText()
+
+    def test_marking_without_a_current_photo_says_so(self, window_for):
         window = window_for()
+
         window.mark_as_derived()
 
-    def test_clearing_lineage_without_a_photo_is_reported_not_fatal(self, window_for):
+        assert "No current photo to mark." in self._shown(window)
+
+    def test_marking_with_no_selection_says_so_and_links_nothing(self, window_for):
+        from tagorganizer import db
+
         window = window_for()
+        child, _ = self._two_photos(window)
+        window.update_items()
+        self._highlight(window, child)
+
+        window.mark_as_derived()
+
+        assert "Select the source photos first." in self._shown(window)
+        assert "Marked as derived" not in self._shown(window)
+        assert db.get_parent_ids(child) == []
+
+    def test_a_photo_cannot_be_its_own_source(self, window_for):
+        from tagorganizer import db
+
+        window = window_for()
+        child, _ = self._two_photos(window)
+        window.update_items()
+        self._highlight(window, child)
+        window.selection.add(child)
+
+        window.mark_as_derived()
+
+        assert "cannot be its own source" in self._shown(window)
+        assert db.get_parent_ids(child) == []
+
+    def test_marking_records_the_selection_as_sources(self, window_for):
+        from tagorganizer import db
+
+        window = window_for()
+        child, parent = self._two_photos(window)
+        window.update_items()
+        self._highlight(window, child)
+        window.selection.add(parent)
+
+        window.mark_as_derived()
+
+        assert db.get_parent_ids(child) == [parent]
+        assert "Marked as derived from 1 photo(s)." in self._shown(window)
+
+    def test_clearing_without_a_current_photo_says_so(self, window_for):
+        window = window_for()
+
         window.clear_lineage()
+
+        assert "No current photo to clear." in self._shown(window)
+
+    def test_clearing_a_photo_with_no_sources_says_so(self, window_for):
+        window = window_for()
+        child, _ = self._two_photos(window)
+        window.update_items()
+        self._highlight(window, child)
+
+        window.clear_lineage()
+
+        assert "This photo has no recorded sources." in self._shown(window)
+
+    def test_clearing_removes_the_recorded_sources(self, window_for):
+        from tagorganizer import db
+
+        window = window_for()
+        child, parent = self._two_photos(window)
+        db.set_parents(child, [parent])
+        window.update_items()
+        self._highlight(window, child)
+
+        window.clear_lineage()
+
+        assert db.get_parent_ids(child) == []
+        assert "Cleared the recorded sources." in self._shown(window)
 
 
 class TestViewsFollowTheLibrary:

@@ -1006,14 +1006,14 @@ class MainWindow(QMainWindow):
         """
         current = self.grid.current_item()
         parents, error = lineage_targets(
-            current.id if current else None, self.selection.ids()
+            current.item.id if current else None, self.selection.ids()
         )
         if error:
             self.messages.add(error)
             return
 
         try:
-            db.set_parents(current.id, parents)
+            db.set_parents(current.item.id, parents)
         except ValueError as exception:
             # A cycle: the current photo is already an ancestor of one of the
             # sources, so this link would make lineage circular.
@@ -1029,10 +1029,10 @@ class MainWindow(QMainWindow):
         if current is None:
             self.messages.add("No current photo to clear.")
             return
-        if not db.get_parent_ids(current.id):
+        if not db.get_parent_ids(current.item.id):
             self.messages.add("This photo has no recorded sources.")
             return
-        db.set_parents(current.id, [])
+        db.set_parents(current.item.id, [])
         self.messages.add("Cleared the recorded sources.")
         self.update_items()
 
