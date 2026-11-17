@@ -78,4 +78,4 @@ ignore = ["SIM102", "SIM108"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-tagorganizer = ["alembic.ini", "migrations/script.py.mako"]
+tagorganizer = ["alembic.ini", "migrations/script.py.mako", "data/*"]
