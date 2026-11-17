@@ -611,3 +611,154 @@ class TestFullImageDecode:
         loader.pool.waitForDone(5000)
 
         assert loader._inflight == set()
+
+
+class TestStopBeforeTheApplicationGoes:
+    """Destroying the QApplication deletes the loaders' QObjects. A decode that
+    finishes after that emits through a deleted emitter, and PyQt aborts the
+    whole process. Quitting while thumbnails were still loading did exactly
+    that, so the pools are drained first."""
+
+    def test_stop_drops_queued_decodes_and_waits_for_running_ones(
+        self, qapp, tmp_path, monkeypatch
+    ):
+        import time
+
+        from tagorganizer.models import Item
+        from tagorganizer.widgets import helper
+
+        decoded = []
+
+        def slow_decode(item, size, photos_path):
+            time.sleep(0.3)
+            decoded.append(item.id)
+            return QImage(10, 10, QImage.Format_RGB32)
+
+        monkeypatch.setattr(helper, "load_qimage", slow_decode)
+        loader = helper.ThumbnailLoader(max_threads=1)
+        loader.load(Item(id=1, uri="a.png"), 150, tmp_path)
+        loader.load(Item(id=2, uri="b.png"), 150, tmp_path)
+        time.sleep(0.05)
+
+        loader.stop()
+
+        assert loader.pool.activeThreadCount() == 0
+        assert decoded == [1]
+        assert loader.pending() == 0
+
+    def test_full_image_stop_drops_queued_decodes(self, tmp_path, monkeypatch):
+        import time
+
+        from tagorganizer.widgets import helper
+
+        decoded = []
+
+        def slow_decode(file):
+            time.sleep(0.3)
+            decoded.append(file)
+
+        monkeypatch.setattr(helper, "load_full_image", slow_decode)
+        loader = helper.FullImageLoader(max_threads=1)
+        loader.warm(str(tmp_path / "a.jpg"))
+        loader.warm(str(tmp_path / "b.jpg"))
+        time.sleep(0.05)
+
+        loader.stop()
+
+        assert loader.pool.activeThreadCount() == 0
+        assert decoded == [str(tmp_path / "a.jpg")]
+        assert loader._inflight == set()
+
+    def test_quitting_mid_decode_exits_cleanly(self, tmp_path):
+        """The real failure, in its own process: a decode still running when
+        the application is destroyed. Without the stop this aborts."""
+        import os
+        import subprocess
+        import sys
+        import textwrap
+
+        script = textwrap.dedent(
+            f"""
+            import gc
+            import time
+            from qtpy.QtCore import QTimer
+            from qtpy.QtGui import QImage
+            from qtpy.QtWidgets import QApplication
+            from tagorganizer.models import Item
+            from tagorganizer.widgets import helper
+
+            def slow_decode(item, size, photos_path):
+                time.sleep(0.5)
+                return QImage(10, 10, QImage.Format_RGB32)
+
+            helper.load_qimage = slow_decode
+            app = QApplication(["quit-test"])
+            app.aboutToQuit.connect(helper.stop_background_decodes)
+            helper.get_thumbnail_loader().load(
+                Item(id=1, uri="a.png"), 150, {str(tmp_path)!r}
+            )
+            QTimer.singleShot(0, app.quit)
+            app.exec()
+            del app
+            gc.collect()
+            time.sleep(1)
+            """
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+        )
+        assert result.returncode == 0, result.stderr
+
+    def test_main_stops_the_decodes_when_the_application_quits(
+        self, monkeypatch, tmp_path
+    ):
+        import sys
+
+        import pytest
+
+        import tagorganizer.main as main_module
+        from tagorganizer.widgets.helper import stop_background_decodes
+
+        config_file = tmp_path / "config.ini"
+        config_file.write_text("[DEFAULT]\nprofile = default\n")
+        connected = []
+
+        class FakeSignal:
+            def connect(self, slot):
+                connected.append(slot)
+
+        class FakeWindow:
+            def __init__(self, app, config_file=None, profile=None):
+                pass
+
+            def report_unhandled(self, summary, details):
+                pass
+
+            def show(self):
+                pass
+
+        class FakeApp:
+            aboutToQuit = FakeSignal()
+
+            def __init__(self, argv):
+                pass
+
+            def exec_(self):
+                return 0
+
+        monkeypatch.setattr(main_module, "MainWindow", FakeWindow)
+        monkeypatch.setattr(main_module, "QApplication", FakeApp)
+        monkeypatch.setattr(
+            main_module, "configure_logging", lambda verbose=False: None
+        )
+        monkeypatch.setattr(sys, "argv", ["TagOrganizer", "--config", str(config_file)])
+        monkeypatch.setattr(sys, "excepthook", sys.excepthook)
+
+        with pytest.raises(SystemExit):
+            main_module.main()
+
+        assert stop_background_decodes in connected

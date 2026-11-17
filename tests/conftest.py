@@ -32,11 +32,17 @@ def qapp():
     QApplication([]) leaves Chromium without argv[0], so constructing the map
     widget aborts. Sharing one instance also stops the answer depending on
     which test module happened to run first.
+
+    The decode pools are stopped before it goes: a thumbnail still decoding
+    when the application is destroyed aborts the run.
     """
     widgets = pytest.importorskip("qtpy.QtWidgets")
-    return widgets.QApplication.instance() or widgets.QApplication(
+    from tagorganizer.widgets.helper import stop_background_decodes
+
+    yield widgets.QApplication.instance() or widgets.QApplication(
         ["tagorganizer-tests"]
     )
+    stop_background_decodes()
 
 
 @pytest.fixture(autouse=True)

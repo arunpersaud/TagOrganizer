@@ -479,6 +479,13 @@ class FullImageLoader:
         with self._lock:
             self._inflight.discard(file)
 
+    def stop(self) -> None:
+        """Drop queued decodes and wait for the running ones to finish."""
+        self.pool.clear()
+        self.pool.waitForDone()
+        with self._lock:
+            self._inflight.clear()
+
 
 _full_image_loader = None
 
@@ -767,6 +774,15 @@ class ThumbnailLoader(QObject):
         """How many decodes are queued or running (used by tests)."""
         return len(self._inflight)
 
+    def stop(self) -> None:
+        """Drop queued decodes and wait for the running ones to finish.
+
+        Their results are never delivered: this is for shutdown.
+        """
+        self.pool.clear()
+        self.pool.waitForDone()
+        self._inflight.clear()
+
 
 # Global thumbnail loader instance
 _thumbnail_loader = None
@@ -778,3 +794,16 @@ def get_thumbnail_loader() -> ThumbnailLoader:
     if _thumbnail_loader is None:
         _thumbnail_loader = ThumbnailLoader()
     return _thumbnail_loader
+
+
+def stop_background_decodes() -> None:
+    """Stop both decode pools; must run while the QApplication still exists.
+
+    Destroying the application deletes the loaders' QObjects. A thumbnail decode
+    that finishes after that emits through a deleted emitter, and PyQt aborts
+    the process ("ThumbnailResultEmitter has been deleted"). main() connects
+    this to aboutToQuit.
+    """
+    for loader in (_thumbnail_loader, _full_image_loader):
+        if loader is not None:
+            loader.stop()

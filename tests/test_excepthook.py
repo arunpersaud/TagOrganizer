@@ -6,6 +6,7 @@ the real main() to check that it installs one.
 """
 
 import sys
+import types
 
 import pytest
 
@@ -82,6 +83,8 @@ class TestWiring:
                 pass
 
         class FakeApp:
+            aboutToQuit = types.SimpleNamespace(connect=lambda slot: None)
+
             def __init__(self, argv):
                 pass
 

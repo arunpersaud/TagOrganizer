@@ -71,7 +71,12 @@ from .widgets import (
     Timeline,
     RESERVED_TAGS,
 )
-from .widgets.helper import CommaCompleter, get_thumbnail_loader, get_thumbnail_path
+from .widgets.helper import (
+    CommaCompleter,
+    get_thumbnail_loader,
+    get_thumbnail_path,
+    stop_background_decodes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1267,6 +1272,7 @@ def main():
             sys.exit(1)
 
     app = QApplication(sys.argv)
+    app.aboutToQuit.connect(stop_background_decodes)
     try:
         window = MainWindow(app, config_file=configfile, profile=commands["--profile"])
     except config.ProfileNotFoundError as error:
