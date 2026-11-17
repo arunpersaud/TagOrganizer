@@ -1,13 +1,17 @@
 """Tag the photos that contain faces.
 
-This finds *that* a face is present, not *whose* it is. A Haar cascade knows
-what a face looks like in general; telling one person from another needs an
-embedding per face and a set of labelled examples to compare against, which is
-a different piece of work. Tagging photos that contain people still makes them
+This finds *that* a face is present, not *whose* it is. A detector knows what a
+face looks like in general; telling one person from another needs an embedding
+per face and a set of labelled examples to compare against, which is a
+different piece of work. Tagging photos that contain people still makes them
 findable, which is most of the value.
 
-Uses the cascades bundled with OpenCV, which is already a dependency, so this
-needs nothing installed.
+Detection uses YuNet, a small neural network run through OpenCV's
+cv2.FaceDetectorYN. The model is shipped in the package under data/, with its
+source and license in data/YUNET-NOTICE.md, so nothing is downloaded at run
+time. It replaces the Haar cascade this module used before: OpenCV 5 removed
+the cascade files and the cv2.CascadeClassifier path to them, while
+FaceDetectorYN is present in both the 4.x and 5.x releases.
 
 Copyright 2024 Arun Persaud.
 
@@ -26,29 +30,50 @@ from tagorganizer.plugins import Plugin
 
 logger = logging.getLogger(__name__)
 
-# Detection runs on a downscaled copy. A cascade slides a window over the whole
-# image, so cost grows with area: a 40 megapixel photo takes seconds and finds
-# nothing a 900 pixel wide copy would miss.
+MODEL_PATH = Path(__file__).parents[2] / "data" / "face_detection_yunet_2026may.onnx"
+
+# Detection runs on a downscaled copy. Cost grows with pixel count, and a
+# 40 megapixel photo takes seconds per file. YuNet's README says it finds faces
+# of roughly 10 to 300 pixels, which a 900 pixel wide frame keeps for most
+# photos.
 MAX_WIDTH = 900
 
-# Tuned to prefer missing a face over inventing one. A false positive tags a
-# photo that has no one in it, and the user has no way to tell which tags were
-# guessed - the same reasoning as the filename dates.
-#
-# No test pins these values: demonstrating a false positive needs real
-# photographs, which cannot live in the repository, and neither blank frames
-# nor random noise fire the cascade at any setting. Lowering MIN_NEIGHBOURS
-# will not turn any test red, so treat it as a deliberate choice rather than
-# an arbitrary one.
-SCALE_FACTOR = 1.1
-MIN_NEIGHBOURS = 6
+# A YuNet score is the network's confidence in a box, from 0 to 1. A false
+# positive tags a photo that has no one in it, and the user has no way to tell
+# which tags were guessed, the same reasoning as the filename dates, so the bar
+# is kept high. YuNet's own demo uses 0.9; 0.8 keeps faces the network is fairly
+# sure of, such as the one in the test photo (about 0.92), and drops weaker
+# guesses. This is a judgment, not a measured optimum.
+SCORE_THRESHOLD = 0.8
+# Overlapping boxes above this intersection-over-union collapse into one face.
+NMS_THRESHOLD = 0.3
+# The most candidate boxes the network may propose before suppression.
+TOP_K = 5000
 
 
 @lru_cache(maxsize=1)
 def _detector():
-    """The cascade, loaded once - it is about a megabyte of XML."""
-    path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
-    return cv2.CascadeClassifier(str(path))
+    """The detector, built once. The model is about 230 KB, and reading it on
+    every photo would cost more than the detection itself.
+
+    A missing or corrupt model raises here, and that is deliberately not caught
+    by count_faces: caught there, every photo in a library would read as
+    "no faces" and the task would report success.
+    """
+    return _build_detector(MODEL_PATH)
+
+
+def _build_detector(model_path):
+    # The input size given here is only a placeholder: YuNet's anchor layout
+    # depends on the image size, so count_faces sets the real size per image.
+    return cv2.FaceDetectorYN.create(
+        str(model_path),
+        "",
+        (MAX_WIDTH, MAX_WIDTH),
+        SCORE_THRESHOLD,
+        NMS_THRESHOLD,
+        TOP_K,
+    )
 
 
 def count_faces(path) -> int:
@@ -56,10 +81,13 @@ def count_faces(path) -> int:
 
     Returns 0 for anything that cannot be read: a task running over a whole
     library must not stop because one file is a text file with a .jpg name.
+    A detector that cannot be built is not "unreadable", and raises.
     """
     path = Path(path)
     if not path.is_file():
         return 0
+
+    detector = _detector()
 
     try:
         image = cv2.imread(str(path))
@@ -69,21 +97,18 @@ def count_faces(path) -> int:
         height, width = image.shape[:2]
         if width > MAX_WIDTH:
             scale = MAX_WIDTH / width
-            image = cv2.resize(image, (MAX_WIDTH, int(height * scale)))
+            height, width = int(height * scale), MAX_WIDTH
+            image = cv2.resize(image, (width, height))
 
-        grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        # Equalising first makes detection far less sensitive to exposure,
-        # which matters for a library shot across many lighting conditions.
-        grey = cv2.equalizeHist(grey)
-
-        faces = _detector().detectMultiScale(
-            grey, scaleFactor=SCALE_FACTOR, minNeighbors=MIN_NEIGHBOURS
-        )
+        # One worker thread runs every task, so the shared detector is never
+        # used from two threads at once; setInputSize changes its state.
+        detector.setInputSize((width, height))
+        _, faces = detector.detect(image)
     except Exception:
         logger.debug("could not look for faces in %s", path, exc_info=True)
         return 0
 
-    return len(faces)
+    return 0 if faces is None else len(faces)
 
 
 class DetectFaces(Plugin):

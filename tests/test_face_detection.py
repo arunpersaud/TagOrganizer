@@ -1,15 +1,16 @@
 """Finding faces and tagging the photos that have them.
 
-A Haar cascade answers "is there a face here", not "whose face is it".
+The face detector answers "is there a face here", not "whose face is it".
 Naming people needs embeddings and a set of labelled examples to compare
 against, which is a different piece of work; this tags photos that contain
 faces so they can be found at all.
 
-The detector itself is exercised against real images, but only to the extent
-of "it runs and finds nothing in a blank frame" - a photograph of a face
-cannot be committed to the repository, and Haar will not fire on anything
-synthesisable here. Everything above the detector is tested with a stub.
+The detector is exercised against one committed photograph of a face (see
+tests/data/NOTE.md for its source and license), a blank frame and random noise.
+Everything above the detector is tested with a stub.
 """
+
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -21,6 +22,8 @@ from tagorganizer.plugins.builtin import detect_faces as module
 from tagorganizer.plugins.builtin.detect_faces import DetectFaces, count_faces
 from tagorganizer.plugins.context import TaskContext
 from tagorganizer.scope import Scope, resolve_scope
+
+PORTRAIT = Path(__file__).parent / "data" / "lincoln_portrait.jpg"
 
 
 def write_image(path, width=200, height=200, value=128):
@@ -49,6 +52,9 @@ def tags_on(item_id):
 
 
 class TestCountFacesAgainstRealImages:
+    def test_a_photograph_of_a_face_is_found(self):
+        assert count_faces(PORTRAIT) >= 1
+
     def test_a_blank_image_has_no_faces(self, tmp_path):
         assert count_faces(write_image(tmp_path / "blank.jpg")) == 0
 
@@ -87,8 +93,42 @@ class TestCountFacesAgainstRealImages:
         assert count_faces(write_image(tmp_path / "a.jpg")) == 0
 
     def test_a_very_large_image_is_handled(self, tmp_path):
-        """Detection runs on a downscaled copy, or a 40MP photo takes seconds."""
         assert count_faces(write_image(tmp_path / "big.jpg", 4000, 3000)) == 0
+
+    def test_a_large_image_is_detected_at_reduced_size(self, tmp_path, monkeypatch):
+        """Detection runs on a downscaled copy, or a 40MP photo takes seconds.
+
+        The detector is wrapped, not replaced: the spy records the size the
+        detector is asked to work at and then does the real detection.
+        """
+        real = module._detector()
+        seen = []
+
+        class Spy:
+            def setInputSize(self, size):
+                seen.append(("input", size))
+                real.setInputSize(size)
+
+            def detect(self, image):
+                seen.append(("image", image.shape))
+                return real.detect(image)
+
+        monkeypatch.setattr(module, "_detector", lambda: Spy())
+        count_faces(write_image(tmp_path / "big.jpg", 4000, 3000))
+
+        widths = [size[0] if kind == "input" else size[1] for kind, size in seen]
+        assert widths and max(widths) <= module.MAX_WIDTH, seen
+
+    def test_a_large_portrait_is_still_found(self, tmp_path):
+        """The reduction must not lose the face: upscale the portrait to a
+        large frame, so the copy the detector sees is the reduced one."""
+        import cv2
+
+        image = cv2.imread(str(PORTRAIT))
+        large = cv2.resize(image, (2400, int(image.shape[0] * 2400 / image.shape[1])))
+        path = tmp_path / "large_portrait.jpg"
+        cv2.imwrite(str(path), large)
+        assert count_faces(path) >= 1
 
 
 class TestTagging:
@@ -101,6 +141,21 @@ class TestTagging:
             session.commit()
             session.refresh(item)
             return item.id
+
+    def test_a_real_portrait_is_tagged_through_the_plugin(self, temp_db, tmp_path):
+        """No stub anywhere: the photograph goes through count_faces and the
+        real TaskContext tagging path, the way a user's run does."""
+        path = tmp_path / "portrait.jpg"
+        path.write_bytes(PORTRAIT.read_bytes())
+        with Session(temp_db) as session:
+            item = Item(uri=str(path))
+            session.add(item)
+            session.commit()
+            session.refresh(item)
+            item_id = item.id
+
+        run(DetectFaces(), tmp_path)
+        assert tags_on(item_id) == [DetectFaces.TAG]
 
     def test_a_photo_with_a_face_is_tagged(self, photo, tmp_path, monkeypatch):
         monkeypatch.setattr(module, "count_faces", lambda path: 1)
