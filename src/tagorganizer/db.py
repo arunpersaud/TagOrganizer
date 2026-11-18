@@ -577,12 +577,14 @@ def set_parent_tag_by_id(child_id: int, parent_id: int | None) -> None:
     _store_parent(child_id, parent_id)
 
 
-def add_images(files):
+def add_images(files) -> list[int]:
     """Add multiple images to the database in a single session.
 
     Pre-loads existing URIs to avoid nested session calls. Skips duplicates,
-    including a path repeated within `files`.
+    including a path repeated within `files`. Returns the ids of the items it
+    created, in `files` order, so an import can run its tasks on just those.
     """
+    added = []
     with new_session() as session:
         # Pre-load all existing URIs in a single query
         existing_uris = set(session.exec(select(Item.uri)).all())
@@ -594,11 +596,17 @@ def add_images(files):
                 continue
             tmp = Item(uri=f_str)
             session.add(tmp)
+            added.append(tmp)
             # also guard against the same path appearing twice in `files`:
             # add_directory globs both "*.jpg" and "*.JPG", which match the
             # same file on case-insensitive filesystems.
             existing_uris.add(f_str)
+        # Read the ids before the commit expires the rows: afterwards each
+        # .id would be a SELECT of its own.
+        session.flush()
+        ids = [item.id for item in added]
         session.commit()
+        return ids
 
 
 def add_image(filename):

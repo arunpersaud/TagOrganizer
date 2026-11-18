@@ -191,6 +191,19 @@ class TestF19AddImagesOptimization:
         expected = ["/p/0.jpg", "/p/1.jpg", "/p/2.jpg", "/p/3.jpg"]
         assert uris == expected, f"Expected {expected}, got {uris}"
 
+    def test_add_images_returns_the_new_ids(self, temp_db):
+        """The import runs its automatic tasks on exactly these."""
+        ids = db.add_images(["/p/0.jpg", "/p/1.jpg"])
+
+        assert ids == [db.check_item_in_db("/p/0.jpg"), db.check_item_in_db("/p/1.jpg")]
+
+    def test_add_images_leaves_out_existing_and_repeated_paths(self, temp_db):
+        db.add_images(["/p/0.jpg"])
+
+        ids = db.add_images(["/p/0.jpg", "/p/1.jpg", "/p/1.jpg"])
+
+        assert ids == [db.check_item_in_db("/p/1.jpg")]
+
     def test_add_images_with_all_duplicates(self, temp_db):
         """add_images should handle all-duplicate input gracefully."""
         # Add initial images
