@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- An "Unnamed faces" filter: photos with a face and no tag under People.
+  Naming anyone in a photo, or tagging it plain People, takes it off the
+  list. Set `people_tag` in the config's DEFAULT section to use another
+  tag than People
+
+### Changed
+- The face task, now "Detect Faces", records how many faces each photo has
+  instead of tagging it People
+
+### Fixed
+- Putting "Wrong dir" into an OR group raised an error
+
 ## [0.4] - 2026-11-17
 
 ### Added

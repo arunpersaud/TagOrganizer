@@ -1,10 +1,14 @@
-"""Tag the photos that contain faces.
+"""Count the faces in photos, for the Unnamed faces filter.
+
+The task records how many faces each photo has and tags nothing. The filter
+then shows photos with a face and no tag under People, so naming someone takes
+a photo off the list by itself; a "People" tag added here would only go stale.
 
 This finds *that* a face is present, not *whose* it is. A detector knows what a
 face looks like in general; telling one person from another needs an embedding
 per face and a set of labelled examples to compare against, which is a
-different piece of work. Tagging photos that contain people still makes them
-findable, which is most of the value.
+different piece of work. Knowing which photos have a face still turns naming
+people into a list to work through, which is most of the value.
 
 Detection uses YuNet, a small neural network run through OpenCV's
 cv2.FaceDetectorYN. The model is shipped in the package under data/, with its
@@ -112,16 +116,16 @@ def count_faces(path) -> int:
 
 
 class DetectFaces(Plugin):
-    name = "Detect Faces and Tag"
-    description = "Tag photos that contain a face. Slow; aim it at a selection."
+    name = "Detect Faces"
+    description = (
+        "Count the faces in photos, for the Unnamed faces filter. "
+        "Slow; aim it at a selection."
+    )
     category = "Tags"
     # Detection is slow, so being able to aim it at a selection matters.
     accepts_selection = True
     # Never automatic: it would make every import take minutes.
     auto = False
-
-    #: Change this in your own copy of the plugin to tag something else.
-    TAG = "People"
 
     def run(self, ctx):
         photos = [
@@ -131,21 +135,27 @@ class DetectFaces(Plugin):
         ]
         total = len(photos)
         done = 0
-        tagged = 0
+        with_faces = 0
         found = 0
+        # Saved in batches, and before stopping: a long run that is cancelled
+        # keeps what it has already found.
+        unsaved = []
 
         for item in photos:
             if ctx.cancelled:
                 break
-            faces = count_faces(item.uri)
-            if faces:
-                ctx.add_tag(item, self.TAG)
-                tagged += 1
-                found += faces
+            item.face_count = count_faces(item.uri)
+            unsaved.append(item)
+            if item.face_count:
+                with_faces += 1
+                found += item.face_count
             done += 1
             if done % 10 == 0:
+                ctx.update(unsaved)
+                unsaved = []
                 yield total, done
 
+        ctx.update(unsaved)
         ctx.message(f"photos examined: {total}")
-        ctx.message(f"tagged {tagged} of them, {found} faces in total")
+        ctx.message(f"faces in {with_faces} of them, {found} faces in total")
         yield total, done

@@ -178,7 +178,9 @@ will keep the tag hierarchy intact.
 - Ability to set geolocation manually in db (also in file?): pop up
   map with same location as current map, use double click on map to
   select location
-- Suggest/Autotag faces automatically, key to show detected faces, store
-  models in a new table in the db
+- Recognise faces: the Detect Faces task finds that a photo has faces, and
+  the Unnamed faces filter lists the ones still to name; suggesting who a
+  face is (embeddings stored in a new table), and a key to show the
+  detected faces, are still to do
 - Suggest/Autotag geolocation by calculating a mean/std for each
   existing geotag

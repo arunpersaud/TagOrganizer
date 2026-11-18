@@ -148,20 +148,30 @@ class TestCountFacesAgainstRealImages:
         assert count_faces(path) >= 1
 
 
-class TestTagging:
-    @pytest.fixture
-    def photo(self, temp_db, tmp_path):
-        path = write_image(tmp_path / "a.jpg")
-        with Session(temp_db) as session:
-            item = Item(uri=str(path))
-            session.add(item)
-            session.commit()
-            session.refresh(item)
-            return item.id
+def face_count_of(item_id):
+    with db.new_session() as session:
+        return session.get(Item, item_id).face_count
 
-    def test_a_real_portrait_is_tagged_through_the_plugin(self, temp_db, tmp_path):
+
+class TestRecordingCounts:
+    """The task records how many faces each photo has and tags nothing: the
+    Unnamed faces filter works out which photos still need a name."""
+
+    @pytest.fixture
+    def photos(self, temp_db, tmp_path):
+        ids = []
+        with Session(temp_db) as session:
+            for name in ("a.jpg", "b.jpg", "c.jpg"):
+                item = Item(uri=str(write_image(tmp_path / name)))
+                session.add(item)
+                session.commit()
+                session.refresh(item)
+                ids.append(item.id)
+        return ids
+
+    def test_a_real_portrait_is_counted_through_the_plugin(self, temp_db, tmp_path):
         """No stub anywhere: the photograph goes through count_faces and the
-        real TaskContext tagging path, the way a user's run does."""
+        real TaskContext saving path, the way a user's run does."""
         path = tmp_path / "portrait.jpg"
         path.write_bytes(PORTRAIT.read_bytes())
         with Session(temp_db) as session:
@@ -172,30 +182,64 @@ class TestTagging:
             item_id = item.id
 
         run(DetectFaces(), tmp_path)
-        assert tags_on(item_id) == [DetectFaces.TAG]
+        assert face_count_of(item_id) == 1
 
-    def test_a_photo_with_a_face_is_tagged(self, photo, tmp_path, monkeypatch):
-        monkeypatch.setattr(module, "count_faces", lambda path: 1)
-        run(DetectFaces(), tmp_path)
-        assert tags_on(photo) == [DetectFaces.TAG]
-
-    def test_a_photo_without_a_face_is_left_alone(self, photo, tmp_path, monkeypatch):
-        monkeypatch.setattr(module, "count_faces", lambda path: 0)
-        run(DetectFaces(), tmp_path)
-        assert tags_on(photo) == []
-
-    def test_running_twice_does_not_duplicate_the_tag(
-        self, photo, tmp_path, monkeypatch
-    ):
+    def test_the_face_count_is_stored(self, photos, tmp_path, monkeypatch):
         monkeypatch.setattr(module, "count_faces", lambda path: 2)
         run(DetectFaces(), tmp_path)
-        run(DetectFaces(), tmp_path)
-        assert tags_on(photo) == [DetectFaces.TAG]
+        assert [face_count_of(i) for i in photos] == [2, 2, 2]
+        assert all(tags_on(i) == [] for i in photos)
 
-    def test_it_reports_how_many_it_tagged(self, photo, tmp_path, monkeypatch):
+    def test_a_photo_without_faces_is_recorded_as_checked(
+        self, photos, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(module, "count_faces", lambda path: 0)
+        run(DetectFaces(), tmp_path)
+        assert face_count_of(photos[0]) == 0
+
+    def test_running_again_replaces_the_count(self, photos, tmp_path, monkeypatch):
+        monkeypatch.setattr(module, "count_faces", lambda path: 2)
+        run(DetectFaces(), tmp_path)
+        monkeypatch.setattr(module, "count_faces", lambda path: 0)
+        run(DetectFaces(), tmp_path)
+        assert face_count_of(photos[0]) == 0
+
+    def test_videos_stay_unchecked(self, temp_db, tmp_path, monkeypatch):
         monkeypatch.setattr(module, "count_faces", lambda path: 1)
+        with Session(temp_db) as session:
+            video = Item(uri=str(tmp_path / "clip.mp4"))
+            session.add(video)
+            session.commit()
+            session.refresh(video)
+            video_id = video.id
+
+        run(DetectFaces(), tmp_path)
+        assert face_count_of(video_id) is None
+
+    def test_counts_found_before_cancelling_are_kept(
+        self, photos, tmp_path, monkeypatch
+    ):
+        """Detection is slow; stopping a long run must not throw away what it
+        already found."""
+        ctx = TaskContext(Scope.LIBRARY, tmp_path, tmp_path, lambda text: None)
+
+        def count_then_cancel(path):
+            ctx.cancel()
+            return 4
+
+        monkeypatch.setattr(module, "count_faces", count_then_cancel)
+        list(DetectFaces().run(ctx))
+
+        counts = [face_count_of(i) for i in photos]
+        assert counts.count(4) == 1
+        assert counts.count(None) == 2
+
+    def test_it_reports_what_it_found(self, photos, tmp_path, monkeypatch):
+        faces = iter([2, 0, 3])
+        monkeypatch.setattr(module, "count_faces", lambda path: next(faces))
         messages = run(DetectFaces(), tmp_path)
-        assert any("1" in m for m in messages), messages
+        assert "photos examined: 3" in messages
+        assert "faces in 2 of them, 5 faces in total" in messages
 
 
 class TestWhatItLooksAt:
