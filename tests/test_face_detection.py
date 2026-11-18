@@ -55,6 +55,23 @@ class TestCountFacesAgainstRealImages:
     def test_a_photograph_of_a_face_is_found(self):
         assert count_faces(PORTRAIT) >= 1
 
+    def test_one_face_is_counted_once(self):
+        """The network proposes several overlapping boxes for one face (seven
+        for this portrait); suppression must merge them, or the task's
+        "faces in total" counts each face many times."""
+        assert count_faces(PORTRAIT) == 1
+
+    def test_two_faces_side_by_side_are_counted_separately(self, tmp_path):
+        """Merging works per face: two people in one photo are two faces,
+        not one and not fourteen."""
+        import cv2
+
+        portrait = cv2.imread(str(PORTRAIT))
+        path = tmp_path / "two.png"
+        cv2.imwrite(str(path), np.hstack([portrait, portrait]))
+
+        assert count_faces(path) == 2
+
     def test_a_blank_image_has_no_faces(self, tmp_path):
         assert count_faces(write_image(tmp_path / "blank.jpg")) == 0
 
