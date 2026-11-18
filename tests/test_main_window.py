@@ -649,7 +649,9 @@ class TestTagsFromTheTagLine:
         assert db.get_tag("iphone").name == "iPhone"
         assert self._tags_of(photo) == {"iPhone"}
 
-    @pytest.mark.parametrize("reserved", ["No GPS", "no gps", "Wrong dir"])
+    @pytest.mark.parametrize(
+        "reserved", ["No GPS", "no gps", "Wrong dir", "unnamed Faces"]
+    )
     def test_a_reserved_name_is_refused_and_creates_no_tag(self, window_for, reserved):
         from tagorganizer import db
 

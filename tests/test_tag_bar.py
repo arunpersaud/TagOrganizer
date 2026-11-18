@@ -17,6 +17,9 @@ class _DummyConfig:
     photos = Path("/photos")
     videos = Path("/videos")
 
+    def get_people_tag(self):
+        return "Family"
+
 
 class _DummyMain:
     """Counts refreshes, because how many happen is the point of one test."""
@@ -694,6 +697,51 @@ class TestFlagChipsSurviveUngrouping:
         bar.remove_selected()
 
         assert bar.get_filters().wrong_dir is True
+
+
+class TestUnnamedFacesChip:
+    def test_the_chip_sets_the_filter_with_the_configured_people_tag(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("Unnamed faces")
+
+        filters = bar.get_filters()
+        assert filters.unnamed_faces is True
+        assert filters.people_tag == "Family"
+        assert filters.tags == []
+
+    def test_in_a_group_it_carries_the_people_tag(self, qapp):
+        from tagorganizer.widgets.tag_bar import Condition
+
+        bar = _tag_bar()
+        TestFlagChipsSurviveUngrouping()._flag_into_group(bar, "Unnamed faces")
+
+        (group,) = bar.get_filters().groups
+        assert Condition("unnamed_faces", "Family") in group
+        assert bar.get_filters().unnamed_faces is False
+        labels = {w.text() for w in bar._group_members}
+        assert "Unnamed faces" in labels
+
+    def test_ungrouping_brings_the_chip_back(self, qapp):
+        bar = _tag_bar()
+        TestFlagChipsSurviveUngrouping()._flag_into_group(bar, "Unnamed faces")
+
+        bar.toggle_chip(next(w for w in bar._group_members if w.text() == "beach"))
+        bar.ungroup_selected()
+
+        assert bar.get_filters().unnamed_faces is True
+
+
+class TestWrongDirInAGroup:
+    def test_its_condition_carries_the_library_folders(self, qapp):
+        """The query layer needs the folders to test against. The chip used to
+        hand it True, and grouping Wrong dir raised 'bool is not iterable'."""
+        from tagorganizer.widgets.tag_bar import Condition
+
+        bar = _tag_bar()
+        TestFlagChipsSurviveUngrouping()._flag_into_group(bar, "Wrong dir")
+
+        (group,) = bar.get_filters().groups
+        assert Condition("wrong_dir", [Path("/photos"), Path("/videos")]) in group
 
 
 class TestOneAreaChip:

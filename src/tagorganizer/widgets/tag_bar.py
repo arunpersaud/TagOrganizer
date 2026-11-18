@@ -31,10 +31,15 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-RESERVED_TAGS = ["No Time", "No GPS", "Wrong dir"]
+RESERVED_TAGS = ["No Time", "No GPS", "Wrong dir", "Unnamed faces"]
 
 # Condition kind -> the reserved chip that stands for it.
-FLAG_CHIP_NAMES = {"no_time": "No Time", "no_gps": "No GPS", "wrong_dir": "Wrong dir"}
+FLAG_CHIP_NAMES = {
+    "no_time": "No Time",
+    "no_gps": "No GPS",
+    "wrong_dir": "Wrong dir",
+    "unnamed_faces": "Unnamed faces",
+}
 
 
 @dataclass
@@ -178,6 +183,7 @@ class TagBar(QHBoxLayout):
             "Wrong dir": SelectedBool(),
             "No Time": SelectedBool(),
             "No GPS": SelectedBool(),
+            "Unnamed faces": SelectedBool(),
         }
 
         # Chips the user has picked out, for grouping or removal. Held here
@@ -420,17 +426,23 @@ class TagBar(QHBoxLayout):
             return Condition("end_date", self.selected_times_max.timestamp)
         if widget is self.selected_ids.widget:
             return Condition("item_ids", self.selected_ids.item_ids)
-        for name, value in self.bool.items():
-            if widget is value.widget:
-                return Condition(
-                    {
-                        "No Time": "no_time",
-                        "No GPS": "no_gps",
-                        "Wrong dir": "wrong_dir",
-                    }[name],
-                    True,
-                )
+        for kind, name in FLAG_CHIP_NAMES.items():
+            if widget is self.bool[name].widget:
+                return Condition(kind, self._flag_value(kind))
         return None
+
+    def _flag_value(self, kind):
+        """What the query layer needs to evaluate a flag chip inside a group.
+
+        The flat fields carry these separately (Filters.directories,
+        Filters.people_tag); a condition has only its value.
+        """
+        config = self.main.config
+        if kind == "wrong_dir":
+            return [config.photos, config.videos]
+        if kind == "unnamed_faces":
+            return config.get_people_tag()
+        return True
 
     def group_selected(self):
         """Combine the selected chips into one OR group.
@@ -593,6 +605,7 @@ class TagBar(QHBoxLayout):
             "no_time": "No Time",
             "no_gps": "No GPS",
             "wrong_dir": "Wrong dir",
+            "unnamed_faces": "Unnamed faces",
             "item_ids": "Selection",
         }.get(condition.kind, condition.kind)
 
@@ -683,6 +696,8 @@ class TagBar(QHBoxLayout):
             wrong_dir=self.bool["Wrong dir"].value,
             no_time=self.bool["No Time"].value,
             no_gps=self.bool["No GPS"].value,
+            unnamed_faces=self.bool["Unnamed faces"].value,
+            people_tag=self.main.config.get_people_tag(),
             directories=[self.main.config.photos, self.main.config.videos],
             item_ids=self.selected_ids.item_ids,
             groups=[list(g) for g in self._groups],

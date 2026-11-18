@@ -319,6 +319,33 @@ class TestDisabledPluginSetting:
         finally:
             db.engine.dispose()
 
+    def test_the_people_tag_defaults_to_people(self, tmp_path):
+        from tagorganizer import db
+
+        manager = self._manager(tmp_path)
+        try:
+            assert manager.get_people_tag() == "People"
+        finally:
+            db.engine.dispose()
+
+    def test_the_people_tag_can_be_configured(self, tmp_path):
+        from tagorganizer import db
+
+        manager = self._manager(tmp_path, "people_tag = Family ")
+        try:
+            assert manager.get_people_tag() == "Family"
+        finally:
+            db.engine.dispose()
+
+    def test_an_empty_people_tag_falls_back_to_people(self, tmp_path):
+        from tagorganizer import db
+
+        manager = self._manager(tmp_path, "people_tag =")
+        try:
+            assert manager.get_people_tag() == "People"
+        finally:
+            db.engine.dispose()
+
     def test_a_stored_list_is_read_back(self, tmp_path):
         from tagorganizer import db
 

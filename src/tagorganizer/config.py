@@ -272,6 +272,14 @@ class ConfigManager:
         raw = self.config.defaults().get("disabled_plugins", "")
         return {name.strip() for name in raw.split(";") if name.strip()}
 
+    def get_people_tag(self) -> str:
+        """The tag whose subtree names people, for the Unnamed faces filter.
+
+        Global, in [DEFAULT], like disabled_plugins: the tag tree is per
+        library, but how the user names it is a habit, not a library property.
+        """
+        return self.config.defaults().get("people_tag", "").strip() or "People"
+
     def set_disabled_plugins(self, names) -> None:
         """Store the switched-off plugins and write the config out."""
         self.config["DEFAULT"]["disabled_plugins"] = ";".join(sorted(names))

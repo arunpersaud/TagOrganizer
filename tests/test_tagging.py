@@ -73,7 +73,7 @@ class TestF8ReservedTags:
         """Verify RESERVED_TAGS contains the expected reserved names."""
         from tagorganizer.widgets import RESERVED_TAGS
 
-        expected = ["No Time", "No GPS", "Wrong dir"]
+        expected = ["No Time", "No GPS", "Wrong dir", "Unnamed faces"]
         assert expected == RESERVED_TAGS, (
             f"RESERVED_TAGS mismatch: {RESERVED_TAGS} != {expected}"
         )
