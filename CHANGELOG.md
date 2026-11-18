@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4] - 2026-11-17
+
 ### Added
 - Support for videos using vlc-python (for playback) and cv2 (for thumbnails)
 - Saving thumbnails for faster startup
