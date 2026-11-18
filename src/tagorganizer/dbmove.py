@@ -204,7 +204,9 @@ class MoveResult:
 
 
 # Columns to move from source to target, excluding id which is reassigned.
-ITEM_COLUMNS = "uri, uri_md5, data_xxhash, camera, date, longitude, latitude"
+ITEM_COLUMNS = (
+    "uri, uri_md5, data_xxhash, camera, date, longitude, latitude, face_count"
+)
 
 
 def move_items(session: Session, target_path: Path, item_ids: list[int]) -> MoveResult:

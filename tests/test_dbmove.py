@@ -162,6 +162,26 @@ class TestMoveItemsSuccessful:
             assert len(source_items) == 1
             assert source_items[0].uri == "/p/c.jpg"
 
+    def test_face_count_moves_with_the_item(self, source_and_target):
+        """A count left behind would drop the photo from the target's Unnamed
+        faces list without anyone noticing."""
+        with Session(source_and_target["source_engine"]) as session:
+            item = session.exec(select(Item).where(Item.uri == "/p/a.jpg")).one()
+            item.face_count = 3
+            session.add(item)
+            session.commit()
+            item_id = item.id
+
+        move_items(
+            Session(sa_create_engine(f"sqlite:///{source_and_target['source_path']}")),
+            source_and_target["target_path"],
+            [item_id],
+        )
+
+        with Session(source_and_target["target_engine"]) as session:
+            moved = session.exec(select(Item).where(Item.uri == "/p/a.jpg")).one()
+            assert moved.face_count == 3
+
     def test_ids_are_reassigned_in_target(self, source_and_target):
         """Ids are not preserved; target assigns new ids to moved items.
 

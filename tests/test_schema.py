@@ -153,6 +153,37 @@ class TestDatabaseCreationF1:
             ).fetchone()
             assert result[0] == alembic_head()
 
+    def test_upgrade_adds_an_empty_face_count(self, db_path, monkeypatch):
+        """Photos already in a library have not been checked for faces, so the
+        new column must start out empty, not at zero ("checked, no faces")."""
+        db.set_engine(str(db_path))
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_path}")
+        engine = sa_create_engine(f"sqlite:///{db_path}")
+        db.engine = engine
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"
+                )
+            )
+            conn.commit()
+        upgrade_db("a1f4c7b23d05")
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO item (uri, uri_md5, data_xxhash) VALUES ('/p/old.jpg', '', '')"
+                )
+            )
+            conn.commit()
+
+        upgrade_db()
+
+        columns = {col["name"] for col in inspect(engine).get_columns("item")}
+        assert "face_count" in columns
+        with engine.connect() as conn:
+            value = conn.execute(text("SELECT face_count FROM item")).scalar_one()
+        assert value is None
+
 
 class TestItemHashF16:
     """Tests for F16: Item.__hash__ returns integer even for unsaved items."""
