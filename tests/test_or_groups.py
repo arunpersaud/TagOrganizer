@@ -6,9 +6,10 @@ returns the wrong photos, which is the only failure that matters here.
 """
 
 from datetime import datetime
+from pathlib import Path
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from tagorganizer import db
 from tagorganizer.models import Item, ItemTagLink, Tag
@@ -60,7 +61,7 @@ def library(temp_db):
 
 
 def names(filters):
-    return sorted(item.uri.split("/")[-1][0] for item in db.get_images(0, filters))
+    return sorted(Path(item.uri).name[0] for item in db.get_images(0, filters))
 
 
 class TestGroupsAreDisjunctions:
@@ -135,6 +136,42 @@ class TestConditionKindsMatchTheFlatFields:
         assert names(Filters(groups=[[Condition("item_ids", wanted)]])) == names(
             Filters(item_ids=wanted)
         )
+
+    def test_unnamed_faces_ors_with_a_tag(self, library, temp_db):
+        """d has two faces and no People tag; a carries tag A."""
+        with Session(temp_db) as session:
+            d = session.get(Item, library["d"])
+            d.face_count = 2
+            session.add(d)
+            session.commit()
+
+        grouped = Filters(
+            groups=[[Condition("unnamed_faces", "People"), Condition("tag", "A")]]
+        )
+        assert names(grouped) == ["a", "d"]
+        assert names(Filters(groups=[[Condition("unnamed_faces", "People")]])) == names(
+            Filters(unnamed_faces=True)
+        )
+
+    def test_wrong_dir_works_inside_a_group(self, library, temp_db, tmp_path):
+        """The chip's value is the library's folders. a-d sit outside lib; f and
+        g sit inside it, and only g carries tag A. Real paths, because the
+        folder test compares with the platform's separator."""
+        lib = tmp_path / "lib"
+        with Session(temp_db) as session:
+            f = Item(uri=str(lib / "f.jpg"))
+            g = Item(uri=str(lib / "g.jpg"))
+            session.add_all([f, g])
+            session.commit()
+            session.refresh(g)
+            tag_a = session.exec(select(Tag).where(Tag.name == "A")).one()
+            session.add(ItemTagLink(item_id=g.id, tag_id=tag_a.id))
+            session.commit()
+
+        grouped = Filters(
+            groups=[[Condition("wrong_dir", [lib]), Condition("tag", "A")]]
+        )
+        assert names(grouped) == ["a", "b", "c", "d", "g"]
 
 
 class TestItemIdCollision:

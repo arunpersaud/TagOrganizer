@@ -149,6 +149,9 @@ class Filters:
     wrong_dir: bool | None = False
     no_time: bool | None = False
     no_gps: bool | None = False
+    unnamed_faces: bool | None = False
+    # The root of the tags that name people; see db._unnamed_faces.
+    people_tag: str = "People"
     directories: list[Path] | None = None
     # None means "no id filter at all"; an empty list means "an empty
     # selection", which must match nothing rather than everything.

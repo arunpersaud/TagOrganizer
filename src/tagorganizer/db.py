@@ -729,6 +729,22 @@ def get_all_tag_ids(tag_names: list[str]) -> list[int]:
         return list(_subtree_tag_ids(session, set(ids)))
 
 
+def _unnamed_faces(people_tag: str):
+    """Photos with a face in them and no tag from the People tree.
+
+    The tree includes the People tag itself, so tagging a photo plain "People"
+    takes it off the list as well: that is how photos of strangers are
+    dismissed. Without a People tag every photo with a face is unnamed. A NULL
+    count - never checked, or a video - is never > 0, so those stay out.
+    """
+    has_faces = Item.face_count > 0
+    people_ids = get_all_tag_ids([people_tag])
+    if not people_ids:
+        return has_faces
+    named = select(ItemTagLink.item_id).where(ItemTagLink.tag_id.in_(people_ids))
+    return sa.and_(has_faces, Item.id.not_in(named))
+
+
 def condition_expression(
     condition: Condition, session: Session, id_table: str = _ID_TABLE
 ):
@@ -771,6 +787,9 @@ def condition_expression(
 
     if kind == "wrong_dir":
         return sa.and_(*[sa.not_(_inside_dir(d)) for d in value])
+
+    if kind == "unnamed_faces":
+        return _unnamed_faces(value)
 
     if kind == "item_ids":
         _materialise_ids(session, value, id_table)
@@ -822,6 +841,9 @@ def filter_query(query, filter: Filters, session: Session):
     if filter.wrong_dir and filter.directories:
         for directory in filter.directories:
             query = query.where(sa.not_(_inside_dir(directory)))
+
+    if filter.unnamed_faces:
+        query = query.where(_unnamed_faces(filter.people_tag))
 
     # Filter by id set. Materialise ids in a temp table to avoid SQLite's
     # per-statement 32766 parameter limit. The temp table keeps ids out of
