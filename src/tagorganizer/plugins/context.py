@@ -99,6 +99,10 @@ class TaskContext:
         if items:
             db.update_items_in_db(items)
 
+    def save_face_counts(self, items) -> None:
+        """Store the face_count of each item, skipping any deleted meanwhile."""
+        db.set_face_counts([(item.id, item.face_count) for item in items])
+
     def message(self, text: str) -> None:
         """Say something in the status bar."""
         self._message_sink(text)

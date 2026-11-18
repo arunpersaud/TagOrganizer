@@ -715,6 +715,27 @@ def update_items_in_db(items: list[Item]) -> None:
         session.commit()
 
 
+def set_face_counts(counts: list[tuple[int, int]]) -> None:
+    """Store (item id, face count) pairs.
+
+    A plain UPDATE by id rather than update_items_in_db: the face task runs
+    for minutes over items it loaded at the start, and the user may delete or
+    move some of them meanwhile. Flushing those objects would raise
+    StaleDataError and lose the batch; here a row that is gone is skipped.
+    """
+    if not counts:
+        return
+    table = Item.__table__
+    statement = (
+        sa.update(table)
+        .where(table.c.id == sa.bindparam("item_id"))
+        .values(face_count=sa.bindparam("count"))
+    )
+    with new_session() as session:
+        session.execute(statement, [{"item_id": i, "count": c} for i, c in counts])
+        session.commit()
+
+
 def get_all_tag_ids(tag_names: list[str]) -> list[int]:
     """Fetch all tag IDs including children for given tag names."""
     with new_session() as session:

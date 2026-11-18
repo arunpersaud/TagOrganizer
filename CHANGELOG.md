@@ -15,7 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The face task, now "Detect Faces", records how many faces each photo has
-  instead of tagging it People
+  instead of tagging it People. If you ran it in 0.4, remove the People
+  tags it added before running it again: a photo tagged plain People counts
+  as dismissed, and would stay off the Unnamed faces list
 
 ### Fixed
 - Putting "Wrong dir" into an OR group raised an error

@@ -80,23 +80,25 @@ def _build_detector(model_path):
     )
 
 
-def count_faces(path) -> int:
-    """How many faces are visible in this image.
+def count_faces(path) -> int | None:
+    """How many faces are visible in this image, or None if it can't be read.
 
-    Returns 0 for anything that cannot be read: a task running over a whole
-    library must not stop because one file is a text file with a .jpg name.
-    A detector that cannot be built is not "unreadable", and raises.
+    None rather than 0, because 0 is stored as "checked, no faces" and takes
+    the photo off the Unnamed faces list; a file on an unplugged drive has not
+    been checked. Nothing is raised either: a task running over a whole library
+    must not stop because one file is a text file with a .jpg name. A detector
+    that cannot be built is not "unreadable", and raises.
     """
     path = Path(path)
     if not path.is_file():
-        return 0
+        return None
 
     detector = _detector()
 
     try:
         image = cv2.imread(str(path))
         if image is None:
-            return 0
+            return None
 
         height, width = image.shape[:2]
         if width > MAX_WIDTH:
@@ -110,7 +112,7 @@ def count_faces(path) -> int:
         _, faces = detector.detect(image)
     except Exception:
         logger.debug("could not look for faces in %s", path, exc_info=True)
-        return 0
+        return None
 
     return 0 if faces is None else len(faces)
 
@@ -137,6 +139,7 @@ class DetectFaces(Plugin):
         done = 0
         with_faces = 0
         found = 0
+        unreadable = 0
         # Saved in batches, and before stopping: a long run that is cancelled
         # keeps what it has already found.
         unsaved = []
@@ -144,18 +147,26 @@ class DetectFaces(Plugin):
         for item in photos:
             if ctx.cancelled:
                 break
-            item.face_count = count_faces(item.uri)
-            unsaved.append(item)
-            if item.face_count:
-                with_faces += 1
-                found += item.face_count
+            faces = count_faces(item.uri)
+            if faces is None:
+                # Left as it was: an earlier count is still the best answer,
+                # and an unchecked photo stays unchecked.
+                unreadable += 1
+            else:
+                item.face_count = faces
+                unsaved.append(item)
+                if faces:
+                    with_faces += 1
+                    found += faces
             done += 1
             if done % 10 == 0:
-                ctx.update(unsaved)
+                ctx.save_face_counts(unsaved)
                 unsaved = []
                 yield total, done
 
-        ctx.update(unsaved)
+        ctx.save_face_counts(unsaved)
         ctx.message(f"photos examined: {total}")
         ctx.message(f"faces in {with_faces} of them, {found} faces in total")
+        if unreadable:
+            ctx.message(f"could not read {unreadable} of them")
         yield total, done

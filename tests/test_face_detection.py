@@ -87,12 +87,14 @@ class TestCountFacesAgainstRealImages:
         assert count_faces(path) == 0
 
     def test_a_missing_file_is_not_an_error(self, tmp_path):
-        assert count_faces(tmp_path / "gone.jpg") == 0
+        """None, not 0: a photo on an unplugged drive has not been checked, and
+        0 would take it off the Unnamed faces list for good."""
+        assert count_faces(tmp_path / "gone.jpg") is None
 
     def test_a_file_that_is_not_an_image_is_not_an_error(self, tmp_path):
         path = tmp_path / "notes.txt"
         path.write_text("hello")
-        assert count_faces(path) == 0
+        assert count_faces(path) is None
 
     def test_a_detector_failure_is_swallowed(self, tmp_path, monkeypatch):
         """OpenCV raises on some malformed input, and one bad file must not
@@ -107,7 +109,7 @@ class TestCountFacesAgainstRealImages:
             raise cv2.error("bad input")
 
         monkeypatch.setattr(module.cv2, "imread", explode)
-        assert count_faces(write_image(tmp_path / "a.jpg")) == 0
+        assert count_faces(write_image(tmp_path / "a.jpg")) is None
 
     def test_a_very_large_image_is_handled(self, tmp_path):
         assert count_faces(write_image(tmp_path / "big.jpg", 4000, 3000)) == 0
@@ -233,6 +235,46 @@ class TestRecordingCounts:
         counts = [face_count_of(i) for i in photos]
         assert counts.count(4) == 1
         assert counts.count(None) == 2
+
+    def test_an_unreadable_photo_is_left_as_it_was(self, temp_db, tmp_path):
+        """No stub: the files are simply not there, as on an unplugged drive.
+        A known count survives, and an unchecked photo stays unchecked."""
+        with Session(temp_db) as session:
+            known = Item(uri=str(tmp_path / "known.jpg"), face_count=2)
+            fresh = Item(uri=str(tmp_path / "fresh.jpg"))
+            session.add_all([known, fresh])
+            session.commit()
+            session.refresh(known)
+            session.refresh(fresh)
+            ids = known.id, fresh.id
+
+        messages = run(DetectFaces(), tmp_path)
+
+        assert face_count_of(ids[0]) == 2
+        assert face_count_of(ids[1]) is None
+        assert "could not read 2 of them" in messages
+
+    def test_a_photo_deleted_during_the_run_does_not_stop_it(
+        self, photos, tmp_path, monkeypatch
+    ):
+        """The user may delete or move part of the selection while this slow
+        task runs. Saving a batch that includes the gone photo used to raise
+        StaleDataError, fail the task and drop the rest of the batch."""
+        deleted = []
+
+        def delete_the_second_then_count(path):
+            if not deleted:
+                with db.new_session() as session:
+                    session.delete(session.get(Item, photos[1]))
+                    session.commit()
+                deleted.append(photos[1])
+            return 1
+
+        monkeypatch.setattr(module, "count_faces", delete_the_second_then_count)
+        run(DetectFaces(), tmp_path)
+
+        assert face_count_of(photos[0]) == 1
+        assert face_count_of(photos[2]) == 1
 
     def test_it_reports_what_it_found(self, photos, tmp_path, monkeypatch):
         faces = iter([2, 0, 3])
