@@ -102,6 +102,88 @@ class TestAutoRun:
         assert window.tasks.wait_for_idle(), "the auto task never finished"
         assert marker.read_text() == "ran"
 
+    def _import_with_recorder(
+        self, window_for, tmp_path, monkeypatch, whole_library=False
+    ):
+        """A window whose only auto plugin writes down the ids it was given."""
+        import tagorganizer.main as main_module
+
+        home = tmp_path / "recorder"
+        (home / "plugins").mkdir(parents=True)
+        marker = tmp_path / "scope.txt"
+        (home / "plugins" / "recorder.py").write_text(
+            "from tagorganizer.plugins import Plugin\n"
+            "\n"
+            "class ScopeRecorder(Plugin):\n"
+            '    name = "Scope recorder"\n'
+            '    category = "Tags"\n'
+            "    auto = True\n"
+            f"    auto_whole_library = {whole_library!r}\n"
+            "\n"
+            "    def run(self, ctx):\n"
+            f"        open({str(marker)!r}, 'w').write(repr(ctx.scope.item_ids))\n"
+            "        yield 1, 1\n"
+        )
+        photos = tmp_path / "photos-to-import"
+        photos.mkdir()
+        (photos / "a.jpg").write_bytes(b"not really a jpeg")
+
+        class ChosenDirectory:
+            @staticmethod
+            def getExistingDirectory(*args, **kwargs):
+                return str(photos)
+
+        monkeypatch.setattr(main_module, "QFileDialog", ChosenDirectory)
+        return window_for(plugins_dir=home), marker, photos
+
+    def test_auto_tasks_see_only_the_imported_photos(
+        self, window_for, tmp_path, monkeypatch
+    ):
+        """A big library is not reread for every folder added to it."""
+        from tagorganizer import db
+
+        window, marker, photos = self._import_with_recorder(
+            window_for, tmp_path, monkeypatch
+        )
+        db.add_images([str(tmp_path / "already-here.jpg")])
+
+        window.add_directory()
+
+        assert window.tasks.wait_for_idle(), "the auto task never finished"
+        new_id = db.check_item_in_db(str(photos / "a.jpg"))
+        assert marker.read_text() == repr((new_id,))
+        log = window.messages.text_edit.toPlainText()
+        assert "Scope recorder: running on 1 imported item" in log
+
+    def test_a_catch_up_task_gets_the_whole_library(
+        self, window_for, tmp_path, monkeypatch
+    ):
+        """Work an interrupted import left undone is picked up by the next one."""
+        window, marker, _ = self._import_with_recorder(
+            window_for, tmp_path, monkeypatch, whole_library=True
+        )
+
+        window.add_directory()
+
+        assert window.tasks.wait_for_idle(), "the auto task never finished"
+        assert marker.read_text() == "None"
+
+    def test_an_import_with_nothing_new_runs_no_auto_task(
+        self, window_for, tmp_path, monkeypatch
+    ):
+        """Nothing to do, and certainly not the whole library."""
+        window, marker, _ = self._import_with_recorder(
+            window_for, tmp_path, monkeypatch
+        )
+        window.add_directory()
+        assert window.tasks.wait_for_idle(), "the first import never finished"
+        marker.unlink()
+
+        window.add_directory()
+
+        assert window.tasks.wait_for_idle()
+        assert not marker.exists()
+
 
 class TestShippedPlugins:
     def _shipped(self):
@@ -137,6 +219,14 @@ class TestShippedPlugins:
         registry, _ = self._shipped()
         auto = [p.name for p in registry.auto_plugins()]
         assert auto.index("Update Hashes in DB") < auto.index("Build Video Previews")
+
+    def test_hashes_and_previews_catch_up_on_the_whole_library(self):
+        """Both check cheaply for what is left, so a cancelled import's photos
+        get done by the next import; dates and GPS reread every file without
+        one, so they only look at the new photos."""
+        registry, _ = self._shipped()
+        catch_up = {p.name for p in registry.auto_plugins() if p.auto_whole_library}
+        assert catch_up == {"Update Hashes in DB", "Build Video Previews"}
 
     def test_the_core_categories_are_all_present(self):
         """A superset check: shipping a plugin under a new category must not

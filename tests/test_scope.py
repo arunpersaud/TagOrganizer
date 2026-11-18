@@ -42,3 +42,7 @@ class TestDescribe:
 
     def test_one_item_is_singular(self):
         assert resolve_scope([1]).describe() == "1 selected item"
+
+    def test_an_import_names_its_photos_as_imported(self):
+        """After adding a folder nothing is selected; "selected" would mislead."""
+        assert Scope((4, 5), kind="imported").describe() == "2 imported items"

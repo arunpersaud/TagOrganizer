@@ -49,6 +49,10 @@ class Plugin:
     accepts_selection: bool = True
     #: Also run after images are imported.
     auto: bool = False
+    #: After an import, run over the whole library rather than just the new
+    #: photos. For tasks whose check for what is left to do is cheap: an
+    #: import that was cancelled or quit midway is then finished by the next.
+    auto_whole_library: bool = False
     #: Names of plugins that must finish before this one in the post-import
     #: chain. Declared rather than left to registration order, which depends
     #: on file names and would silently change if a plugin were renamed.

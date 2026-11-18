@@ -24,6 +24,7 @@ class VideoPreviews(Plugin):
     category = "Maintenance"
     accepts_selection = True
     auto = True
+    auto_whole_library = True
     # A preview is cached under the item's md5, so hashing must have run first.
     after = ("Update Hashes in DB",)
 

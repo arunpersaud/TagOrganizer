@@ -22,6 +22,7 @@ class UpdateHashes(Plugin):
     # Automatic after an import. The order that matters - hashing before
     # previews - is declared by VideoPreviews.after, not left to file names.
     auto = True
+    auto_whole_library = True
 
     def run(self, ctx):
         items = [

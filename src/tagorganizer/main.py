@@ -1143,18 +1143,24 @@ class MainWindow(QMainWindow):
                 for path in mydir.rglob("*")
                 if path.is_file() and path.suffix.lower() in suffixes
             ]
-            db.add_images(files)
+            new_ids = db.add_images(files)
             self.refresh_after_data_change()
             self.messages.add(f"finished adding {directory}")
 
-            # Run the automatic plugins over anything new straight away, so
-            # an imported batch is hashed and animates without being asked
-            # for. They are incremental, so this costs nothing for files that
-            # are already done. The order comes from each plugin's ``after``
-            # declaration, not from registration: a preview is cached under the
-            # item's md5, so the hashing plugin has to be declared before it.
-            for plugin in self.tasks.registry.auto_plugins():
-                self.tasks.run_plugin(plugin, Scope.LIBRARY)
+            # Run the automatic plugins straight away, so a new batch is
+            # hashed, dated and animates without being asked for. Most see only
+            # the photos this import added: rereading every undated file in a
+            # large library for each folder added would be slow. Those that can
+            # cheaply tell what is left (hashes, previews) take the whole
+            # library, so they finish what a cancelled import left undone. An
+            # import that added nothing runs none. The order comes from each
+            # plugin's ``after`` declaration, not from registration: a preview
+            # is cached under the item's md5, so hashing must come before it.
+            if new_ids:
+                imported = Scope(tuple(new_ids), kind="imported")
+                for plugin in self.tasks.registry.auto_plugins():
+                    scope = Scope.LIBRARY if plugin.auto_whole_library else imported
+                    self.tasks.run_plugin(plugin, scope)
 
     def add_tag(self):
         dialog = AddTagDialog(self)

@@ -31,6 +31,9 @@ class Scope:
     """
 
     item_ids: tuple[int, ...] | None = None
+    # How the status bar names the items: the selection, or the photos an
+    # import has just added, when nothing need be selected at all.
+    kind: str = "selected"
 
     @property
     def is_selection(self) -> bool:
@@ -45,7 +48,7 @@ class Scope:
         if not self.is_selection:
             return "the whole library"
         count = len(self.item_ids)
-        return f"{count} selected item" + ("" if count == 1 else "s")
+        return f"{count} {self.kind} item" + ("" if count == 1 else "s")
 
 
 # The whole library. A module-level singleton rather than a class attribute:
