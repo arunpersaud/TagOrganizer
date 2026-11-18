@@ -53,6 +53,9 @@ class UpdateLocations(Plugin):
     description = "Read GPS coordinates from EXIF for items that have none."
     category = "Maintenance"
     accepts_selection = True
+    # Runs after every import: it is cheap per file, and an import hands it
+    # only the photos it added.
+    auto = True
 
     def run(self, ctx):
         items = [

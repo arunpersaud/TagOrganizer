@@ -99,9 +99,9 @@ class TestUpdateTimestamps:
     def test_it_accepts_a_selection(self):
         assert UpdateTimestamps().accepts_selection is True
 
-    def test_it_does_not_run_automatically(self):
-        """Only hashing and previews were automatic before; keep it that way."""
-        assert UpdateTimestamps().auto is False
+    def test_it_runs_automatically_after_an_import(self):
+        """A new photo should land on the timeline without a trip to the menu."""
+        assert UpdateTimestamps().auto is True
 
 
 class TestUpdateLocations:
@@ -114,6 +114,10 @@ class TestUpdateLocations:
 
     def test_it_accepts_a_selection(self):
         assert UpdateLocations().accepts_selection is True
+
+    def test_it_runs_automatically_after_an_import(self):
+        """A new photo should land on the map without a trip to the menu."""
+        assert UpdateLocations().auto is True
 
 
 class TestVideoPreviews:

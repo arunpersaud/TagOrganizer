@@ -24,6 +24,9 @@ class UpdateTimestamps(Plugin):
     description = "Read the capture date from EXIF for items that have none."
     category = "Maintenance"
     accepts_selection = True
+    # Runs after every import: it is cheap per file, and an import hands it
+    # only the photos it added.
+    auto = True
 
     def _date_for(self, path, ctx):
         """EXIF, then the container, then the filename.

@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of tagging it People. If you ran it in 0.4, remove the People
   tags it added before running it again: a photo tagged plain People counts
   as dismissed, and would stay off the Unnamed faces list
+- Dates and GPS are read automatically after adding a folder, for the
+  photos it added. If an import is cancelled or the app quits before they
+  finish, run them from the Maintenance menu; hashes and previews catch up
+  on the next import as before
 
 ### Fixed
 - Putting "Wrong dir" into an OR group raised an error

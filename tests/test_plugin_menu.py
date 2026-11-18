@@ -6,6 +6,8 @@ drive a real window: the menu entries are the actions on it, and choosing one
 is triggering the action.
 """
 
+import pytest
+
 from tagorganizer.plugins.discovery import load_plugins, plugin_paths
 from window_fixtures import menu_action
 
@@ -136,6 +138,39 @@ class TestAutoRun:
         monkeypatch.setattr(main_module, "QFileDialog", ChosenDirectory)
         return window_for(plugins_dir=home), marker, photos
 
+    def test_an_import_reads_dates_and_gps(self, window_for, tmp_path, monkeypatch):
+        """The whole point: add a folder, and the photos have dates and places."""
+        from datetime import datetime, timezone
+
+        import tagorganizer.main as main_module
+        from synthetic_media import write_mp4
+        from tagorganizer import db
+
+        photos = tmp_path / "photos-to-import"
+        photos.mkdir()
+        video = write_mp4(
+            photos / "clip.mp4",
+            when=datetime(2021, 3, 5, 12, tzinfo=timezone.utc),
+            gps=(48.1, 11.5),
+        )
+
+        class ChosenDirectory:
+            @staticmethod
+            def getExistingDirectory(*args, **kwargs):
+                return str(photos)
+
+        monkeypatch.setattr(main_module, "QFileDialog", ChosenDirectory)
+        window = window_for()
+
+        window.add_directory()
+
+        assert window.tasks.wait_for_idle(), "the automatic tasks never finished"
+        [item] = db.get_items_by_ids([db.check_item_in_db(str(video))])
+        # The container holds UTC; the item stores the same instant as local.
+        taken = datetime(2021, 3, 5, 12, tzinfo=timezone.utc)
+        assert item.date == taken.astimezone().replace(tzinfo=None)
+        assert (item.latitude, item.longitude) == pytest.approx((48.1, 11.5))
+
     def test_auto_tasks_see_only_the_imported_photos(
         self, window_for, tmp_path, monkeypatch
     ):
@@ -219,6 +254,16 @@ class TestShippedPlugins:
         registry, _ = self._shipped()
         auto = [p.name for p in registry.auto_plugins()]
         assert auto.index("Update Hashes in DB") < auto.index("Build Video Previews")
+
+    def test_an_import_hashes_dates_locates_and_previews(self):
+        registry, _ = self._shipped()
+        auto = {p.name for p in registry.auto_plugins()}
+        assert auto >= {
+            "Update Hashes in DB",
+            "Update Timestamps in DB",
+            "Update Locations in DB",
+            "Build Video Previews",
+        }
 
     def test_hashes_and_previews_catch_up_on_the_whole_library(self):
         """Both check cheaply for what is left, so a cancelled import's photos

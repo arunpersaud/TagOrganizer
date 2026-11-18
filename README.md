@@ -167,13 +167,8 @@ will keep the tag hierarchy intact.
 
 ## Planned features
 
-- Merge tags (i.e., if we have a tag with a typo and want to merge it
-  with another tag, can be done manually already by selecting one tag,
-  adding the other and then deleting the first tag)
 - Duplicate detection (on image data)
 - Option to clean up the database
-- update db (hashes, timestamp, etc) when adding images (currently one
-  needs to run the appropiate tasks)
 - Ability to set time manually in db (also in file?)
 - Ability to set geolocation manually in db (also in file?): pop up
   map with same location as current map, use double click on map to
