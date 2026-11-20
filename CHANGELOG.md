@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   such as a tag called "Duplicates", to "Duplicates (tag)": the filter of
   the same name made it impossible to select
 - A "List Unused Tags" report: tags no photo carries, anywhere below them
+- "Set Date..." and "Set Location..." in the Edit menu, for photos with no
+  date or GPS to read. The location is picked by double-clicking the map.
+  Both are saved in the library only; the files are not changed
 
 ### Changed
 - The face task, now "Detect Faces" in the Maintenance menu, records how

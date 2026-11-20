@@ -777,6 +777,29 @@ def update_items_in_db(items: list[Item]) -> None:
             sa.orm.attributes.set_committed_value(item, key, value)
 
 
+def _set_columns(item_ids, **values) -> None:
+    """Write the same values to every item in item_ids, by id.
+
+    A row deleted meanwhile is skipped rather than failing the others.
+    """
+    if not item_ids:
+        return
+    with new_session() as session:
+        for chunk in chunk_ids(list(item_ids)):
+            session.execute(sa.update(Item).where(Item.id.in_(chunk)).values(**values))
+        session.commit()
+
+
+def set_date(item_ids, when) -> None:
+    """Give these items a date chosen by hand. The files are not changed."""
+    _set_columns(item_ids, date=when)
+
+
+def set_location(item_ids, latitude: float, longitude: float) -> None:
+    """Give these items a location chosen by hand. The files are not changed."""
+    _set_columns(item_ids, latitude=latitude, longitude=longitude)
+
+
 def set_face_counts(counts: list[tuple[int, int]]) -> None:
     """Store (item id, face count) pairs.
 

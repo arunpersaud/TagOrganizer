@@ -55,6 +55,11 @@ class MapBridge(QObject):
         """Handle map viewport changes: debounce and re-cluster."""
         self.map_view._on_viewport_changed(zoom, min_lat, min_lon, max_lat, max_lon)
 
+    @Slot(float, float)
+    def map_double_clicked(self, latitude, longitude):
+        """A double-click on the map, which places photos when armed."""
+        self.map_view._on_double_click(latitude, longitude)
+
     @Slot(str)
     def shape_drawn(self, geojson):
         """Handle shape selection: add photos in the drawn shape to the selection.
@@ -182,6 +187,9 @@ class MapView(QWebEngineView):
         # Bumped whenever the page's markers are replaced. See update_clusters.
         self._cluster_generation = 0
         self._overlay = MosaicOverlay(self)
+        # Set by arm_location: called with (latitude, longitude) by the next
+        # double-click, instead of the map zooming.
+        self._on_place = None
 
         # QWebChannel for communication with the page
         self._channel = QWebChannel()
@@ -290,6 +298,10 @@ class MapView(QWebEngineView):
         """
         if ok:
             self.invalidate_size()
+            # A page built after arm_location ran - showing the tab often
+            # rebuilds it - starts with zoom on again.
+            if self._on_place is not None:
+                self._set_double_click_zoom(False)
             # Start the watchdog timer to detect hangs in QWebChannel handshake
             self._channel_watchdog.start()
 
@@ -439,6 +451,31 @@ class MapView(QWebEngineView):
                 "Failed to show mosaic for cluster %s", cluster_index
             )
 
+    def arm_location(self, on_place) -> None:
+        """Let the next double-click choose a location, instead of zooming."""
+        self._on_place = on_place
+        self._set_double_click_zoom(False)
+
+    def disarm_location(self) -> None:
+        """Forget a pending arm_location; double-clicks zoom again."""
+        if self._on_place is not None:
+            self._on_place = None
+            self._set_double_click_zoom(True)
+
+    def _on_double_click(self, latitude, longitude):
+        on_place, self._on_place = self._on_place, None
+        if on_place is None:
+            return
+        self._set_double_click_zoom(True)
+        on_place(latitude, longitude)
+
+    def _set_double_click_zoom(self, enabled: bool) -> None:
+        if self.map_name:
+            action = "enable" if enabled else "disable"
+            self.page().runJavaScript(
+                f"window.{self.map_name} && {self.map_name}.doubleClickZoom.{action}()"
+            )
+
     def _on_hover_end(self):
         """Hide the mosaic overlay."""
         self._overlay.hide_mosaic()
@@ -451,6 +488,9 @@ class MapView(QWebEngineView):
         # Switching tabs does not deliver a mouseout, so a mosaic shown over
         # this map would otherwise stay on screen over the other tabs.
         self._overlay.hide_mosaic()
+        # Leaving the map gives up on placing photos; a double-click made much
+        # later, only to zoom, must not place photos chosen back then.
+        self.disarm_location()
         super().hideEvent(event)
 
     def resizeEvent(self, event):
@@ -623,6 +663,12 @@ new QWebChannel(qt.webChannelTransport, function(channel) {{
     var bounds = {map_var}.getBounds();
     var zoom = {map_var}.getZoom();
     window.bridge.viewport_changed(zoom, bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast());
+}});
+
+// Report double-clicks; Python uses one when asked to place photos.
+{map_var}.on('dblclick', function(e) {{
+    if (!window.bridge) return;
+    window.bridge.map_double_clicked(e.latlng.lat, e.latlng.lng);
 }});
 
 // Handle drawn shapes from the Leaflet Draw plugin

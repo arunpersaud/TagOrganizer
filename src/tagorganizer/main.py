@@ -71,6 +71,7 @@ from .widgets import (
     Timeline,
     RESERVED_TAGS,
 )
+from .widgets.set_date_dialog import SetDateDialog
 from .widgets.helper import (
     CommaCompleter,
     get_thumbnail_loader,
@@ -219,6 +220,8 @@ class MainWindow(QMainWindow):
                 ["Add Images", "Ctrl+I", self.add_directory],
                 "---",
                 ["Delete", "Ctrl+D", self.delete_items],
+                ["Set Date...", self.set_date],
+                ["Set Location...", self.set_location],
                 "---",
                 ["Copy Selection to dir", self.copy_selection],
                 ["Clear Selection", "Ctrl+E", self.clear_selection],
@@ -603,6 +606,8 @@ class MainWindow(QMainWindow):
         """
         self.grid.page = 0
         self.grid.highlight = 0
+        # Armed with ids from the old database, which name other photos here.
+        self.map.view.disarm_location()
         self.selection.clear()
         self.tag_bar.reset()
         self.filters = None
@@ -968,14 +973,61 @@ class MainWindow(QMainWindow):
 
         self.tag_line_edit.setCompleter(completer)
 
-    def delete_items(self):
+    def _items_to_edit(self):
+        """The selection, or the current photo when nothing is selected."""
         if len(self.selection):
-            items_to_delete = db.get_items_by_ids(self.selection.ids())
-        else:
-            current = self.grid.current_item()
-            if current is None:
+            return db.get_items_by_ids(self.selection.ids())
+        current = self.grid.current_item()
+        return [] if current is None else [current.item]
+
+    def set_date(self):
+        """Give the selected photos a date by hand, for those with none to read."""
+        items = self._items_to_edit()
+        if not items:
+            return
+        initial = next((item.date for item in items if item.date), None)
+        dialog = SetDateDialog(initial, len(items), self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        when = dialog.chosen()
+        db.set_date([item.id for item in items], when)
+        self.messages.add(f"Set the date of {len(items)} photo(s) to {when}")
+        self.refresh_after_data_change()
+
+    def set_location(self):
+        """Place the selected photos with the next double-click on the map."""
+        items = self._items_to_edit()
+        if not items:
+            return
+        ids = [item.id for item in items]
+        which = Path(items[0].uri).name + (
+            f" and {len(ids) - 1} more" if len(ids) > 1 else ""
+        )
+
+        def place(latitude, longitude):
+            answer = QMessageBox.question(
+                self,
+                "Set Location",
+                f"Set the location of {which} to {latitude:.5f}, {longitude:.5f}?",
+            )
+            if answer != QMessageBox.Yes:
                 return
-            items_to_delete = [current.item]
+            db.set_location(ids, latitude, longitude)
+            self.messages.add(
+                f"Set the location of {len(ids)} photo(s) to "
+                f"{latitude:.5f}, {longitude:.5f}"
+            )
+            self.refresh_after_data_change()
+
+        self.tabs.setCurrentWidget(self.map)
+        self.map.view.arm_location(place)
+        self.messages.add(
+            f"Double-click the map where {which} was taken "
+            "(on the map, not on a marker; leaving the map cancels)"
+        )
+
+    def delete_items(self):
+        items_to_delete = self._items_to_edit()
 
         if not items_to_delete:
             return
