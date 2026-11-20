@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgrading renames any tag that shares a name with a built-in filter,
   such as a tag called "Duplicates", to "Duplicates (tag)": the filter of
   the same name made it impossible to select
+- A "List Unused Tags" report: tags no photo carries, anywhere below them
 
 ### Changed
 - The face task, now "Detect Faces" in the Maintenance menu, records how

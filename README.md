@@ -167,12 +167,11 @@ will keep the tag hierarchy intact.
 
 ## Planned features
 
-- Duplicate detection (on image data)
-- Option to clean up the database
 - Ability to set time manually in db (also in file?)
 - Ability to set geolocation manually in db (also in file?): pop up
   map with same location as current map, use double click on map to
   select location
+- Find near-duplicates (resized or re-saved copies), not just identical files
 - Recognise faces: the Detect Faces task finds that a photo has faces, and
   the Unnamed faces filter lists the ones still to name; suggesting who a
   face is (embeddings stored in a new table), and a key to show the

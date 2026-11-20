@@ -90,6 +90,10 @@ class TaskContext:
             [self.photos, self.videos], config.ALL_SUFFIX
         )
 
+    def unused_tags(self) -> list[str]:
+        """Full paths of the tags no photo carries anywhere in their subtree."""
+        return db.get_unused_tags()
+
     def has_item(self, path) -> bool:
         """Whether a file on disk is already recorded as an item."""
         return db.check_item_in_db(str(path)) is not None

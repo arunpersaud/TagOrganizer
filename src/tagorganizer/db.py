@@ -537,6 +537,35 @@ def get_all_tags():
         return results.all()
 
 
+def get_unused_tags() -> list[str]:
+    """Tags no photo carries, by full path ("People/Bob"), sorted.
+
+    A tag counts as used when any tag in its subtree is on a photo: People is
+    in use as soon as one person is tagged, though no photo carries People
+    itself. The walks up the hierarchy keep a visited set, as _subtree_tag_ids
+    does, in case an old database holds a cycle.
+    """
+    with new_session() as session:
+        tags = {t.id: t for t in session.exec(select(Tag)).all()}
+        carried = set(session.exec(select(ItemTagLink.tag_id).distinct()).all())
+
+    in_use = set()
+    for tag_id in carried:
+        while tag_id is not None and tag_id in tags and tag_id not in in_use:
+            in_use.add(tag_id)
+            tag_id = tags[tag_id].parent_id
+
+    def path(tag):
+        names, seen = [], set()
+        while tag is not None and tag.id not in seen:
+            seen.add(tag.id)
+            names.append(tag.name)
+            tag = tags.get(tag.parent_id)
+        return "/".join(reversed(names))
+
+    return sorted(path(tag) for tag_id, tag in tags.items() if tag_id not in in_use)
+
+
 def _store_parent(child_id: int, parent_id: int | None) -> None:
     """Make parent_id the parent of child_id, or top-level when it is None.
 
