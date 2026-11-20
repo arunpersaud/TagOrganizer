@@ -85,6 +85,8 @@ class Item(SQLModel, table=True):
     # Faces found by the face task. None means not checked yet, which is every
     # video and every photo the task has not run over; 0 means checked, none.
     face_count: int | None = Field(default=None)
+    # Set by the Find Missing Files task. None means never checked.
+    file_missing: bool | None = Field(default=None)
 
     tags: list[Tag] = Relationship(back_populates="items", link_model=ItemTagLink)
 

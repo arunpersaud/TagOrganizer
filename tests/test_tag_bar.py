@@ -861,3 +861,19 @@ class TestDuplicatesChip:
         (group,) = bar.get_filters().groups
         assert Condition("duplicates", True) in group
         assert bar.get_filters().duplicates is False
+
+
+class TestMissingFileChip:
+    def test_the_chip_sets_the_filter(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("Missing file")
+        assert bar.get_filters().missing_file is True
+
+    def test_in_a_group_it_becomes_a_condition(self, qapp):
+        from tagorganizer.widgets.tag_bar import Condition
+
+        bar = _tag_bar()
+        TestFlagChipsSurviveUngrouping()._flag_into_group(bar, "Missing file")
+
+        (group,) = bar.get_filters().groups
+        assert Condition("missing_file", True) in group

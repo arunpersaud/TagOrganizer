@@ -184,6 +184,66 @@ class TestDatabaseCreationF1:
             value = conn.execute(text("SELECT face_count FROM item")).scalar_one()
         assert value is None
 
+    def test_upgrade_adds_an_unchecked_file_missing(self, db_path, monkeypatch):
+        """Nobody has looked for the files yet, so the flag starts out empty."""
+        db.set_engine(str(db_path))
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_path}")
+        engine = sa_create_engine(f"sqlite:///{db_path}")
+        db.engine = engine
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"
+                )
+            )
+            conn.commit()
+        upgrade_db("5b2e9d41c7a8")
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO item (uri, uri_md5, data_xxhash) VALUES ('/p/old.jpg', '', '')"
+                )
+            )
+            conn.commit()
+
+        upgrade_db()
+
+        with engine.connect() as conn:
+            value = conn.execute(text("SELECT file_missing FROM item")).scalar_one()
+        assert value is None
+
+    def test_upgrade_renames_tags_named_like_a_built_in_filter(
+        self, db_path, monkeypatch
+    ):
+        """The filter chip of the same name would hide such a tag for good."""
+        db.set_engine(str(db_path))
+        monkeypatch.setenv("TAGORGANIZER_DB_URL", f"sqlite:///{db_path}")
+        engine = sa_create_engine(f"sqlite:///{db_path}")
+        db.engine = engine
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"
+                )
+            )
+            conn.commit()
+        upgrade_db("c3d8e1f6a2b9")
+        with engine.connect() as conn:
+            for name in ("Duplicates", "Duplicates (tag)", "missing FILE", "Beach"):
+                conn.execute(text("INSERT INTO tag (name) VALUES (:n)"), {"n": name})
+            conn.commit()
+
+        upgrade_db()
+
+        with engine.connect() as conn:
+            names = set(conn.execute(text("SELECT name FROM tag")).scalars())
+        assert names == {
+            "Duplicates (tag 2)",
+            "Duplicates (tag)",
+            "missing FILE (tag)",
+            "Beach",
+        }
+
 
 class TestItemHashF16:
     """Tests for F16: Item.__hash__ returns integer even for unsaved items."""

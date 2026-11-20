@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tag than People
 - A "Duplicates" filter: photos with a byte-identical copy in the library,
   shown with their copies side by side
+- A "Find Missing Files" task and a "Missing file" filter, to find library
+  entries whose file is gone and remove them with the ordinary delete
+- Upgrading renames any tag that shares a name with a built-in filter,
+  such as a tag called "Duplicates", to "Duplicates (tag)": the filter of
+  the same name made it impossible to select
 
 ### Changed
 - The face task, now "Detect Faces" in the Maintenance menu, records how

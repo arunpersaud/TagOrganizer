@@ -182,6 +182,24 @@ class TestMoveItemsSuccessful:
             moved = session.exec(select(Item).where(Item.uri == "/p/a.jpg")).one()
             assert moved.face_count == 3
 
+    def test_the_missing_file_flag_moves_with_the_item(self, source_and_target):
+        with Session(source_and_target["source_engine"]) as session:
+            item = session.exec(select(Item).where(Item.uri == "/p/a.jpg")).one()
+            item.file_missing = True
+            session.add(item)
+            session.commit()
+            item_id = item.id
+
+        move_items(
+            Session(sa_create_engine(f"sqlite:///{source_and_target['source_path']}")),
+            source_and_target["target_path"],
+            [item_id],
+        )
+
+        with Session(source_and_target["target_engine"]) as session:
+            moved = session.exec(select(Item).where(Item.uri == "/p/a.jpg")).one()
+            assert moved.file_missing is True
+
     def test_ids_are_reassigned_in_target(self, source_and_target):
         """Ids are not preserved; target assigns new ids to moved items.
 

@@ -859,6 +859,8 @@ def condition_expression(
         return _unnamed_faces(value)
     if kind == "duplicates":
         return _duplicates()
+    if kind == "missing_file":
+        return Item.file_missing == sa.true()
 
     if kind == "item_ids":
         _materialise_ids(session, value, id_table)
@@ -915,6 +917,8 @@ def filter_query(query, filter: Filters, session: Session):
         query = query.where(_unnamed_faces(filter.people_tag))
     if filter.duplicates:
         query = query.where(_duplicates())
+    if filter.missing_file:
+        query = query.where(Item.file_missing == sa.true())
 
     # Filter by id set. Materialise ids in a temp table to avoid SQLite's
     # per-statement 32766 parameter limit. The temp table keeps ids out of

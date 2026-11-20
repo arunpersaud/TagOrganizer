@@ -31,7 +31,14 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-RESERVED_TAGS = ["No Time", "No GPS", "Wrong dir", "Unnamed faces", "Duplicates"]
+RESERVED_TAGS = [
+    "No Time",
+    "No GPS",
+    "Wrong dir",
+    "Unnamed faces",
+    "Duplicates",
+    "Missing file",
+]
 
 # Condition kind -> the reserved chip that stands for it.
 FLAG_CHIP_NAMES = {
@@ -40,6 +47,7 @@ FLAG_CHIP_NAMES = {
     "wrong_dir": "Wrong dir",
     "unnamed_faces": "Unnamed faces",
     "duplicates": "Duplicates",
+    "missing_file": "Missing file",
 }
 
 
@@ -157,6 +165,7 @@ class Filters:
     no_gps: bool | None = False
     unnamed_faces: bool | None = False
     duplicates: bool | None = False
+    missing_file: bool | None = False
     # The root of the tags that name people; see db._unnamed_faces.
     people_tag: str = "People"
     directories: list[Path] | None = None
@@ -187,6 +196,7 @@ class TagBar(QHBoxLayout):
             "No GPS": SelectedBool(),
             "Unnamed faces": SelectedBool(),
             "Duplicates": SelectedBool(),
+            "Missing file": SelectedBool(),
         }
 
         # Chips the user has picked out, for grouping or removal. Held here
@@ -610,6 +620,7 @@ class TagBar(QHBoxLayout):
             "wrong_dir": "Wrong dir",
             "unnamed_faces": "Unnamed faces",
             "duplicates": "Duplicates",
+            "missing_file": "Missing file",
             "item_ids": "Selection",
         }.get(condition.kind, condition.kind)
 
@@ -702,6 +713,7 @@ class TagBar(QHBoxLayout):
             no_gps=self.bool["No GPS"].value,
             unnamed_faces=self.bool["Unnamed faces"].value,
             duplicates=self.bool["Duplicates"].value,
+            missing_file=self.bool["Missing file"].value,
             people_tag=self.main.config.get_people_tag(),
             directories=[self.main.config.photos, self.main.config.videos],
             item_ids=self.selected_ids.item_ids,

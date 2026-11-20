@@ -205,7 +205,8 @@ class MoveResult:
 
 # Columns to move from source to target, excluding id which is reassigned.
 ITEM_COLUMNS = (
-    "uri, uri_md5, data_xxhash, camera, date, longitude, latitude, face_count"
+    "uri, uri_md5, data_xxhash, camera, date, longitude, latitude, face_count, "
+    "file_missing"
 )
 
 
