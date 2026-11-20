@@ -341,5 +341,6 @@ class TestDeclaration:
         """It would make every import take minutes."""
         assert DetectFaces().auto is False
 
-    def test_it_appears_under_tags(self):
-        assert DetectFaces().category == "Tags"
+    def test_it_appears_under_maintenance(self):
+        """It tags nothing any more; it fills in a column, like dates and GPS."""
+        assert DetectFaces().category == "Maintenance"

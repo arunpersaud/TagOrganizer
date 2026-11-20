@@ -123,7 +123,7 @@ class DetectFaces(Plugin):
         "Count the faces in photos, for the Unnamed faces filter. "
         "Slow; aim it at a selection."
     )
-    category = "Tags"
+    category = "Maintenance"
     # Detection is slow, so being able to aim it at a selection matters.
     accepts_selection = True
     # Never automatic: it would make every import take minutes.
