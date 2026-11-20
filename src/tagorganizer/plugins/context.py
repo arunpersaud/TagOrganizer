@@ -95,7 +95,10 @@ class TaskContext:
         return db.check_item_in_db(str(path)) is not None
 
     def update(self, items) -> None:
-        """Persist items the plugin has changed."""
+        """Persist the changes made to items from items() and the like.
+
+        Only items loaded from the library; a new Item raises ValueError.
+        """
         if items:
             db.update_items_in_db(items)
 

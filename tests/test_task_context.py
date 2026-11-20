@@ -106,6 +106,58 @@ class TestUpdate:
     def test_updating_nothing_is_harmless(self, items):
         context(Scope.LIBRARY).update([])
 
+    def test_a_photo_deleted_mid_run_does_not_lose_the_batch(self, items):
+        """Tasks run for minutes over items loaded at the start; the user may
+        delete one meanwhile, and the others in its batch must still be saved."""
+        ctx = context(Scope.LIBRARY)
+        first, second = list(ctx.items())[:2]
+        db.delete_item(first.id)
+        first.uri_md5 = "gone"
+        second.uri_md5 = "kept"
+
+        ctx.update([first, second])
+
+        assert db.get_items_by_ids([second.id])[0].uri_md5 == "kept"
+        assert db.get_items_by_ids([first.id]) == []
+
+    def test_a_second_save_writes_only_the_new_change(self, items):
+        """A task saving the same item twice must not replay its first change
+        over an edit the user made in between."""
+        ctx = context(Scope.LIBRARY)
+        item = next(iter(ctx.items()))
+        item.uri = "/p/moved.jpg"
+        ctx.update([item])
+        with Session(db.engine) as session:
+            session.get(Item, item.id).uri = "/p/user.jpg"
+            session.commit()
+        item.uri_md5 = "abc"
+
+        ctx.update([item])
+
+        assert db.get_items_by_ids([item.id])[0].uri == "/p/user.jpg"
+
+    def test_an_item_never_saved_is_refused(self, items):
+        """update changes rows; it would otherwise drop a new item silently."""
+        with pytest.raises(ValueError, match="never saved"):
+            context(Scope.LIBRARY).update([Item(uri="/p/new.jpg")])
+
+    def test_only_what_the_task_changed_is_written(self, items):
+        """A date the user set while the hashing task ran must survive it."""
+        from datetime import datetime
+
+        ctx = context(Scope.LIBRARY)
+        item = next(iter(ctx.items()))
+        with Session(db.engine) as session:
+            row = session.get(Item, item.id)
+            row.date = datetime(2020, 1, 1)
+            session.commit()
+        item.uri_md5 = "abc"
+
+        ctx.update([item])
+
+        [saved] = db.get_items_by_ids([item.id])
+        assert (saved.uri_md5, saved.date) == ("abc", datetime(2020, 1, 1))
+
 
 class TestMessagesAndCancellation:
     def test_messages_reach_the_sink(self, items):

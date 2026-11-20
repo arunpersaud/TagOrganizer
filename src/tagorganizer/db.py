@@ -709,27 +709,46 @@ def get_all_items_not_in_dir(directories: list[Path], suffix: list[str]):
 
 
 def update_items_in_db(items: list[Item]) -> None:
-    """Persist changes to items the caller already holds.
+    """Persist the changes a task made to items it loaded earlier.
 
-    expire_on_commit=False so the caller's objects stay usable afterwards. The
-    default expires every attribute on commit, and the next attribute access
-    then tries to reload through a session that has already closed - which
-    raises DetachedInstanceError. The existing tasks never happened to touch an
-    item again after saving it, but a plugin reasonably would.
+    A plain UPDATE by id of just the changed columns, rather than adding the
+    objects to a session: tasks run for minutes over items loaded at the start,
+    and the user may delete some meanwhile. Flushing those would raise
+    StaleDataError and lose the whole batch; here a row that is gone is
+    skipped. Writing only what changed also leaves alone anything the user
+    edited on the same photo while the task ran. The caller's objects stay
+    usable afterwards, with what was written marked as saved, so saving the
+    same item again writes only what changed since.
     """
-    with Session(engine, expire_on_commit=False) as session:
-        for i in items:
-            session.add(i)
+    table = Item.__table__
+    written = []
+    with new_session() as session:
+        for item in items:
+            state = sa.inspect(item)
+            if item.id is None or not state.has_identity:
+                raise ValueError(f"{item.uri} was never saved; only loaded items")
+            changed = {
+                column.name: getattr(item, column.name)
+                for column in table.columns
+                if column.name in state.attrs
+                and state.attrs[column.name].history.has_changes()
+            }
+            if changed:
+                session.execute(
+                    sa.update(table).where(table.c.id == item.id).values(**changed)
+                )
+                written.append((item, changed))
         session.commit()
+    for item, changed in written:
+        for key, value in changed.items():
+            sa.orm.attributes.set_committed_value(item, key, value)
 
 
 def set_face_counts(counts: list[tuple[int, int]]) -> None:
     """Store (item id, face count) pairs.
 
-    A plain UPDATE by id rather than update_items_in_db: the face task runs
-    for minutes over items it loaded at the start, and the user may delete or
-    move some of them meanwhile. Flushing those objects would raise
-    StaleDataError and lose the batch; here a row that is gone is skipped.
+    A plain UPDATE by id, for the same reason as update_items_in_db: a row
+    the user deleted while the task ran is skipped rather than failing it.
     """
     if not counts:
         return
