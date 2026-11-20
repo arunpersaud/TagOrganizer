@@ -797,6 +797,21 @@ def _unnamed_faces(people_tag: str):
     return sa.and_(has_faces, Item.id.not_in(named))
 
 
+def _duplicates():
+    """Photos whose content hash another photo shares: byte-identical copies.
+
+    An empty hash means not hashed yet, not "the same as every other photo
+    not hashed yet", so those never match.
+    """
+    shared = (
+        select(Item.data_xxhash)
+        .where(Item.data_xxhash != "")
+        .group_by(Item.data_xxhash)
+        .having(func.count() > 1)
+    )
+    return Item.data_xxhash.in_(shared)
+
+
 def condition_expression(
     condition: Condition, session: Session, id_table: str = _ID_TABLE
 ):
@@ -842,6 +857,8 @@ def condition_expression(
 
     if kind == "unnamed_faces":
         return _unnamed_faces(value)
+    if kind == "duplicates":
+        return _duplicates()
 
     if kind == "item_ids":
         _materialise_ids(session, value, id_table)
@@ -896,6 +913,8 @@ def filter_query(query, filter: Filters, session: Session):
 
     if filter.unnamed_faces:
         query = query.where(_unnamed_faces(filter.people_tag))
+    if filter.duplicates:
+        query = query.where(_duplicates())
 
     # Filter by id set. Materialise ids in a temp table to avoid SQLite's
     # per-statement 32766 parameter limit. The temp table keeps ids out of
@@ -923,12 +942,30 @@ def filter_query(query, filter: Filters, session: Session):
     return query
 
 
-def _apply_standard_order(query):
+def _apply_standard_order(query, filters: Filters | None = None):
     """Apply consistent ordering: newest dates first, then oldest, then undated.
 
     Uses nullslast() to explicitly place NULL dates at the end, and Item.id
     as a tiebreaker to ensure deterministic ordering between calls.
+
+    While the Duplicates filter is on, copies are kept side by side: each copy
+    group sorts by the newest date among its copies. Sorting each photo by its
+    own date would split a pair whose dates differ, e.g. one dated from EXIF
+    and one from its filename. Every query that pages through results calls
+    this with the same filters, so the grid, the single view and shift-click
+    ranges all agree.
     """
+    if filters is not None and (
+        filters.duplicates
+        or any(c.kind == "duplicates" for group in filters.groups for c in group)
+    ):
+        copy = sa.orm.aliased(Item)
+        newest_copy = (
+            select(func.max(copy.date))
+            .where(copy.data_xxhash == Item.data_xxhash)
+            .scalar_subquery()
+        )
+        return query.order_by(newest_copy.desc().nullslast(), Item.data_xxhash, Item.id)
     return query.order_by(Item.date.desc().nullslast(), Item.id)
 
 
@@ -939,7 +976,7 @@ def get_images(page: int = 0, filters: Filters | None = None) -> list[Item]:
             query = filter_query(query, filters, session)
 
         # Sort by date in descending order, then by id for determinism
-        query = _apply_standard_order(query)
+        query = _apply_standard_order(query, filters)
 
         # Pagination
         query = query.offset(25 * page).limit(25)
@@ -963,9 +1000,9 @@ def get_times_and_location_from_images(filters: Filters | None = None) -> list:
         if filters:
             query = filter_query(query, filters, session)
 
-        # Same ordering as the grid: the timeline reads dates[0] and dates[-1]
-        # as the span ends, so it has to agree with what the user is looking at.
-        query = _apply_standard_order(query)
+        # Same ordering as the grid, so the dates line up with what the user
+        # is looking at.
+        query = _apply_standard_order(query, filters)
 
         items = session.exec(query).all()
 
@@ -1026,7 +1063,7 @@ def get_image_range(
         if filters:
             query = filter_query(query, filters, session)
 
-        query = _apply_standard_order(query)
+        query = _apply_standard_order(query, filters)
 
         return session.exec(query.offset(start).limit(count)).all()
 

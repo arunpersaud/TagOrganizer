@@ -841,3 +841,23 @@ class TestResetAndForget:
         assert filters.tags == ["lake"]
         assert filters.groups == []
         assert bar.forget_tag("missing") is False
+
+
+class TestDuplicatesChip:
+    def test_the_chip_sets_the_filter(self, qapp):
+        bar = _tag_bar()
+        bar.add_tag("Duplicates")
+
+        filters = bar.get_filters()
+        assert filters.duplicates is True
+        assert filters.tags == []
+
+    def test_in_a_group_it_becomes_a_condition(self, qapp):
+        from tagorganizer.widgets.tag_bar import Condition
+
+        bar = _tag_bar()
+        TestFlagChipsSurviveUngrouping()._flag_into_group(bar, "Duplicates")
+
+        (group,) = bar.get_filters().groups
+        assert Condition("duplicates", True) in group
+        assert bar.get_filters().duplicates is False

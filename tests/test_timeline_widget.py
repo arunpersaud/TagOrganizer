@@ -61,6 +61,33 @@ class TestLogScale:
 
         assert timeline.ax.get_yscale() == "log"
 
+    def test_the_span_does_not_depend_on_the_order_of_the_dates(
+        self, qapp, monkeypatch
+    ):
+        """The Duplicates filter orders copies together, not strictly by date."""
+        from tagorganizer.widgets import timeline as timeline_module
+
+        spans = []
+        real = timeline_module.get_histogram_locator_and_bins
+
+        def recording(start, end):
+            spans.append((start, end))
+            return real(start, end)
+
+        monkeypatch.setattr(
+            timeline_module, "get_histogram_locator_and_bins", recording
+        )
+        timeline = _timeline()
+        early, middle, late = (
+            datetime(2019, 1, 1),
+            datetime(2021, 1, 1),
+            datetime(2025, 1, 1),
+        )
+
+        timeline.plot_histogram([middle, early, late])
+
+        assert spans == [(early, late)]
+
     def test_empty_history_does_not_raise(self, qapp):
         """A profile with no dated photos still has to draw something."""
         timeline = _timeline()

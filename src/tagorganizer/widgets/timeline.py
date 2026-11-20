@@ -114,8 +114,10 @@ class Timeline(FigureCanvas):
         self.ax.xaxis_date()
         self.dates_plt = np.array([mdates.date2num(d) for d in dates])
 
-        start = dates[-1] if dates else datetime(2000, 1, 1)
-        end = dates[0] if dates else datetime.now()
+        # min/max rather than the ends of the list: the Duplicates filter
+        # orders copies side by side, which is not strictly by date.
+        start = min(dates) if dates else datetime(2000, 1, 1)
+        end = max(dates) if dates else datetime.now()
 
         # Get locator and bins based on date range
         locator, bins = get_histogram_locator_and_bins(start, end)

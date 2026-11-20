@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Naming anyone in a photo, or tagging it plain People, takes it off the
   list. Set `people_tag` in the config's DEFAULT section to use another
   tag than People
+- A "Duplicates" filter: photos with a byte-identical copy in the library,
+  shown with their copies side by side
 
 ### Changed
 - The face task, now "Detect Faces" in the Maintenance menu, records how
