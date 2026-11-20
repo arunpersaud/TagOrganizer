@@ -82,6 +82,12 @@ class TestRenameTag:
         db.rename_tag(vocabulary["tags"]["Beach"], "BEACH")
         assert db.get_tag_by_id(vocabulary["tags"]["Beach"]).name == "BEACH"
 
+    @pytest.mark.parametrize("name", ["unnamed faces", "No GPS "])
+    def test_refuses_a_reserved_name(self, vocabulary, name):
+        """The filter chip of that name would hide the tag for good."""
+        with pytest.raises(ValueError, match="reserved"):
+            db.rename_tag(vocabulary["tags"]["Beach"], name)
+
 
 class TestMergeTags:
     def test_moves_links_to_the_survivor(self, vocabulary):

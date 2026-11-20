@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Putting "Wrong dir" into an OR group raised an error
 - Deleting a photo while a task was saving its hashes, dates, GPS or new
   location made the task fail and lose its batch
+- A tag could be renamed to the name of a built-in filter (No GPS,
+  Unnamed faces, ...), after which it could no longer be selected
 
 ## [0.4] - 2026-11-17
 

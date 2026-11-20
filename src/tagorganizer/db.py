@@ -31,7 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from . import paths
 from .models import Tag, Item, ItemTagLink, ItemParentLink
 from .scope import Scope
-from .widgets.tag_bar import Condition, Filters
+from .widgets.tag_bar import RESERVED_TAGS, Condition, Filters
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +265,10 @@ def rename_tag(tag_id: int, new_name: str) -> None:
     new_name = new_name.strip()
     if not new_name:
         raise ValueError("a tag needs a name")
+    # A tag under a filter chip's name could never be selected: the chip
+    # always wins. Adding one is refused in the window; renaming is here.
+    if new_name.casefold() in {r.casefold() for r in RESERVED_TAGS}:
+        raise ValueError(f"'{new_name}' is reserved for a built-in filter")
 
     with new_session() as session:
         tag = session.get(Tag, tag_id)
