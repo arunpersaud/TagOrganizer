@@ -5,11 +5,17 @@ version: 2
 # ecosystems matter here because the workflow pins every action to a full
 # commit SHA: Dependabot moves the SHA and keeps the trailing "# vX.Y.Z"
 # comment, so the pins stay current without hand edits.
+#
+# Each ecosystem waits 7 days after a release before proposing it, to stay
+# clear of hijacked releases, which are usually caught within a few days. This
+# matches exclude-newer in pyproject.toml, which applies the same rule to uv.
 updates:
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       python-dependencies:
         patterns:
@@ -19,6 +25,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns:
@@ -31,6 +39,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       pre-commit-hooks:
         patterns:

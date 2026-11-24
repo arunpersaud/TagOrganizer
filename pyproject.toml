@@ -59,6 +59,14 @@ dev = [
     "pytest>=8.0",
 ]
 
+[tool.uv]
+# Only resolve to releases at least a week old. Hijacked packages are usually
+# found and pulled within a few days, so the delay keeps them out of uv.lock.
+# uv.lock records the span, not a date, so `uv sync --locked` stays valid as
+# time passes. To take an urgent fix sooner, exempt that one package with
+# exclude-newer-package = { name = false }.
+exclude-newer = "1 week"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
